@@ -121,3 +121,76 @@ ERROR         停止新事件，执行清理和恢复
 - 直接保存每采样点的 XYZ 波形；
 - MGC3130 手势切换系统模式；
 - 软核直接控制音频采样时钟。
+
+## 简化后的 FPGA 原生实现方向
+
+第一版采用纯硬件、固定资源和事件表驱动的架构，暂不加入软核。原因是当前规格中的事件数量、轨道数量和调度频率都是有界的，适合 FPGA 的确定性时序和片上 B-SRAM。
+
+```text
+MGC3130 I²C
+    -> 输入采样与滤波
+    -> 手势事件生成器
+    -> 4 轨事件 RAM
+    -> 统一 Loop 调度器
+    -> 4 声部音符管理器
+    -> DDS + 混音 + I²S
+```
+
+### 固定时序
+
+- 使用一个 50 MHz 主时钟域；
+- 由统一节拍发生器产生 `sample_tick`、`sixteenth_tick` 和 `loop_tick`；
+- MGC3130 报告到达时间不能直接充当 Loop 时钟；
+- 音频采样、DDS、混音和 I²S 不依赖 UART 或传感器是否正常。
+
+### 固定数据结构
+
+每个事件使用固定宽度字段：
+
+```text
+tick       7 bit
+duration   7 bit
+note       7 bit
+velocity   8 bit
+pitch_mod  8 bit
+timbre_mod 8 bit
+valid      1 bit
+```
+
+每轨固定 16 个事件槽，表满时置位 `overflow`、拒绝新事件并保留旧内容。录音和播放使用双缓冲，只在 Loop 边界交换缓冲区。
+
+### 固定模式
+
+中央模式控制器只允许以下状态：
+
+```text
+IDLE / LIVE / RECORD / OVERDUB / PLAY / ERROR
+```
+
+模式、Loop 指针、活动声部和音频相位分别由对应模块独占。模块之间只通过事件 FIFO、请求和应答通信，不能直接修改其他模块的状态。
+
+### 简单 UART 控制
+
+UART 暂时只实现有限命令：
+
+```text
+START  STOP  RECORD  OVERDUB  CLEAR  PLAY
+BPM=xxx  TRACK=0..3  STATUS  RESET
+```
+
+UART 不参与 48 kHz 音频时序，也不能阻塞音频或 Loop 调度。
+
+### 硬件恢复
+
+```text
+I²C 超时       -> 只复位 I²C
+事件 FIFO 溢出 -> 丢弃新事件并记录错误
+音符异常       -> all_notes_off
+Loop 指针异常  -> 回到 tick=0
+UART 卡住      -> 只复位 UART
+系统错误       -> ERROR，再回到 IDLE
+```
+
+### 软核决策
+
+在四轨、每轨 16 个事件的规格下，Loop 调度不需要软核。后续只有在需要复杂编曲编辑、大量参数管理或文件系统时，才重新评估加入软核。即使将来加入软核，48 kHz 音频数据面仍保留在硬件中。
