@@ -1,0 +1,29 @@
+{
+  "port": "COM4",
+  "baud": 115200,
+  "total_lines": 101,
+  "valid_reports": 7,
+  "invalid_or_filtered_lines": 94,
+  "filter_reasons": {
+    "P=0": 94
+  },
+  "coordinate_min": {
+    "x": 0,
+    "y": 8816,
+    "z": 788
+  },
+  "coordinate_max": {
+    "x": 60002,
+    "y": 57662,
+    "z": 20231
+  },
+  "interval_ms": {
+    "count": 6,
+    "min": 1000.0,
+    "max": 4014.999999999418,
+    "average": 1510.5000000003201
+  },
+  "csv": "capture_diag_03.csv",
+  "hex": "capture_diag_03.hex",
+  "raw_log": "capture_diag_03.raw.log"
+}

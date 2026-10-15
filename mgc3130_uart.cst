@@ -1,0 +1,27 @@
+// X1: 50 MHz on-board oscillator, routed to FPGA E2.
+IO_LOC  "clk_50m" E2;
+// Onboard USB-JTAG/USB-UART bridge TX input.  The Tang Primer 25K
+// routes FPGA UART TX to C3 (the official UART example uses C3).
+// J4 is a bottom-header pin and does not reach the onboard USB-UART.
+IO_LOC  "uart_tx" C3;
+// PCM5102A I2S output on unused J3 header pins.
+IO_LOC  "pcm5102a_bck"  G1;
+IO_LOC  "pcm5102a_lrck" L3;
+IO_LOC  "pcm5102a_din"  C2;
+
+// MGC3130 allocation on J3. Connect the sensor board to these header pins:
+// SDA=J3-5(K4), SCL=J3-2(K1), TS=J3-3(L1), MCLR=J3-4(L2).
+IO_LOC  "mgc_sda" K4;
+IO_LOC  "mgc_scl" K1;
+IO_LOC  "mgc_ts"  L1;
+IO_LOC  "mgc_mclr" L2;
+
+IO_PORT "clk_50m" IO_TYPE=LVCMOS33 PULL_MODE=DOWN BANK_VCCIO=3.3;
+IO_PORT "uart_tx" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_PORT "pcm5102a_bck"  IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_PORT "pcm5102a_lrck" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_PORT "pcm5102a_din"  IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_PORT "mgc_sda" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+IO_PORT "mgc_scl" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+IO_PORT "mgc_ts"  IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+IO_PORT "mgc_mclr" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;

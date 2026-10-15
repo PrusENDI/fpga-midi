@@ -1,0 +1,23 @@
+# Gowin generated build outputs
+impl/
+bitstream/
+*.log
+*.rpt
+*.rpt.txt
+*.rpt.html
+*.tr
+*.tr.html
+*.db
+*.p
+*.pr
+*.fs
+*.bin
+*.binx
+
+# Local IDE state and audio captures
+*.gprj.user
+*.wav
+
+# Python cache
+__pycache__/
+*.pyc

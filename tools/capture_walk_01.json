@@ -1,0 +1,17 @@
+{
+  "port": "COM4",
+  "baud": 115200,
+  "total_lines": 60,
+  "valid_reports": 0,
+  "invalid_or_filtered_lines": 60,
+  "coordinate_min": null,
+  "coordinate_max": null,
+  "interval_ms": {
+    "count": 0,
+    "min": null,
+    "max": null,
+    "average": null
+  },
+  "csv": "capture_walk_01.csv",
+  "hex": "capture_walk_01.hex"
+}
