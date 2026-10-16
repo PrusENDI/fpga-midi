@@ -1,5 +1,5 @@
 // 48 kHz, 8-bit unsigned mono PCM stream over 921600 8N1 UART.
-// Frame: A5 5A sequence length(32) payload[32] checksum.
+// Frame: A5 5A frame_sequence length(32) payload[32] checksum.
 module mgc3130_audio_uart_tx #(
     parameter integer CLK_HZ = 50_000_000,
     parameter integer BAUD = 115_200,
@@ -17,7 +17,7 @@ module mgc3130_audio_uart_tx #(
     localparam integer PAYLOAD = 32;
     reg [2:0] decimate_count;
     reg [5:0] payload_index;
-    reg [7:0] sequence;
+    reg [7:0] frame_sequence;
     reg [7:0] checksum;
     reg [7:0] payload [0:31];
     reg [5:0] capture_index;
@@ -38,7 +38,7 @@ module mgc3130_audio_uart_tx #(
             decimate_count <= 0;
             payload_index <= 0;
             capture_index <= 0;
-            sequence <= 0;
+            frame_sequence <= 0;
             checksum <= 0;
             tx_data <= 0;
             tx_start <= 0;
@@ -54,7 +54,7 @@ module mgc3130_audio_uart_tx #(
                             sending <= 1;
                             payload_index <= 0;
                             capture_index <= 0;
-                            checksum <= 8'h20 ^ sequence;
+                            checksum <= 8'h20 ^ frame_sequence;
                             tx_data <= 8'hA5;
                             tx_start <= 1;
                         end else begin
@@ -70,7 +70,7 @@ module mgc3130_audio_uart_tx #(
                     tx_start <= 1;
                     payload_index <= 1;
                 end else if (payload_index == 1) begin
-                    tx_data <= sequence;
+                    tx_data <= frame_sequence;
                     tx_start <= 1;
                     payload_index <= 2;
                 end else if (payload_index == 2) begin
@@ -88,7 +88,7 @@ module mgc3130_audio_uart_tx #(
                     tx_data <= checksum;
                     tx_start <= 1;
                     sending <= 0;
-                    sequence <= sequence + 1'b1;
+                    frame_sequence <= frame_sequence + 1'b1;
                 end
             end
         end

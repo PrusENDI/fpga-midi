@@ -19,7 +19,7 @@ module mgc_uart_report_tx #(
     wire      tx_busy;
     reg [7:0] frame [0:13];
     reg [3:0] index;
-    reg [7:0] sequence;
+    reg [7:0] frame_sequence;
     reg       sending;
     reg       launch_pending;
 
@@ -39,7 +39,7 @@ module mgc_uart_report_tx #(
             tx_start <= 1'b0;
             tx_data  <= 8'h00;
             index    <= 4'd0;
-            sequence <= 8'h00;
+            frame_sequence <= 8'h00;
             sending  <= 1'b0;
             launch_pending <= 1'b0;
         end else begin
@@ -50,7 +50,7 @@ module mgc_uart_report_tx #(
                 frame[1]  <= 8'h55;
                 frame[2]  <= 8'h0A;
                 frame[3]  <= 8'h01;
-                frame[4]  <= sequence;
+                frame[4]  <= frame_sequence;
                 frame[5]  <= x_position[7:0];
                 frame[6]  <= x_position[15:8];
                 frame[7]  <= y_position[7:0];
@@ -59,7 +59,7 @@ module mgc_uart_report_tx #(
                 frame[10] <= z_position[15:8];
                 frame[11] <= gesture_code;
                 frame[12] <= {6'b0, report_error, xyz_valid};
-                frame[13] <= 8'h0A ^ 8'h01 ^ sequence ^
+                frame[13] <= 8'h0A ^ 8'h01 ^ frame_sequence ^
                              x_position[7:0] ^ x_position[15:8] ^
                              y_position[7:0] ^ y_position[15:8] ^
                              z_position[7:0] ^ z_position[15:8] ^
@@ -70,7 +70,7 @@ module mgc_uart_report_tx #(
                 // after tx_data has been registered.
                 tx_data  <= 8'hAA;
                 launch_pending <= 1'b1;
-                sequence <= sequence + 1'b1;
+                frame_sequence <= frame_sequence + 1'b1;
             end else if (launch_pending) begin
                 tx_start <= 1'b1;
                 launch_pending <= 1'b0;
