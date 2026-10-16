@@ -194,3 +194,172 @@ UART 卡住      -> 只复位 UART
 ### 软核决策
 
 在四轨、每轨 16 个事件的规格下，Loop 调度不需要软核。后续只有在需要复杂编曲编辑、大量参数管理或文件系统时，才重新评估加入软核。即使将来加入软核，48 kHz 音频数据面仍保留在硬件中。
+
+## 已确认的模块接口规格
+
+### 时钟、握手和复位
+
+所有控制模块共用 `clk_50m`。48 kHz 音频和 16 分音符节拍使用 clock-enable，不新增异步时钟域：
+
+```text
+clk_50m       50 MHz 主时钟
+sample_ce     48 kHz 采样使能
+sixteenth_ce  16 分音符使能
+loop_tick     0..127 的 Loop 位置
+```
+
+模块间事件统一采用 `valid/ready`：发送方在 `valid=1` 时保持数据，直到 `ready=1` 完成传输。所有 FIFO 提供：
+
+```text
+flush / full / empty / overflow / underflow / level
+```
+
+复位分为：
+
+```text
+power_reset   清除全部状态
+module_reset  只复位指定模块
+flush         清除队列和活动音符，保留 Loop 内容和配置
+```
+
+优先级为 `power_reset > module_reset > flush > 正常事件`。
+
+### 演奏事件总线
+
+输入前端、模式管理器、Loop 调度器和音符管理器之间使用固定 64 bit 事件：
+
+```text
+63:62  保留，必须为 0
+61:58  flags
+57:50  timbre_mod
+49:42  amp_mod
+41:34  pitch_mod，有符号，单位为 1/16 半音
+33:26  velocity
+25:19  note，MIDI 音符号
+18:12  duration，单位为 16 分音符格
+11:5   tick，0..127
+4:3    track_id，0..3
+2:0    event_type
+```
+
+事件类型为：
+
+```text
+0 NOTE_ON
+1 NOTE_OFF
+2 CONTROL_POINT
+3 LOOP_BOUNDARY
+4 ALL_NOTES_OFF
+5 ERROR
+```
+
+`duration=0` 表示保持到显式 `NOTE_OFF`。输入前端只能产生 `NOTE_ON`、`NOTE_OFF`、`CONTROL_POINT` 和 `ERROR`；`LOOP_BOUNDARY`、`ALL_NOTES_OFF` 由调度器或恢复控制器产生。
+
+### Loop 存储接口
+
+Loop 使用双缓冲：
+
+```text
+active_bank   当前播放，只读
+shadow_bank   当前录音或编辑，只写
+```
+
+每个 bank 固定为 4 轨、每轨 16 个事件槽，共 128 个槽位。事件不要求排序，调度器每个 tick 固定扫描 64 个有效播放槽位。存储接口为：
+
+```text
+write_valid / write_ready
+write_track[1:0] / write_slot[3:0] / write_data[63:0]
+clear_track / clear_all
+prepare_overdub
+commit_request / commit_ack
+active_bank / shadow_bank
+record_count[track] / overflow[track]
+```
+
+播放 bank 不能被录音过程改写。`commit_request` 只设置待提交标志，实际交换只能在 Loop 边界执行。录音失败时丢弃 shadow bank，active bank 保持不变。
+
+### 节拍与调度器
+
+BPM 使用 32 bit 相位累加器生成 `sixteenth_ce`：
+
+```text
+sixteenth_hz = BPM × 4 / 60
+```
+
+播放过程中不使用除法器。每次 `sixteenth_ce`：
+
+1. 锁存当前 `loop_tick`；
+2. 扫描 4 轨、64 个播放事件槽；
+3. 将匹配当前 tick 的事件送入调度 FIFO；
+4. 扫描完成后递增 `loop_tick`；
+5. tick 127 完成后产生 `loop_boundary` 并回到 0。
+
+FIFO 无空间时保持扫描索引和事件数据，不能跳过事件或递增 tick。
+
+事件优先级为：
+
+```text
+flush / all_notes_off > loop_boundary > NOTE_OFF > NOTE_ON > CONTROL_POINT
+```
+
+### 模式和 UART 命令
+
+UART 使用固定二进制帧：
+
+```text
+55 AA opcode length arg0[15:0] arg1[15:0] sequence checksum
+```
+
+UART 只写单深度命令邮箱，不直接修改播放状态。命令包括：
+
+```text
+STATUS / SET_MODE / SET_BPM / SELECT_TRACK
+PLAY / STOP / RECORD / OVERDUB / CLEAR_TRACK
+CLEAR_ALL / COMMIT / RESET
+```
+
+模式枚举为：
+
+```text
+IDLE / LIVE / RECORD / OVERDUB / PLAY / ERROR
+```
+
+命令应答分为：
+
+```text
+ACK_ACCEPTED   已进入命令邮箱
+ACK_APPLIED    已在安全边界生效
+ACK_REJECTED   参数或当前模式不允许
+ACK_BUSY       邮箱或存储器忙
+ACK_ERROR      帧校验或内部错误
+```
+
+`STOP` 可立即禁止新 Note-On、发送 `ALL_NOTES_OFF` 并清空实时事件 FIFO；`PLAY`、`RECORD`、`OVERDUB` 和 bank 提交在 Loop 边界生效。
+
+### 错误和恢复
+
+每个长期运行模块提供：
+
+```text
+heartbeat_toggle
+fault_valid / fault_code[7:0] / fault_info[31:0]
+module_reset / flush
+```
+
+错误分级如下：
+
+- 输入、UART 帧和局部 FIFO 错误只复位对应模块；
+- 事件或 Loop 错误执行 `ALL_NOTES_OFF`、清空事件 FIFO、保留 active bank、丢弃 shadow bank；
+- 音频错误关闭声部、清空音频 FIFO，但保持 I²S 时钟运行；
+- 只有多个模块失去心跳、模式非法或连续恢复失败时才进入顶层 `ERROR`。
+
+错误记录锁存 `error_valid`、`error_code`、`error_module`、`error_count`、`error_timestamp` 和 `error_info`，只能由 `RESET` 命令清除。
+
+所有恢复路径必须最终满足：
+
+```text
+active_voice_count == 0
+event_fifo_empty == 1
+mode == IDLE 或 PLAY
+active Loop bank 未被破坏
+```
