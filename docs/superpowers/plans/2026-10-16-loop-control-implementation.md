@@ -46,25 +46,35 @@
 
 ### Task 2: Add the fixed double-buffer Loop store around Gowin dual-port RAM
 
+Implementation clarification (2026-10-16): use the project-owned
+`rtl/loop_event_ram.sv` wrapper around actual GW5A `DPB` primitives, rather than
+claiming GUI-generated `.ipc` files. Validate both official vendor simulation
+and the matching RTL model. Detailed contract: `docs/loop-event-store-interface.md`.
+The write/read ownership rules supersede the arbitrary `read_bank` draft below:
+playback can only read active. Controls use a valid/ready opcode channel; prepare
+record preserves other tracks. Empty recording abort is a mode-manager policy;
+the store permits empty commits so CLEAR_ALL can take effect.
+
 **Files:**
 - Create: `rtl/loop_event_store.sv`
-- Create: `ip/loop_event_ram/loop_event_ram.ipc`
-- Create: `ip/loop_event_ram/loop_event_ram.v`
+- Create: `rtl/loop_event_ram.sv`
 - Create: `sim/tb_loop_event_store.sv`
+- Create: `sim/tb_loop_event_ram.sv`
+- Create: `scripts/test_loop_store.ps1`, `scripts/synth_loop_store.tcl`
 - Modify: `mgc3130_uart.gprj`
 
 **Interfaces:**
 - Write channel: `write_valid`, `write_ready`, `write_track[1:0]`, `write_slot[3:0]`, `write_data[63:0]`.
-- Control: `clear_track`, `clear_all`, `prepare_overdub`, `commit_request`.
-- Scheduler read: `read_bank`, `read_index[5:0]`, `read_data[63:0]`.
+- Control: `ctrl_valid/ctrl_ready`, `ctrl_op[2:0]`, `ctrl_track[1:0]`, `ctrl_done`, priority `abort`, and `loop_boundary`.
+- Scheduler read: `read_enable`, `read_index[5:0]`, one-cycle `read_valid`, `read_slot_valid`, `read_data[63:0]`.
 - Status: `active_bank`, `shadow_bank`, `commit_pending`, per-track `record_count`, per-track `overflow`, `commit_ack`.
 
-- [ ] Step 1: Generate a Gowin `RAM_DPB` configuration sized for two banks of four tracks with sixteen 64-bit event slots per track; keep the bank and slot mapping in the wrapper.
-- [ ] Step 2: Test writing shadow slots, rejecting writes when a track has 16 valid slots, clearing a track, and reading active bank without exposing shadow writes.
-- [ ] Step 3: Test `prepare_overdub` copies active bank to shadow bank and `commit_request` waits until `loop_boundary`.
-- [ ] Step 4: Implement `loop_event_store.sv` around the generated RAM, including valid bits, per-track counters, copy/clear sequencing, and atomic bank swap at `loop_boundary`.
-- [ ] Step 5: Verify active-bank preservation after an aborted recording and verify `commit_ack` only follows a bank swap.
-- [ ] Step 6: Commit with `git add rtl/loop_event_store.sv ip/loop_event_ram sim/tb_loop_event_store.sv mgc3130_uart.gprj && git commit -m "Add double-buffered Loop RAM wrapper"`.
+- [x] Step 1: Configure and verify GW5A DPB primitives behind the wrapper, sized logically for two banks of four tracks with sixteen 64-bit event slots per track.
+- [x] Step 2: Test writing shadow slots, rejecting writes when a track has 16 valid slots, clearing a track, and reading active bank without exposing shadow writes.
+- [x] Step 3: Test `prepare_overdub` copies active bank to shadow bank and `commit_request` waits until `loop_boundary`.
+- [x] Step 4: Implement `loop_event_store.sv` with per-track counts defining contiguous valid slots, copy/clear sequencing, and atomic bank swap at `loop_boundary`.
+- [x] Step 5: Verify active-bank preservation after an aborted recording and verify `commit_ack` only follows a bank swap; ModelSim passes against both RAM models and standalone Gowin synthesis succeeds.
+- [x] Step 6: Commit the wrapper, tests, project entry and interface/build documentation on `feat/loop-event-store`.
 
 ### Task 3: Implement deterministic tempo and Loop scheduler
 
