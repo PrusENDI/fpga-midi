@@ -7,6 +7,7 @@ module loop_scheduler #(
 )(
   input wire clk, input wire rst_n,
   input wire run, input wire stop, input wire flush, input wire reset_position,
+  input wire boundary_ready,
   input wire [15:0] bpm_value,
   output wire read_enable, output wire [5:0] read_index,
   input wire read_valid, input wire read_slot_valid, input wire [63:0] read_data,
@@ -20,7 +21,7 @@ module loop_scheduler #(
   // rounding gives steps 344 / 1031 at 50 MHz and BPM 60 / 180 respectively.
   localparam [63:0] PHASE_SCALE_Q16 = 64'd281474976710656 / (64'd15 * CLK_HZ);
   localparam [3:0] IDLE=0, REQUEST=1, RESPONSE=2, SEND=3, WAIT_TICK=4,
-                   BOUND_OFF=5, BOUND_MARK=6, SWAP_WAIT=7, RELEASE=8;
+                   BOUND_OFF=5, BOUND_MARK=6, SWAP_WAIT=7, RELEASE=8, BOUND_GATE=9;
   localparam integer TIMEOUT_BITS = (READ_TIMEOUT_CYCLES<2) ? 1 : $clog2(READ_TIMEOUT_CYCLES);
   reg [3:0] state;
   reg running,run_d,cancel_seen,pending_start;
@@ -128,7 +129,11 @@ module loop_scheduler #(
           end else read_wait<=read_wait+1'b1;
           SEND: if(event_valid && event_ready) next_slot;
           WAIT_TICK: begin end
-          BOUND_OFF: if(event_valid && event_ready) state<=BOUND_MARK;
+          BOUND_OFF: if(event_valid && event_ready) state<=BOUND_GATE;
+          // Let the recorder finish its final write and arm the store commit.
+          // Permission is sampled before publishing the marker, so later
+          // permission changes cannot withdraw a backpressured valid event.
+          BOUND_GATE: if(boundary_ready) state<=BOUND_MARK;
           BOUND_MARK: if(event_valid && event_ready) begin
             loop_boundary<=1;state<=SWAP_WAIT;
           end

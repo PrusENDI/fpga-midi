@@ -23,6 +23,12 @@
         <File path="rtl/loop_event_ram.sv" type="file.verilog" enable="1"/>
         <File path="rtl/loop_event_store.sv" type="file.verilog" enable="1"/>
         <File path="rtl/loop_scheduler.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/control_protocol_pkg.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/command_mailbox.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/control_csr.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mode_manager.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/performance_event_router.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/loop_control_plane.sv" type="file.verilog" enable="1"/>
         <File path="mgc3130_uart.rao" type="file.gao" enable="1"/>
         <File path="mgc3130_uart.cst" type="file.cst" enable="1"/>
         <File path="mgc3130_uart.sdc" type="file.sdc" enable="1"/>

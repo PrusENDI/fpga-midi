@@ -105,6 +105,15 @@ quantization details. A deadline overrun faults instead of silently skipping tic
 
 ### Task 4: Add the mode manager and command mailbox
 
+2026-10-17 implementation contract and evidence:
+`docs/loop-control-plane-interface.md`. Added `control_protocol_pkg`, independent
+`performance_event_router`, and `loop_control_plane` wrapper. Scheduler boundary
+permission prevents swapping before final record writes drain. ERROR mode encoding
+is reserved: faults clean up into IDLE with sticky diagnostics. Board UART/sensor/
+voice adapters remain Tasks 5–6. Six control tests plus six store/scheduler
+regressions pass; isolated Gowin synthesis uses 1837 LUT, 127 ALU, 1053 FF,
+four BSRAM and one DSP. This is not board integration or P&R validation.
+
 **Files:**
 - Create: `rtl/command_mailbox.sv`
 - Create: `rtl/control_csr.sv`
@@ -116,12 +125,12 @@ quantization details. A deadline overrun faults instead of silently skipping tic
 - Command mailbox: fixed binary frame parser input and one-entry `cmd_valid/cmd_ready`, `opcode`, `arg0`, `arg1`, `sequence`; response output with ACK status.
 - Mode manager: input event FIFO, scheduler event FIFO, store controls, `mode`, `selected_track`, `bpm_shadow`, `run`, `record_enable`, `overdub_enable`, `all_notes_off`, `flush`.
 
-- [ ] Step 1: Test command acceptance, busy rejection, parameter rejection, and two-phase `ACK_ACCEPTED`/`ACK_APPLIED` behavior.
-- [ ] Step 2: Test legal transitions among `IDLE`, `LIVE`, `RECORD`, `OVERDUB`, `PLAY`, and `ERROR`, including STOP priority.
-- [ ] Step 3: Implement a small project-owned CSR block for the approved register map; the UART parser writes CSR requests and reads status through the same interface.
-- [ ] Step 4: Implement the fixed binary parser, command mailbox, mode ownership, safe-boundary command commit, and event routing.
-- [ ] Step 5: Verify UART commands cannot directly modify active Loop storage or block the scheduler.
-- [ ] Step 6: Commit with `git add rtl/control_csr.sv rtl/command_mailbox.sv rtl/mode_manager.sv sim/tb_mode_manager.sv mgc3130_uart.gprj && git commit -m "Add Loop mode manager and command mailbox"`.
+- [x] Step 1: Test command acceptance, busy rejection, parameter rejection, and two-phase `ACK_ACCEPTED`/`ACK_APPLIED` behavior.
+- [x] Step 2: Test legal transitions among `IDLE`, `LIVE`, `RECORD`, `OVERDUB`, `PLAY`, and fault cleanup to IDLE, including STOP priority.
+- [x] Step 3: Implement a small project-owned CSR block for the approved register map; the UART parser writes CSR requests and reads status through the same interface.
+- [x] Step 4: Implement the fixed binary parser, command mailbox, mode ownership, safe-boundary command commit, and event routing.
+- [x] Step 5: Verify UART commands cannot directly modify active Loop storage or block the scheduler; bounded mailbox ingress limitations documented.
+- [x] Step 6: Commit control modules, standalone wrapper, tests, project entries and interface/build documentation on `feat/loop-event-store`.
 
 ### Task 5: Adapt the existing input front end to standard events
 

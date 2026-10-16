@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 module tb_loop_scheduler;
   reg clk=0; always #5 clk=~clk;
-  reg rst_n=0,run=0,stop=0,flush=0,reset_position=0;
+  reg rst_n=0,run=0,stop=0,flush=0,reset_position=0,boundary_ready=1;
   reg [15:0] bpm_value=60;
   wire read_enable; wire [5:0] read_index;
   reg read_valid=0,read_slot_valid=0; reg [63:0] read_data=0;
@@ -139,12 +139,14 @@ module tb_loop_scheduler;
     reset;bpm_value=180;run=1;event_ready=0;wait_ce(129);
     check(event_valid && event_data==4 && boundaries==0,"boundary starts with held all-off");
     step(20);check(event_valid && event_data==4 && boundaries==0 && !read_enable,"boundary all-off stable without premature reads or commit");
-    event_ready=1;step(1);event_ready=0;
+    boundary_ready=0;event_ready=1;step(1);event_ready=0;
+    step(20);check(!event_valid && boundaries==0 && !read_enable,"boundary waits for commit permission");
+    boundary_ready=1;step(1);
     check(event_valid && event_data==3 && received_count==1,"boundary marker follows accepted all-off");
     step(20);check(event_valid && event_data==3 && boundaries==0 && !read_enable,"boundary marker stable without premature reads or commit");
     event_ready=1;step(2);check(boundaries==1 && received_count==2,"accepted marker commits exactly once");
 
-    reset;bpm_value=180;run=1;event_ready=0;wait_ce(129);event_ready=1;step(1);event_ready=0;
+    reset;bpm_value=180;run=1;event_ready=0;wait_ce(129);event_ready=1;step(1);event_ready=0;step(1);
     check(event_valid && event_data==3,"setup stalled boundary marker");step(850);
     check(fault_valid && fault_code==2 && boundaries==0 && received_count==1,"overdue marker must fault without committing");
     check(event_valid && event_data==4,"fault cleanup replaces stalled marker");

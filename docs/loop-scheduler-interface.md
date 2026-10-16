@@ -33,7 +33,7 @@ duration=0 等待显式 NOTE_OFF 或 Loop 边界。
 
 1. tick 127 持续完整一格，音乐位置回到 0。
 2. 输出 ALL_NOTES_OFF，等待接收。
-3. 输出 LOOP_BOUNDARY 事件，等待接收。
+3. 等待 `boundary_ready` 许可（录音排空和提交准备完成），再输出 LOOP_BOUNDARY 事件，等待接收。
 4. 输出一拍 `loop_boundary` 给存储层。
 5. 保留一个存储切换保护周期，然后开始新 bank 的 tick 0 扫描。
 

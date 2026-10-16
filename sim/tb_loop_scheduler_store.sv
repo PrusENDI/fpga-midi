@@ -17,6 +17,7 @@ module tb_loop_scheduler_store #(parameter USE_GOWIN_RAM=1);
     loop_scheduler #(.CLK_HZ(12000)) scheduler (
         .clk(clk), .rst_n(rst_n), .run(run), .stop(stop), .flush(flush),
         .reset_position(reset_position), .bpm_value(16'd120),
+        .boundary_ready(1'b1),
         .read_enable(read_enable), .read_index(read_index), .read_valid(read_valid),
         .read_slot_valid(read_slot_valid), .read_data(read_data),
         .event_valid(event_valid), .event_ready(event_ready), .event_data(event_data),
