@@ -109,6 +109,7 @@
 **Files:**
 - Modify: `rtl/mgc3130_input_latch.sv`
 - Modify: `rtl/mgc3130_pattern_input.sv`
+- Modify: `rtl/mgc3130_reader.sv` to expose `touch_info` and `touch_valid` after enabling the required DataOutputConfigMask field
 - Create: `rtl/input_event_adapter.sv`
 - Create: `sim/tb_input_event_adapter.sv`
 
@@ -116,11 +117,12 @@
 - Consume existing valid XYZ reports and pattern-input decisions.
 - Produce `performance_event_fifo` input; preserve existing thresholds and X/Y/Z mappings unless a test demonstrates a bug.
 
-- [ ] Step 1: Replay existing MGC3130 reports and assert that valid reports produce ordered standard events without naked cross-module pulses.
-- [ ] Step 2: Test invalid reports, timeout, left-edge start, right-edge stop, and note change behavior.
-- [ ] Step 3: Implement the adapter and retain the current input logic behind it.
-- [ ] Step 4: Verify no event is lost when the consumer holds `ready=0`.
-- [ ] Step 5: Commit with `git add rtl/mgc3130_input_latch.sv rtl/mgc3130_pattern_input.sv rtl/input_event_adapter.sv sim/tb_input_event_adapter.sv && git commit -m "Adapt MGC3130 input to performance events"`.
+- [ ] Step 1: Extend the reader parser and DataOutputConfigMask handling for `touch_info[31:0]` and `touch_valid`, while retaining dynamic message-size parsing.
+- [ ] Step 2: Replay existing MGC3130 reports and assert that valid reports produce ordered standard events without naked cross-module pulses.
+- [ ] Step 3: Test Touch release, invalid reports, timeout fallback, left-edge start, X hysteresis, Y confirmation, and note change behavior.
+- [ ] Step 4: Implement the adapter and retain the current input logic behind it.
+- [ ] Step 5: Verify no event is lost when the consumer holds `ready=0`.
+- [ ] Step 6: Commit with `git add rtl/mgc3130_reader.sv rtl/mgc3130_input_latch.sv rtl/mgc3130_pattern_input.sv rtl/input_event_adapter.sv sim/tb_input_event_adapter.sv && git commit -m "Adapt MGC3130 touch and input to performance events"`.
 
 ### Task 6: Integrate the control plane without disturbing audio
 
@@ -128,6 +130,8 @@
 - Modify: `rtl/mgc3130_uart_top.sv`
 - Modify: `mgc3130_uart.gprj`
 - Create: `sim/tb_loop_control_integration.sv`
+
+The integration must apply the frozen interaction defaults: BPM changes at the next Loop boundary, PLAY starts at tick 0, STOP clears the playback position while preserving active bank, and PLAY is rejected when no valid Loop exists.
 
 **Interfaces:**
 - Connect input adapter → input FIFO → mode manager → Loop store/scheduler → existing voice manager.

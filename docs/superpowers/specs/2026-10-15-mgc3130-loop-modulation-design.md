@@ -448,3 +448,31 @@ OVERDUB -> COMMIT_PENDING / IDLE
 ```
 
 `STOP` 的行为固定为：禁止新 `NOTE_ON`、发送 `ALL_NOTES_OFF`、清空实时事件 FIFO；录音或叠加中的 shadow bank 被丢弃，active Loop 保留。`CLEAR_TRACK` 和 `CLEAR_ALL` 只允许在 `IDLE` 执行。
+
+### 交互实现默认参数和边界
+
+以下实现决策已经冻结：
+
+- MGC3130 开启并解析 `touch_info`，作为 Presence/Touch 释放依据；XYZ 仍作为连续演奏输入；
+- X 起点使用 `START_ENTER`/`START_EXIT` 滞回，最近 3 个有效报告至少 2 个进入左区才触发；具体门限保留为 CSR 可调参数；
+- X 的 8 个 LIVE 区域使用滞回和连续报告确认；
+- 同一 tick 的事件优先级为 `LOOP_BOUNDARY > NOTE_OFF > Y 换音 > X 重触发 > Z 调制`；
+- BPM 修改在下一次 Loop 边界生效；
+- `PLAY` 从 `tick=0` 开始；`STOP` 清零播放位置但保留 active Loop；
+- 无有效 Loop 时，`PLAY` 返回 `ACK_REJECTED`；空录音丢弃 shadow bank 并返回 `IDLE`；
+- 同一轨同一 tick 的相同音符合并，不同音符允许共存；超过四个同时声部时按固定轨道优先级抢占并计数；
+- UART checksum、ACK 帧和 CSR 地址必须在控制接口实现任务中固定，不能由各模块自行解释。
+
+### Touch 数据路径
+
+输入链路扩展为：
+
+```text
+MGC3130 DataOutputConfigMask
+    -> reader 动态字段解析
+    -> touch_info[31:0] / touch_valid
+    -> input latch
+    -> LIVE 释放和 RECORD 输入状态
+```
+
+Touch/Presence 只负责“存在/释放”语义，不能直接产生音符；音符仍由稳定 Y 音区和 X 节奏动作生成。若 Touch 字段暂时无效，报告失联超时仍作为后备释放路径。
