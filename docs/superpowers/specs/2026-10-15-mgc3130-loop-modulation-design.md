@@ -363,3 +363,88 @@ event_fifo_empty == 1
 mode == IDLE 或 PLAY
 active Loop bank 未被破坏
 ```
+
+## 已确认的交互行为规格
+
+### 三轴职责
+
+系统把 MGC3130 解释为二维轨迹乐器，而不是键盘：
+
+```text
+X：乐句推进、方向和节奏动作
+Y：基础音高，默认 C 大调 8 音区
+Z：连续音量和音色表达
+```
+
+Y 进入新音区并经过稳定确认后才换音，X 不参与音高换区判定。Z 不产生 `NOTE_ON` 或 `NOTE_OFF`，只更新 `velocity`、`amp_mod` 和 `timbre_mod`。
+
+### LIVE 模式
+
+`LIVE` 由 UART 开启。收到有效报告后，Y 稳定在音区即可开始发音；手停留时保持当前音符；Touch/Presence 事件、报告失效或有效报告超时会释放音符。
+
+X 被量化为 8 个带滞回的位置区：
+
+```text
+向右跨区：重触发当前 Y 音符，形成节奏脉冲
+向左移动：只回看位置，不重触发
+X 停止：保持当前音符
+回到左侧：重新 arm，下一次向右跨区才推进新乐句
+```
+
+LIVE 不写 Loop RAM。
+
+### 首轮 RECORD
+
+UART `RECORD` 只进入 `RECORD_ARMED`，不立即写入 Loop。起点检测采用滞回和多数确认：
+
+```text
+START_ENTER = 可调左侧进入门限
+START_EXIT  = 可调左侧释放门限，且 START_EXIT > START_ENTER
+```
+
+最近 3 个有效报告中至少 2 个满足 `X <= START_ENTER` 时：
+
+1. 锁存 `record_start`；
+2. 将 `loop_tick` 置为 0；
+3. 清空选定轨道的 shadow 槽位；
+4. 进入固定 128 tick 的 `RECORDING`。
+
+触发后必须收到 `X >= START_EXIT` 才能再次 arm。录音过程中 X 不负责结束 Loop，结束条件只有硬件 BPM 时钟完成 128 个 tick。
+
+### RECORD 事件量化
+
+事件按发生时的硬件 `loop_tick` 写入，而不是按手势速度或 X 的绝对坐标写入。连续的 Y 音区保持合并为一个带 `duration` 的事件；Y 改变并确认后写入旧音符结束和新音符开始。X 向右跨区对当前音符产生一次重触发；Z 在当前事件和控制点中保存表达参数。
+
+Loop 完成后，有效事件数大于零才提交并自动进入 `PLAY`；空录音丢弃 shadow bank 并返回 `IDLE`。
+
+### PLAY 模式调制
+
+`PLAY` 只播放 active Loop，同时接收 XYZ 作为非破坏实时调制，不写入 Loop RAM：
+
+```text
+X -> 全局音高/移调偏移
+Y -> 音色或滤波偏移
+Z -> 音量/表达偏移
+```
+
+最终参数由 Loop 保存曲线与实时调制叠加得到。退出 `PLAY` 或执行 `STOP` 时清除实时调制层。
+
+### OVERDUB 模式
+
+`OVERDUB` 播放旧 active Loop，同时监听并记录新手势。开始前复制 active bank 到 shadow bank；新事件只追加到选定轨道的空闲槽位。事件槽满时拒绝新事件、锁存溢出并保留旧 Loop。128 tick 完成后在 Loop 边界提交；没有新事件则丢弃 shadow bank。
+
+### 模式转换基线
+
+```text
+IDLE -> LIVE / RECORD_ARMED / PLAY
+LIVE -> IDLE / RECORD_ARMED
+RECORD_ARMED -> RECORDING / IDLE
+RECORDING -> COMMIT_PENDING / IDLE
+COMMIT_PENDING -> PLAY
+PLAY -> IDLE / OVERDUB_ARMED
+OVERDUB_ARMED -> OVERDUB / IDLE
+OVERDUB -> COMMIT_PENDING / IDLE
+任意状态 -> ERROR（非法状态或连续恢复失败）
+```
+
+`STOP` 的行为固定为：禁止新 `NOTE_ON`、发送 `ALL_NOTES_OFF`、清空实时事件 FIFO；录音或叠加中的 shadow bank 被丢弃，active Loop 保留。`CLEAR_TRACK` 和 `CLEAR_ALL` 只允许在 `IDLE` 执行。
