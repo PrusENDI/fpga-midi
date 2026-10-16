@@ -78,21 +78,30 @@ the store permits empty commits so CLEAR_ALL can take effect.
 
 ### Task 3: Implement deterministic tempo and Loop scheduler
 
+Implementation clarification: current `loop_tick` advances at musical phase
+deadlines, not scan completion. Three global 64-slot passes enforce event-type
+priority; after a full tick127 interval, ALL_NOTES_OFF and LOOP_BOUNDARY must be
+accepted before the store commit pulse and guard cycle. See
+`docs/loop-scheduler-interface.md` for cancellation, retained PLAY, fault and tempo
+quantization details. A deadline overrun faults instead of silently skipping ticks.
+
 **Files:**
 - Create: `rtl/loop_scheduler.sv`
 - Create: `sim/tb_loop_scheduler.sv`
+- Create: `sim/tb_loop_scheduler_store.sv`
+- Create: `scripts/test_loop_scheduler.ps1`, `scripts/synth_loop_scheduler.tcl`
 - Modify: `mgc3130_uart.gprj`
 
 **Interfaces:**
 - Configuration: `bpm_value[15:0]`, `run`, `stop`, `reset_position`, `flush`.
-- Store read: `read_index[5:0]`, `read_data[63:0]`.
+- Store read: `read_enable`, `read_index[5:0]`, `read_valid`, `read_slot_valid`, `read_data[63:0]`.
 - Output: `event_valid`, `event_ready`, `event_data[63:0]`, `sixteenth_ce`, `loop_tick[6:0]`, `loop_boundary`, `stall`, `fault_valid`.
 
-- [ ] Step 1: Test BPM 60 and 180 against bounded tick intervals using a reduced clock parameter in simulation.
-- [ ] Step 2: Test scanning all 64 slots, backpressure pause/resume, tick progression, and boundary Note-Off ordering.
-- [ ] Step 3: Implement a 32-bit phase accumulator, configurable tempo step, sixteenth tick generation, 6-bit scan index, and fixed event comparison.
-- [ ] Step 4: Implement priority `flush/all_notes_off > loop_boundary > NOTE_OFF > NOTE_ON > CONTROL_POINT` and hold scan state while `event_ready=0`.
-- [ ] Step 5: Commit with `git add rtl/loop_scheduler.sv sim/tb_loop_scheduler.sv mgc3130_uart.gprj && git commit -m "Add deterministic Loop scheduler"`.
+- [x] Step 1: Test BPM 60 and 180 against bounded tick intervals using a reduced clock parameter in simulation.
+- [x] Step 2: Test all 64 slots, backpressure, full tick127 duration, boundary order, duration-generated Note-Off and cancellation/restart edges.
+- [x] Step 3: Implement a 32-bit phase accumulator, configurable tempo step, sixteenth tick generation, 6-bit scan index, and fixed event comparison.
+- [x] Step 4: Implement event priority and stable stalled output; add bounded RAM/deadline faults and held ALL_NOTES_OFF recovery.
+- [x] Step 5: Validate real store integration with both RTL and official GW5A RAM, standalone synthesis, independent review; commit scheduler, tests, project and documentation on `feat/loop-event-store`.
 
 ### Task 4: Add the mode manager and command mailbox
 

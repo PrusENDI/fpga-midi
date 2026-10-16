@@ -288,13 +288,15 @@ sixteenth_hz = BPM × 4 / 60
 
 播放过程中不使用除法器。每次 `sixteenth_ce`：
 
-1. 锁存当前 `loop_tick`；
-2. 扫描 4 轨、64 个播放事件槽；
+1. PLAY 从 tick 0 立即扫描；后续相位溢出才推进当前 `loop_tick`；
+2. 按 NOTE_OFF、NOTE_ON、CONTROL_POINT 三轮扫描 4 轨、64 个播放事件槽，保证全局事件类型优先级；
 3. 将匹配当前 tick 的事件送入调度 FIFO；
-4. 扫描完成后递增 `loop_tick`；
-5. tick 127 完成后产生 `loop_boundary` 并回到 0。
+4. 扫描完成后保持当前 tick，等待下一次相位溢出，不能因扫描完成提前推进音乐时间；
+5. tick 127 持续完整一格后回到 0，先发送 ALL_NOTES_OFF，再发送 LOOP_BOUNDARY 事件；边界事件被接受后才产生存储提交脉冲，并等待存储切换完成再扫描新 tick 0。
 
-FIFO 无空间时保持扫描索引和事件数据，不能跳过事件或递增 tick。
+FIFO 无空间时保持扫描索引和事件数据，不能跳过事件。若背压持续到下一格截止时间，停止调度、锁存故障并请求 ALL_NOTES_OFF，不静默丢格或集中补发过期音符。
+该时序细化保证一个 Loop 包含完整 128 格，而不是在扫描完最后一格事件后提前结束。
+详细接口、取消语义和验证见 `docs/loop-scheduler-interface.md`。
 
 事件优先级为：
 
