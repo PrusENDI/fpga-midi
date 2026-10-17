@@ -45,6 +45,14 @@ Timing/resource reports: `impl/pnr/mgc3130_uart.tr` and `mgc3130_uart.rpt.txt`.
 
 ## Scope and remaining work
 
+After the gap-closure changes, the complete top-level RTL source list including
+`mgc3130_loop_control_path`, `uart_byte_serializer`, and the parameterized
+`mgc3130_uart_top` compiles with ModelSim. The focused top-level Loop test and
+serializer test pass. A new `gw_sh scripts/build.tcl` attempt in this session
+returned exit code 1 with an empty stdout/stderr capture, so no new Loop-enabled
+P&R or bitstream evidence is claimed here; the resource/timing numbers above
+remain evidence for the previously built legacy top.
+
 This is the existing top-level design with `AUDIO_STREAM=0`, `AUDIO_OUTPUT=1`
 and GAO enabled. Audio UART being swept is expected in this configuration.
 The event FIFO is not yet integrated into the top level. Its simulation covers
