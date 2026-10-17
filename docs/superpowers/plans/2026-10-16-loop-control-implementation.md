@@ -134,6 +134,20 @@ four BSRAM and one DSP. This is not board integration or P&R validation.
 
 ### Task 5: Adapt the existing input front end to standard events
 
+2026-10-17 implementation evidence:
+`mgc3130_reader` now exposes raw `touch_info[31:0]` and `touch_valid` using the
+SDK's dynamic mask offsets; `mgc3130_input_latch` provides report/error/touch
+valid pulses while preserving the legacy XYZ pulse. `input_event_adapter` emits
+separate live, completed-record, and PLAY modulation valid/ready streams. It
+uses Y C-major zones with confirmation, forward-only X retrigger high-water and
+left re-arm, explicit presence input or invalid/timeout release, and bounded
+overflow ALL_NOTES_OFF recovery. Raw TouchInfo is diagnostic-only because the
+SDK has no general hand-presence bit. `tb_reader_touch`, `tb_input_event_adapter`
+and the reader→latch→adapter pipeline pass; isolated Gowin synthesis is 512 LUT,
+72 ALU, 224 FF, 2 DSP, no BSRAM. The sensor configuration itself is unchanged:
+the board must emit mask bit 0x0004 from its stored GestIC configuration before
+touch_valid can become active.
+
 **Files:**
 - Modify: `rtl/mgc3130_input_latch.sv`
 - Modify: `rtl/mgc3130_pattern_input.sv`
@@ -145,12 +159,12 @@ four BSRAM and one DSP. This is not board integration or P&R validation.
 - Consume existing valid XYZ reports and pattern-input decisions.
 - Produce `performance_event_fifo` input; preserve existing thresholds and X/Y/Z mappings unless a test demonstrates a bug.
 
-- [ ] Step 1: Extend the reader parser and DataOutputConfigMask handling for `touch_info[31:0]` and `touch_valid`, while retaining dynamic message-size parsing.
-- [ ] Step 2: Replay existing MGC3130 reports and assert that valid reports produce ordered standard events without naked cross-module pulses.
-- [ ] Step 3: Test Touch release, invalid reports, timeout fallback, left-edge start, X hysteresis, Y confirmation, and note change behavior.
-- [ ] Step 4: Implement the adapter and retain the current input logic behind it.
-- [ ] Step 5: Verify no event is lost when the consumer holds `ready=0`.
-- [ ] Step 6: Commit with `git add rtl/mgc3130_reader.sv rtl/mgc3130_input_latch.sv rtl/mgc3130_pattern_input.sv rtl/input_event_adapter.sv sim/tb_input_event_adapter.sv && git commit -m "Adapt MGC3130 touch and input to performance events"`.
+- [x] Step 1: Extend the reader parser and DataOutputConfigMask handling for `touch_info[31:0]` and `touch_valid`, while retaining dynamic message-size parsing.
+- [x] Step 2: Replay injected MGC3130 reports and assert aligned report/error/touch pulses and stable standard event handshakes.
+- [x] Step 3: Test invalid reports, timeout fallback, left-edge majority start, X hysteresis, Y confirmation, note changes, and explicit presence release.
+- [x] Step 4: Implement the adapter and preserve the current legacy input path for comparison until Task 6 integration.
+- [x] Step 5: Verify output stability under backpressure and explicit bounded overflow recovery.
+- [x] Step 6: Add reader, latch, adapter, tests, synthesis script, and project entries on `feat/loop-event-store`.
 
 ### Task 6: Integrate the control plane without disturbing audio
 

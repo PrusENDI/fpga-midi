@@ -13,7 +13,10 @@ module mgc3130_reader #(
     output reg busy,
     output reg [31:0] debug_error_context,
     output reg [15:0] debug_output_mask,
-    output reg [7:0] debug_message_size
+    output reg [7:0] debug_message_size,
+    // Raw SDK TouchInfo word, valid only alongside report_valid. Touch is
+    // independent of XYZ validity; absent/malformed/error reports clear it.
+    output reg [31:0] touch_info, output reg touch_valid
 );
     localparam [15:0] PRESCALE = CLK_HZ / (5 * I2C_HZ) - 1;
     localparam integer BYTE_TIMEOUT = CLK_HZ / 100; // 10 ms
@@ -60,10 +63,11 @@ module mgc3130_reader #(
     // Field order/length from Microchip GestIC SDK 1.2.0 api/src/stream.c,
     // gestic_handle_data_output(), and api/include/gestic_api.h.
     wire [15:0] output_mask;
-    wire [7:0] gesture_offset, position_offset, required_length;
+    wire [7:0] gesture_offset, touch_offset, position_offset, required_length;
     wire [7:0] electrode_bytes;
     assign output_mask = {frame[5], frame[4]};
     assign gesture_offset = 8'd8 + (output_mask[0] ? 8'd2 : 8'd0);
+    assign touch_offset = gesture_offset + (output_mask[1] ? 8'd4 : 8'd0);
     assign position_offset = gesture_offset +
         (output_mask[1] ? 8'd4 : 8'd0) +
         (output_mask[2] ? 8'd4 : 8'd0) +
@@ -112,11 +116,13 @@ module mgc3130_reader #(
             debug_output_mask <= 0; debug_message_size <= 0;
             command_timer <= 0; frame_timer <= 0; delay_timer <= 0;
             report_valid <= 0; report_error <= 0; xyz_valid <= 0;
+            touch_info <= 0; touch_valid <= 0;
             error_code <= 0; busy <= 0;
             x_position <= 0; y_position <= 0; z_position <= 0; gesture_code <= 0;
         end else begin
             ip_wr_en <= 0; ip_rd_en <= 0;
             report_valid <= 0; report_error <= 0;
+            touch_valid <= 0;
             if (command_active) command_timer <= command_timer + 1'b1;
             if (transaction_active) frame_timer <= frame_timer + 1'b1;
             case (state)
@@ -212,11 +218,16 @@ module mgc3130_reader #(
                         report_valid <= 1;
                         debug_output_mask <= output_mask;
                         debug_message_size <= frame_length;
+                        touch_info <= 0;
                         if ((frame_length >= 8'd8) &&
                             (frame_length >= required_length) &&
                             ((output_mask & 16'hE0C0) == 16'd0) &&
                             (output_mask[10:8] <= 3'd1)) begin
                             xyz_valid <= output_mask[4] && frame[7][0];
+                            touch_valid <= output_mask[2];
+                            if (output_mask[2])
+                                touch_info <= {frame[touch_offset+8'd3], frame[touch_offset+8'd2],
+                                               frame[touch_offset+8'd1], frame[touch_offset]};
                             if (output_mask[1]) gesture_code <= frame[gesture_offset];
                             else gesture_code <= 0;
                             if (output_mask[4] && frame[7][0]) begin
@@ -240,6 +251,7 @@ module mgc3130_reader #(
                 end
                 ST_ERROR_REPORT: begin
                     report_valid <= 1; report_error <= 1; xyz_valid <= 0;
+                    touch_info <= 0; touch_valid <= 0;
                     state <= ST_RELEASE;
                 end
                 ST_RELEASE: begin
@@ -257,6 +269,7 @@ module mgc3130_reader #(
                     command_active <= 0; transaction_active <= 0;
                     ts_oe <= 0; busy <= 0;
                     report_valid <= 1; report_error <= 1; xyz_valid <= 0;
+                    touch_info <= 0; touch_valid <= 0;
                     delay_timer <= 0; state <= ST_RESET_HOLD;
                 end
                 ST_RESET_HOLD: begin

@@ -24,6 +24,8 @@ module mgc3130_uart_top #(
 
     wire        report_valid;
     wire        xyz_valid;
+    wire        touch_valid;
+    wire [31:0] touch_info;
     wire [15:0] x_position;
     wire [15:0] y_position;
     wire [15:0] z_position;
@@ -68,6 +70,8 @@ module mgc3130_uart_top #(
         .mgc_ts       (mgc_ts),
         .report_valid (report_valid),
         .xyz_valid    (xyz_valid),
+        .touch_valid  (touch_valid),
+        .touch_info   (touch_info),
         .x_position   (x_position),
         .y_position   (y_position),
         .z_position   (z_position),
@@ -84,6 +88,7 @@ module mgc3130_uart_top #(
         .clk(clk_50m), .rst_n(mgc_ready),
         .report_valid(report_valid), .xyz_valid(xyz_valid),
         .report_error(report_error), .x_position(x_position),
+        .touch_valid(touch_valid), .touch_info(touch_info),
         .y_position(y_position), .z_position(z_position),
         .gesture_code(gesture_code), .input_valid(synth_input_valid),
         .xyz_valid_latched(synth_xyz_valid), .x_latched(synth_x),
