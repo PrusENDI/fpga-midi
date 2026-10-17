@@ -23,6 +23,96 @@
 
 ---
 
+## Gap-Closure Addendum (2026-10-17)
+
+The core Loop RTL and isolated board boundary are implemented, but the shipped
+board top still selects the legacy pattern-input mixer. The following tasks
+close that gap in dependency order. A task is complete only when its focused
+test passes and the named artifact is committed.
+
+### Task 8: Make the board top select the Loop path
+
+**Files:**
+- Modify: `rtl/mgc3130_uart_top.sv`
+- Modify: `sim/tb_mgc3130_uart_top_loop.sv`
+- Modify: `scripts/test_board_integration.ps1`
+- Modify: `mgc3130_uart.gprj`
+
+**Contract:** Add `parameter integer LOOP_CONTROL_ENABLE=0`. With `0`, preserve
+the existing ASCII/legacy mixer behavior. With `1`, instantiate
+`mgc3130_loop_control_path`, feed it the reader/latch outputs, and select its
+sample stream for I2S/audio UART. The focused test must compile both parameter
+values and assert that the Loop-enabled instance receives a valid command and
+produces a mixer event.
+
+- [ ] Step 1: Add the parameterized top-level test and run it to show the
+  Loop-enabled case cannot yet reach the top-level mixer.
+- [ ] Step 2: Add the parameterized path selection and top-level instance.
+- [ ] Step 3: Run the top-level test for both parameter values and compile the
+  complete RTL source list.
+- [ ] Step 4: Commit `Integrate Loop path into board top`.
+
+### Task 9: Serialize Loop mailbox responses on C3
+
+**Files:**
+- Modify: `rtl/mgc3130_uart_top.sv`
+- Create: `rtl/uart_byte_serializer.sv`
+- Create: `sim/tb_uart_byte_serializer.sv`
+
+**Contract:** Convert `tx_valid/tx_ready/tx_data` from
+`mgc3130_loop_control_path` into 115200 8N1 bytes using the existing UART TX
+implementation. While Loop control is enabled, ASCII status transmission is
+disabled and C3 carries only binary responses. The serializer must hold one
+byte until `uart_tx.busy=0`, apply backpressure, and preserve ordering.
+
+- [ ] Step 1: Write the serializer test for two bytes with a stalled TX.
+- [ ] Step 2: Run it and verify it fails before the serializer exists.
+- [ ] Step 3: Implement the serializer and connect it to C3.
+- [ ] Step 4: Run serializer and board integration tests.
+- [ ] Step 5: Commit `Serialize Loop mailbox responses on UART TX`.
+
+### Task 10: Expose diagnostics and define Presence release
+
+**Files:**
+- Modify: `rtl/mgc3130_loop_control_path.sv`
+- Modify: `rtl/mgc3130_uart_top.sv`
+- Modify: `sim/tb_mgc3130_loop_control_path.sv`
+- Modify: `docs/loop-control-plane-interface.md`
+- Modify: `README.md`
+
+**Contract:** Expose sticky RX overflow, RX framing error, adapter overflow,
+and control fault through the status path. Use XYZ invalid or the configured
+timeout as the board release condition; keep TouchInfo diagnostic-only until a
+validated presence bit is available. Add tests for invalid-report release and
+sticky diagnostics.
+
+- [ ] Step 1: Add failing invalid-report and diagnostic assertions.
+- [ ] Step 2: Implement status wiring and timeout release.
+- [ ] Step 3: Run the focused test and update the interface documentation.
+- [ ] Step 4: Commit `Expose Loop diagnostics and release policy`.
+
+### Task 11: Close FIFO/IP and full-build evidence
+
+**Files:**
+- Modify: `rtl/performance_event_fifo_wrapper.sv`
+- Create or record: `ip/performance_event_fifo/*` or the approved RTL-only
+  fallback decision in `docs/toolchain-verification-2026-10-16.md`
+- Modify: `scripts/build.tcl`
+- Modify: `README.md`
+
+**Contract:** Select one verified implementation for the performance-event
+FIFO. If no matching Gowin generated FIFO is available, keep
+`USE_GOWIN_FIFO=0`, remove the misleading vendor mode, and document the
+resource/synthesis decision. Run all RTL tests, full Gowin synthesis/P&R, and
+record timing, resource counts, bitstream timestamp, and SHA256. Do not claim
+hardware success without a physical board test.
+
+- [ ] Step 1: Add a deterministic FIFO implementation-mode test.
+- [ ] Step 2: Run all RTL regressions and record the output.
+- [ ] Step 3: Run Gowin synthesis/P&R and capture reports.
+- [ ] Step 4: Record bitstream hash and unchanged pin assignments.
+- [ ] Step 5: Commit `Document final Loop build evidence`.
+
 ### Task 1: Define the event package and Gowin FIFO wrapper
 
 **Files:**
