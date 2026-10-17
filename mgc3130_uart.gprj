@@ -36,6 +36,7 @@
         <File path="rtl/mode_manager.sv" type="file.verilog" enable="1"/>
         <File path="rtl/performance_event_router.sv" type="file.verilog" enable="1"/>
         <File path="rtl/loop_control_plane.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_loop_control_path.sv" type="file.verilog" enable="1"/>
         <File path="mgc3130_uart.rao" type="file.gao" enable="1"/>
         <File path="mgc3130_uart.cst" type="file.cst" enable="1"/>
         <File path="mgc3130_uart.sdc" type="file.sdc" enable="1"/>
