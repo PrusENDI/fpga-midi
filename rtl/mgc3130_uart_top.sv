@@ -2,7 +2,10 @@ module mgc3130_uart_top #(
     // Build the audio path by default. Set to 0 for the separate ASCII
     // diagnostic bitstream used by capture_mgc3130.py.
     parameter integer AUDIO_STREAM = 0,
-    parameter integer AUDIO_OUTPUT = 1
+    parameter integer AUDIO_OUTPUT = 1,
+    parameter integer LOOP_CONTROL_ENABLE = 0,
+    parameter integer RESET_LOW_MS = 250,
+    parameter integer STARTUP_WAIT_MS = 2000
 ) (
     input  wire clk_50m,
     inout  wire mgc_sda,
@@ -19,7 +22,7 @@ module mgc3130_uart_top #(
     wire mgc_ready;
     assign mgc_mclr = mgc_mclr_drive_low ? 1'b0 : 1'bz;
 
-    mgc3130_reset_seq #(.CLK_HZ(50_000_000), .RESET_LOW_MS(250), .STARTUP_WAIT_MS(2000)) u_reset_seq (
+    mgc3130_reset_seq #(.CLK_HZ(50_000_000), .RESET_LOW_MS(RESET_LOW_MS), .STARTUP_WAIT_MS(STARTUP_WAIT_MS)) u_reset_seq (
         .clk(clk_50m), .mclr_drive_low(mgc_mclr_drive_low), .ready(mgc_ready)
     );
 
@@ -41,6 +44,10 @@ module mgc3130_uart_top #(
     wire synth_xyz_valid;
     wire [15:0] synth_x, synth_y, synth_z;
     wire [7:0] synth_gesture;
+    wire synth_report_valid_latched;
+    wire synth_report_error_latched;
+    wire synth_touch_valid_latched;
+    wire [31:0] synth_touch_info_latched;
     wire synth_recording;
     wire synth_pattern_commit;
     wire synth_cell_event;
@@ -55,6 +62,21 @@ module mgc3130_uart_top #(
     wire [2:0] synth_active_voice_count;
     wire debug_uart_tx;
     wire audio_uart_tx;
+    wire control_uart_tx;
+    wire control_uart_busy;
+    wire loop_tx_valid, loop_tx_ready;
+    wire [7:0] loop_tx_data;
+    wire [3:0] loop_mode;
+    wire [1:0] loop_selected_track;
+    wire [6:0] loop_tick;
+    wire loop_active_valid, loop_fault_latched;
+    wire signed [15:0] loop_mixed_sample;
+    wire loop_sample_valid;
+    wire [2:0] loop_active_voice_count;
+    wire signed [15:0] selected_mixed_sample;
+    wire selected_sample_valid;
+    assign selected_mixed_sample = LOOP_CONTROL_ENABLE ? loop_mixed_sample : synth_mixed_sample;
+    assign selected_sample_valid = LOOP_CONTROL_ENABLE ? loop_sample_valid : synth_sample_valid;
     wire command_rx_valid,command_rx_error;
     wire [7:0] command_rx_data;
     // Physical RX is now reserved on B3. It is exposed to the future command
@@ -102,7 +124,11 @@ module mgc3130_uart_top #(
         .gesture_code(gesture_code), .input_valid(synth_input_valid),
         .xyz_valid_latched(synth_xyz_valid), .x_latched(synth_x),
         .y_latched(synth_y), .z_latched(synth_z),
-        .gesture_latched(synth_gesture)
+        .gesture_latched(synth_gesture),
+        .report_valid_latched(synth_report_valid_latched),
+        .report_error_latched(synth_report_error_latched),
+        .touch_valid_latched(synth_touch_valid_latched),
+        .touch_info_latched(synth_touch_info_latched)
     );
 
     mgc3130_pattern_input u_pattern_input (
@@ -136,6 +162,26 @@ module mgc3130_uart_top #(
         .sample_valid       (synth_sample_valid),
         .mixed_sample       (synth_mixed_sample),
         .active_voice_count (synth_active_voice_count)
+    );
+
+    mgc3130_loop_control_path #(
+        .CLK_HZ(50_000_000), .BAUD(115_200), .USE_GOWIN_RAM(1)
+    ) u_loop_control_path (
+        .clk(clk_50m), .rst_n(mgc_ready), .uart_rx(uart_rx),
+        .tx_valid(loop_tx_valid), .tx_ready(loop_tx_ready), .tx_data(loop_tx_data),
+        .report_valid(report_valid), .xyz_valid(xyz_valid), .report_error(report_error),
+        .touch_valid(touch_valid), .touch_info(touch_info),
+        .x_position(x_position), .y_position(y_position), .z_position(z_position),
+        .gesture_code(gesture_code), .mode(loop_mode),
+        .selected_track(loop_selected_track), .loop_tick(loop_tick),
+        .active_valid(loop_active_valid), .fault_latched(loop_fault_latched),
+        .mixed_sample(loop_mixed_sample), .sample_valid(loop_sample_valid),
+        .active_voice_count(loop_active_voice_count)
+    );
+    uart_byte_serializer #(.CLK_HZ(50_000_000), .BAUD(115_200)) u_control_tx (
+        .clk(clk_50m), .rst(!mgc_ready), .in_valid(loop_tx_valid && LOOP_CONTROL_ENABLE),
+        .in_ready(loop_tx_ready), .in_data(loop_tx_data), .tx(control_uart_tx),
+        .busy(control_uart_busy)
     );
 
     // ASCII snapshots every 20 ms: fast enough to capture the hand trajectory
@@ -284,8 +330,8 @@ module mgc3130_uart_top #(
         .STREAM_HZ  (48_000)
     ) u_audio_uart_tx (
         .clk(clk_50m), .rst(!mgc_ready),
-        .sample_valid(synth_sample_valid),
-        .mixed_sample(synth_mixed_sample),
+        .sample_valid(selected_sample_valid),
+        .mixed_sample(selected_mixed_sample),
         .tx(audio_uart_tx), .busy()
     );
 
@@ -295,8 +341,8 @@ module mgc3130_uart_top #(
     ) u_i2s_pcm5102a_tx (
         .clk          (clk_50m),
         .rst          (!mgc_ready),
-        .sample_valid (synth_sample_valid),
-        .sample_in    (synth_mixed_sample),
+        .sample_valid (selected_sample_valid),
+        .sample_in    (selected_mixed_sample),
         .i2s_bck      (i2s_bck),
         .i2s_lrck     (i2s_lrck),
         .i2s_din      (i2s_din)
@@ -306,7 +352,8 @@ module mgc3130_uart_top #(
     assign pcm5102a_lrck = AUDIO_OUTPUT ? i2s_lrck : 1'b0;
     assign pcm5102a_din  = AUDIO_OUTPUT ? i2s_din  : 1'b0;
 
-    assign uart_tx = AUDIO_STREAM ? audio_uart_tx : debug_uart_tx;
+    assign uart_tx = LOOP_CONTROL_ENABLE ? control_uart_tx :
+                     (AUDIO_STREAM ? audio_uart_tx : debug_uart_tx);
 
     always @(posedge clk_50m or negedge mgc_ready) begin
         if (!mgc_ready) begin
@@ -328,7 +375,7 @@ module mgc3130_uart_top #(
             if (report_valid && !report_error) valid_count <= valid_count + 1'b1;
             if (report_error) error_count <= error_count + 1'b1;
             st_start <= 0;
-            if (!st_sending) begin
+            if (!LOOP_CONTROL_ENABLE && !st_sending) begin
                 if (st_timer == STATUS_PERIOD - 1) begin
                     st_timer <= 0; st_index <= 0;
                     st_ts_latched <= ts_level;

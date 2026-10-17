@@ -1,0 +1,4 @@
+param([string]$ModelSimBin='C:\modeltech64_10.6d\win64')
+$ErrorActionPreference='Stop'; $root=Split-Path $PSScriptRoot -Parent
+$dir=Join-Path $root 'impl/modelsim_uart_byte_serializer'; New-Item -ItemType Directory -Force $dir|Out-Null; Push-Location $dir
+try { if(!(Test-Path work/_info)){& "$ModelSimBin/vlib.exe" work}; & "$ModelSimBin/vlog.exe" -sv -work work (Join-Path $root 'rtl/uart_tx.sv') (Join-Path $root 'rtl/uart_rx.sv') (Join-Path $root 'rtl/uart_byte_serializer.sv') (Join-Path $root 'sim/tb_uart_byte_serializer.sv') *> compile.log; if($LASTEXITCODE){throw 'compile failed'}; & "$ModelSimBin/vsim.exe" -c -l serializer.log work.tb_uart_byte_serializer -do 'run 1 ms; quit -code 0 -f' *> console.log; if($LASTEXITCODE -or !(Select-String -Path serializer.log -SimpleMatch 'tb_uart_byte_serializer PASS' -Quiet)){Get-Content serializer.log;throw 'serializer failed'}; 'tb_uart_byte_serializer PASS' } finally {Pop-Location}
