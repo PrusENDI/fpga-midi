@@ -31,6 +31,30 @@ TS=0 M=1 S=1 C=1 V=01 E=00 K=0 X=1234 Y=5678 Z=9ABC G=01 P=1 D=00000000 F=0012 L
 
 这仍是用于调试的每秒状态快照，不是逐报告实时输出。短暂的 gesture 可能不会出现在快照中。旧的 `mgc_uart_report_tx.sv` 二进制发送器保留，但当前顶层没有启用它。
 
+## Loop 控制协议与当前集成边界
+
+Loop 控制使用 10 字节二进制帧（115200、8N1）：
+
+```text
+55 AA opcode 04 arg0_lo arg0_hi arg1_lo arg1_hi sequence checksum
+```
+
+`checksum` 是从 `opcode` 到 `sequence` 的逐字节 XOR。应答为
+`AA 55 opcode status data0 data1 data2 data3 sequence checksum`，其中
+`status=0/1/2/3/4` 分别表示 `ACCEPTED/APPLIED/REJECTED/BUSY/ERROR`。
+支持的 opcode 为 `STATUS(0)`、`SET_MODE(1)`、`SET_BPM(2)`、
+`SELECT_TRACK(3)`、`PLAY(4)`、`STOP(5)`、`RECORD(6)`、`OVERDUB(7)`、
+`CLEAR_TRACK(8)`、`CLEAR_ALL(9)`、`COMMIT(10)`、`RESET(11)`、
+`READ_CSR(12)` 和 `SET_THRESHOLDS(13)`。BPM 范围是 60–180，轨道范围是 0–3。
+
+`rtl/mgc3130_loop_control_path.sv` 现已把 B3 UART RX、16 字节 RX FIFO、
+邮箱/CSR、MGC3130 锁存与事件适配器、Loop 音频路径连接起来，并通过
+`sim/tb_mgc3130_loop_control_path.sv` 验证命令应答和传感器事件到达 mixer。
+现有 `mgc3130_uart_top` 仍保持已验证的 ASCII 调试路径；该边界模块尚未替换
+顶层的旧 mixer/UART TX 选择，因此当前位流不能据此宣称板上 Loop 控制已经可用。
+STOP/RESET 在控制层会优先取消待处理操作、清空事件并关闭声部；故障会回到 IDLE
+并保留 sticky fault，已提交的 active Loop 不会因录音失败被改写。
+
 | K | 含义 |
 | --- | --- |
 | 0 | 无错误／最近传感器报告解析成功 |
