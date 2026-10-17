@@ -19,6 +19,8 @@
         <File path="rtl/uart_heartbeat.sv" type="file.verilog" enable="1"/>
         <File path="rtl/uart_tx.sv" type="file.verilog" enable="1"/>
         <File path="rtl/uart_rx.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/uart_rx_fifo.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/uart_control_link.sv" type="file.verilog" enable="1"/>
         <File path="rtl/performance_event_pkg.sv" type="file.verilog" enable="1"/>
         <File path="rtl/performance_event_fifo_wrapper.sv" type="file.verilog" enable="1"/>
         <File path="rtl/loop_event_ram.sv" type="file.verilog" enable="1"/>

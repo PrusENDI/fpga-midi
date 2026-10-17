@@ -7,7 +7,9 @@
 ## 边界与所有权
 
 - UART 端口是字节级 `rx_valid/ready/data`、`tx_valid/ready/data`。
-  物理 UART 接收器、接收 FIFO 和溢出恢复留到顶层集成；不可直接把无背压脉冲接进来。
+  `uart_rx` 已实现 8N1 接收，`uart_rx_fifo`（默认 16 字节）隔离物理时序和解析器，
+  满载时向接收器施加背压并粘滞记录 overflow/framing_error。B3 是本板 USB-UART RX。
+  TX 字节流的物理串行化和完整 mailbox 顶层接线仍待后续集成。
 - 输入、输出为 64 位演奏事件 valid/ready。输入适配器负责确认音符、持续时间、
   重复合并和 Touch/Presence；控制层只标记所选轨道、当前 tick 和追加槽位。
 - 模式管理器独占模式、轨道、BPM、录音生命周期；CSR 不直接写 RAM。

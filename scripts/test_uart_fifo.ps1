@@ -1,0 +1,3 @@
+param([string]$ModelSimBin='C:\modeltech64_10.6d\win64')
+$ErrorActionPreference='Stop';$root=Split-Path $PSScriptRoot -Parent;$dir=Join-Path $root 'impl/modelsim_uart_fifo';New-Item -ItemType Directory -Force $dir|Out-Null;Push-Location $dir
+try {if(!(Test-Path work/_info)){& "$ModelSimBin/vlib.exe" work};& "$ModelSimBin/vlog.exe" -sv -work work (Join-Path $root 'rtl/uart_rx_fifo.sv') (Join-Path $root 'sim/tb_uart_rx_fifo.sv') *> compile.log;if($LASTEXITCODE){throw 'compile failed'};& "$ModelSimBin/vsim.exe" -c -l fifo.log work.tb_uart_rx_fifo -do 'run 1 us; quit -code 0 -f' *> console.log;if($LASTEXITCODE -or !(Select-String -Path fifo.log -SimpleMatch 'tb_uart_rx_fifo PASS' -Quiet)){Get-Content fifo.log;throw 'fifo failed'};'uart fifo PASS'}finally{Pop-Location}
