@@ -2,6 +2,7 @@
 module tb_loop_audio_path;
  reg clk=0;always #5 clk=~clk;reg rst_n=0,rx_valid=0,tx_ready=1,record_start=0,live_valid=0,record_valid=0;
  reg[7:0]rx_data=0;wire rx_ready,tx_valid;wire[7:0]tx_data;reg[63:0]live_data=0,record_data=0;wire live_ready,record_ready;
+ reg modulation_valid=0; reg[63:0] modulation_data=0; wire modulation_ready; wire[1:0] selected_track; wire[15:0] start_enter,start_exit;
  wire signed[15:0]mixed_sample;wire sample_valid;wire[2:0]active_voice_count;wire[3:0]mode;wire[6:0]loop_tick;wire active_valid,fault_latched;
  loop_audio_path #(.CLK_HZ(12000),.OP_TIMEOUT_CYCLES(4000),.BOUNDARY_TIMEOUT_CYCLES(400000),.RX_TIMEOUT_CYCLES(100)) dut(.*,.adapter_idle(1'b1));
  task byte_in(input[7:0]b);begin @(negedge clk);rx_data=b;rx_valid=1;while(!rx_ready)@(negedge clk);@(negedge clk);rx_valid=0;end endtask
