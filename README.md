@@ -1,12 +1,62 @@
 # MGC3130 → FPGA → PC：官方 I2C MASTER 版本
 
+## Loop UART PC 控制端
+
+Loop 模式使用 B3 接收命令、C3 返回二进制 ACK，固定为 115200 8N1。控制程序位于
+`tools/loop_control_uart.py`，需要 pyserial：
+
+```powershell
+python -m pip install pyserial
+python tools/loop_control_uart.py --gui
+python tools/loop_control_uart.py --port COM7 status
+python tools/loop_control_uart.py --port COM7 bpm 120
+python tools/loop_control_uart.py --port COM7
+```
+
+推荐使用 `--gui`：窗口会自动列出 COM 口，连接后提供 LIVE、IDLE、PLAY、STOP、
+RESET、RECORD、OVERDUB、轨道选择、BPM、阈值和清除操作；底部日志会显示每个命令的
+TX 原始帧、ACK 状态和返回数据，连接后会先等待 FPGA 约 2.4 秒启动；如果没有收到
+ACK，窗口会报告超时并提示检查位流、B3/C3 接线和波特率。默认每 1.5 秒刷新一次状态。
+录音和清除操作保留确认提示。
+
+可用命令包括 `status`、`live`、`idle`、`bpm N`、`track N`、`play`、`stop`、
+`record`、`overdub`、`clear-track`、`clear-all`、`commit`、`reset`、
+`thresholds ENTER EXIT`、`read-csr ADDR`、`diag-input` 和 `diag-audio`。`record` 只会进入待录音状态，
+需要 MGC3130 输入从左边界进入后才开始录制；`play` 要求已经存在有效 Loop。
+
+排查 LIVE 无声时先读两个诊断 CSR，不需要接 PCM5102A：
+
+```powershell
+python tools\loop_control_uart.py --port COM4 diag-input
+python tools\loop_control_uart.py --port COM4 live
+python tools\loop_control_uart.py --port COM4 diag-audio
+```
+
+`diag-input` 读取 CSR `0x3C`，返回值低 16 位是 MGC 报告计数，高 16 位是有效
+XYZ 计数；`diag-audio` 读取 CSR `0x40`，低 3 位是活动声部数，bits 15:8 是
+NOTE_ON 计数，bits 31:16 是 48 kHz mixer 采样计数。计数器上电清零并饱和，
+因此执行命令前后各读一次即可观察增量。报告计数不增加表示 MGC reader 到 Loop
+边界断开；报告增加但 XYZ 为零表示位置字段/有效标志断开；XYZ 增加但 NOTE_ON
+不增加表示输入事件确认或模式路由断开；NOTE_ON 增加而活动声部和采样计数不增加
+表示 voice bridge/mixer 断开。
+
+## Loop 顶层构建与烧录边界
+
+GUI 或脚本构建时选择顶层 `mgc3130_uart_loop_top`。该包装器把
+`LOOP_CONTROL_ENABLE=1` 固定下来，生成的目标文件名为
+`bitstream/mgc3130_uart_loop.fs`。只有在 Gowin 综合、Place & Route、时序检查
+和 `.fs` 生成全部成功后，才能把这个新位流烧录到板上；仓库中旧的 `impl/pnr/ao_0.fs`
+是此前顶层生成的文件，不能当作 Loop 位流。
+
 2026-10-11 已将自编写的 I2C 位时序替换为 Gowin V1.9.12.04 自带的官方 **I2C MASTER**。板载时钟、MCLR、TS 接线和已验证的板载 USB-UART 保持原配置。
 
 ## 现在烧录哪个文件
 
-使用 `bitstream/mgc3130_uart_official_i2c_gao.fs`。它是最新 `impl/pnr/ao_0.fs` 的副本，包含 GAO。
-
-**不要选择旧的 `impl/pnr/mgc3130_uart.fs`**：启用 GAO 后高云输出的是 `ao_0.fs`，旧文件可能仍留在目录里。
+`bitstream/mgc3130_uart_official_i2c_gao.fs` 是旧的 ASCII/音频路径位流，
+只能用于回退和传感器诊断。Loop 功能要先在 Gowin GUI 或 `scripts/build.tcl`
+中以 `mgc3130_uart_loop_top` 完成一次新的综合、Place & Route、时序检查，
+再烧录生成的 `bitstream/mgc3130_uart_loop.fs`。在新 `.fs` 生成之前，不能把旧文件
+当作已支持 Loop 的位流。
 
 Programmer 选择已能正常工作的板载 USB-JTAG Cable，扫描 GW5A-25A，选择上述文件，执行 `SRAM Program`。完成后等约 2.25 秒，串口打开 **115200、8N1、无流控、文本显示**。
 
@@ -50,10 +100,20 @@ Loop 控制使用 10 字节二进制帧（115200、8N1）：
 `rtl/mgc3130_loop_control_path.sv` 现已把 B3 UART RX、16 字节 RX FIFO、
 邮箱/CSR、MGC3130 锁存与事件适配器、Loop 音频路径连接起来，并通过
 `sim/tb_mgc3130_loop_control_path.sv` 验证命令应答和传感器事件到达 mixer。
-现有 `mgc3130_uart_top` 仍保持已验证的 ASCII 调试路径；该边界模块尚未替换
-顶层的旧 mixer/UART TX 选择，因此当前位流不能据此宣称板上 Loop 控制已经可用。
+`mgc3130_uart_loop_top` 已固定选择 Loop mixer、B3 二进制命令 RX 和 C3 ACK TX；
+旧的 `mgc3130_uart_top` 仍可用于 ASCII 调试构建。新的 Loop 顶层已经完成 Gowin
+综合、GAO 合并、Place & Route 和时序检查，并生成了对应 `.fs` 位流；尚未进行实机烧录
+和传感器/PCM5102A 硬件验证。
 STOP/RESET 在控制层会优先取消待处理操作、清空事件并关闭声部；故障会回到 IDLE
 并保留 sticky fault，已提交的 active Loop 不会因录音失败被改写。
+
+生产 Loop 位流的 RX 字节缓冲使用 `ip/gowin_uart_rx_fifo/` 中的 Gowin
+`FIFO_SC`（8 bit × 16，单时钟、FWFT、BSRAM 实现）。UART 采样、ready/valid
+边界、错误锁存和协议解析仍由 `rtl/` 中的自写 RTL 完成。ModelSim 使用同一接口的
+RTL fallback，不依赖加密 IP；`scripts/test_gowin_uart_rx_fifo.ps1` 会验证该边界。
+生产 Loop 顶层的 UART RX 采样器改为本地官方 Tang Primer UART 示例的状态机，
+其 B3 接收路径已经用 `RXTEST42` 在同一块板上验证；它通过同一 ready/valid 接口
+接入 FIFO，不改变上层二进制协议。
 
 | K | 含义 |
 | --- | --- |
@@ -92,6 +152,11 @@ rtl/
   mgc3130_reset_seq.sv   MCLR 上电复位
   mgc3130_reader.sv      TS 控制、IP 寄存器操作、读消息、解析报告
   uart_tx.sv            115200 UART 字节发送
+  uart_rx_ref.sv        官方 Tang Primer RX 状态机适配
+  gowin_uart_rx_fifo.sv Gowin FIFO 薄包装和仿真 fallback
+ip/gowin_uart_rx_fifo/
+  fifo_sc_top.v / fifo_sc.v  Gowin FIFO_SC 官方模板和加密核心
+  fifo_sc_define.v / fifo_sc_parameter.v  8 bit × 16、FWFT、BSRAM 参数
 ip/gowin_i2c_master/
   I2C_MASTER_TOP.v      官方包装模块
   I2C_MASTER.vp         官方加密核心
@@ -139,10 +204,12 @@ backup_before_official_ip/ 替换前的 reader、top、工程、GAO 和 README
 
 在 Gowin IDE 中关闭并重新打开 `mgc3130_uart.gprj`，以重新加载新增的 IP 文件和 GAO 设置。
 
-1. 确认器件 GW5A-LV25MG121NES，顶层 `mgc3130_uart_top`，语言 Verilog-2001。
-2. Include Path 设置为本工程的 `ip/gowin_i2c_master` 目录；当前配置已写入 `impl/mgc3130_uart_process_config.json`。
+1. 确认器件 GW5A-LV25MG121NES，顶层 `mgc3130_uart_loop_top`，语言 SystemVerilog 2017。
+2. Include Path 至少包含本工程的 `ip/gowin_i2c_master` 和
+   `ip/gowin_uart_rx_fifo` 目录；脚本构建会自动设置这两个路径。
 3. 保持 Use SSPI as Regular IO 为 True。
-4. 执行 Synthesize，再执行 Place & Route。启用 GAO 时最新位流为 `impl/pnr/ao_0.fs`。
+4. 执行 Synthesize，再执行 Place & Route。启用 GAO 时输出中间文件为 `impl/pnr/ao_0.fs`，
+   脚本会将它复制为 `bitstream/mgc3130_uart_loop.fs`。
 
 也可直接执行：
 
@@ -150,7 +217,28 @@ backup_before_official_ip/ 替换前的 reader、top、工程、GAO 和 README
 & 'C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe' 'C:\weizijian\documents\gowin fpga\mgc3130_uart\scripts\build.tcl'
 ```
 
-该脚本成功编译后，会将 `ao_0.fs` 复制到 `bitstream/mgc3130_uart_official_i2c_gao.fs`。
+该脚本成功编译后，会将 `ao_0.fs` 复制到 `bitstream/mgc3130_uart_loop.fs`。
+
+## 用板载 JTAG/GAO 抓 Loop 断点
+
+工程已启用 Gowin Analyzer Oscilloscope，配置文件是 `mgc3130_uart.rao`，采样时钟为
+`clk_50m`，深度 8192。JTAG 线同时用于下载和 GAO 采样，不需要占用 UART 引脚。
+重新生成并烧录包含 GAO 的 Loop 位流后，在 Gowin Analyzer 中打开该 `.rao`，连接
+同一块 GW5A 的 USB-JTAG Cable，触发后可观察以下边界：
+
+```text
+u_top/u_loop_control_path/report_valid
+u_top/u_loop_control_path/xyz_valid
+u_top/u_loop_control_path/latched_report_valid
+u_top/u_loop_control_path/latched_xyz_valid
+u_top/u_loop_control_path/adapter/live_valid/live_ready
+u_top/u_loop_control_path/audio_path/note_on/note_off/sample_valid
+```
+
+`report_valid` 有波形而 `latched_report_valid` 没有波形，问题在输入锁存；两者都有
+而 `live_valid` 没有波形，问题在事件适配；`note_on` 有波形而活动声部仍为零，问题
+在 bridge/mixer。GAO 不是 HDL 源码单步调试器，必须在综合前把信号加入 `.rao`，并重新
+综合、布局布线、烧录后才能采集；采样深度有限，适合抓触发附近的单周期事件。
 
 ## GAO
 
@@ -158,7 +246,7 @@ backup_before_official_ip/ 替换前的 reader、top、工程、GAO 和 README
 
 `rtl/mgc3130_pattern_input.sv` 使用 MGC3130 固定校准坐标建立临时无按键录制入口：X 在 `0x1000..0xF000` 内量化为 8 个较宽时间格，左边界连续确认 3 帧开始，右边界连续确认 3 帧提交；Y 量化为 C 大调内的 8 个根音区 `C/D/E/F/G/A/B/C`，Z 映射为 8 位 velocity。手势暂不参与音符逻辑。
 
-`rtl/mgc3130_voice_mixer.sv` 维护 4 个独立方波 DDS 声部，在 48 kHz 采样节拍产生带饱和的有符号 16 位混音样本。当前输出只到 `mixed_sample` 数字接口，尚未连接 PWM、I2S、DAC 或新增物理管脚。
+`rtl/mgc3130_voice_mixer.sv` 维护 4 个独立方波 DDS 声部，在 48 kHz 采样节拍产生带饱和的有符号 16 位混音样本；Loop 顶层已连接到 PCM5102A I²S 输出。
 
 音符切换时先关闭旧声部并插入约 5 ms 的静音，再启动新音符，避免相邻量化音符听成连续阶梯滑音。
 
@@ -292,4 +380,8 @@ mgc3130_reader
 
 ### Loop 顶层切换
 
-`mgc3130_uart_top` 的 `LOOP_CONTROL_ENABLE` 参数控制路径选择。设为 `1` 时，B3 接收 Loop 二进制命令，C3 返回 mailbox 应答，PCM5102A 使用 Loop mixer 输出；设为 `0` 时保留旧 ASCII/音频路径。RX overflow、framing error、adapter overflow 和控制 fault 已在 Loop 边界暴露。Presence 释放按 XYZ 无效或超时处理，TouchInfo 仅用于诊断。
+`mgc3130_uart_top` 的 `LOOP_CONTROL_ENABLE` 参数控制路径选择；工程默认顶层
+`mgc3130_uart_loop_top` 将其固定为 `1`。B3 接收 Loop 二进制命令，C3 返回 mailbox
+应答，PCM5102A 使用 Loop mixer 输出；设为 `0` 时保留旧 ASCII/音频路径。RX overflow、
+framing error、adapter overflow 和控制 fault 已在 Loop 边界暴露。Presence 释放按 XYZ
+无效或超时处理，TouchInfo 仅用于诊断。

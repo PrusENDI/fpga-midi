@@ -8,6 +8,11 @@ module tb_control_csr;
     wire [15:0] cmd_arg0,cmd_arg1;
     reg cmd_rsp_valid=0; wire cmd_rsp_ready;
     reg [7:0] cmd_rsp_status=1; reg [31:0] cmd_rsp_data=32'h12345678;
+    reg [15:0] report_count=16'h1234, xyz_count=16'habcd, sample_count=16'h5678;
+    reg [7:0] note_on_count=8'h9a;
+    reg [2:0] active_voice_count=3'd5;
+    reg [7:0] diag_flags=8'hf5;
+    reg [7:0] router_status=8'ha7;
     control_csr dut(.*,.mode(4'd5),.selected_track(2'd2),.bpm_shadow(16'd120),
         .active_bpm(16'd90),.start_enter(16'h2000),.start_exit(16'h3000),
         .loop_tick(7'd127),.active_valid(1'b1),.commit_pending(1'b0),.fault_latched(1'b1));
@@ -27,6 +32,9 @@ module tb_control_csr;
         request(0,0,0);reply(1,5);
         request(0,8'h08,0);reply(1,{16'd90,16'd120});
         request(0,8'h30,0);reply(1,32'h30002000);
+        request(0,8'h3c,0);reply(1,32'habcd1234);
+        request(0,8'h40,0);reply(1,32'h56789af5);
+        request(0,8'h44,0);reply(1,32'h000000a7);
         request(1,0,123);reply(2,0);
         request(0,8'hff,0);reply(2,0);
         request(1,8'h08,32'd180);

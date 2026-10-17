@@ -4,6 +4,8 @@ module mgc3130_uart_top #(
     parameter integer AUDIO_STREAM = 0,
     parameter integer AUDIO_OUTPUT = 1,
     parameter integer LOOP_CONTROL_ENABLE = 0,
+    parameter integer USE_GOWIN_UART_FIFO = 0,
+    parameter integer USE_REF_UART_RX = 0,
     parameter integer RESET_LOW_MS = 250,
     parameter integer STARTUP_WAIT_MS = 2000
 ) (
@@ -73,7 +75,12 @@ module mgc3130_uart_top #(
     wire signed [15:0] loop_mixed_sample;
     wire loop_sample_valid;
     wire [2:0] loop_active_voice_count;
+    wire [15:0] loop_report_count, loop_xyz_count;
     wire loop_rx_overflow, loop_rx_framing_error, loop_adapter_overflow;
+    wire banner_tx, banner_busy;
+    wire control_serializer_ready;
+    wire loop_enable_bit;
+    assign loop_enable_bit = (LOOP_CONTROL_ENABLE != 0);
     wire signed [15:0] selected_mixed_sample;
     wire selected_sample_valid;
     assign selected_mixed_sample = LOOP_CONTROL_ENABLE ? loop_mixed_sample : synth_mixed_sample;
@@ -166,10 +173,11 @@ module mgc3130_uart_top #(
     );
 
     mgc3130_loop_control_path #(
-        .CLK_HZ(50_000_000), .BAUD(115_200), .USE_GOWIN_RAM(1)
+        .CLK_HZ(50_000_000), .BAUD(115_200), .USE_GOWIN_RAM(1),
+        .USE_GOWIN_FIFO(USE_GOWIN_UART_FIFO), .USE_REF_UART_RX(USE_REF_UART_RX)
     ) u_loop_control_path (
         .clk(clk_50m), .rst_n(mgc_ready), .uart_rx(uart_rx),
-        .tx_valid(loop_tx_valid), .tx_ready(loop_tx_ready), .tx_data(loop_tx_data),
+        .tx_valid(loop_tx_valid), .tx_ready(control_serializer_ready), .tx_data(loop_tx_data),
         .report_valid(report_valid), .xyz_valid(xyz_valid), .report_error(report_error),
         .touch_valid(touch_valid), .touch_info(touch_info),
         .x_position(x_position), .y_position(y_position), .z_position(z_position),
@@ -179,13 +187,26 @@ module mgc3130_uart_top #(
         .rx_overflow(loop_rx_overflow), .rx_framing_error(loop_rx_framing_error),
         .adapter_overflow(loop_adapter_overflow),
         .mixed_sample(loop_mixed_sample), .sample_valid(loop_sample_valid),
-        .active_voice_count(loop_active_voice_count)
+        .active_voice_count(loop_active_voice_count),
+        .report_count(loop_report_count), .xyz_count(loop_xyz_count)
     );
     uart_byte_serializer #(.CLK_HZ(50_000_000), .BAUD(115_200)) u_control_tx (
-        .clk(clk_50m), .rst(!mgc_ready), .in_valid(loop_tx_valid && LOOP_CONTROL_ENABLE),
+        .clk(clk_50m), .rst(!mgc_ready), .in_valid(loop_tx_valid && LOOP_CONTROL_ENABLE && !banner_busy),
         .in_ready(loop_tx_ready), .in_data(loop_tx_data), .tx(control_uart_tx),
         .busy(control_uart_busy)
     );
+
+    // The Loop build emits this one-shot marker as soon as the MGC startup
+    // reset completes.  It makes a wrong bitstream, wrong COM channel, or
+    // missing C3 connection immediately distinguishable from a protocol bug.
+    uart_banner_tx #(.CLK_HZ(50_000_000), .BAUD(115_200)) u_loop_banner (
+        .clk   (clk_50m),
+        .rst   (!mgc_ready || !loop_enable_bit),
+        .enable(loop_enable_bit),
+        .tx    (banner_tx),
+        .busy  (banner_busy)
+    );
+    assign control_serializer_ready = LOOP_CONTROL_ENABLE && !banner_busy && loop_tx_ready;
 
     // ASCII snapshots every 20 ms: fast enough to capture the hand trajectory
     // while remaining below the 115200-baud UART line capacity.
@@ -355,7 +376,7 @@ module mgc3130_uart_top #(
     assign pcm5102a_lrck = AUDIO_OUTPUT ? i2s_lrck : 1'b0;
     assign pcm5102a_din  = AUDIO_OUTPUT ? i2s_din  : 1'b0;
 
-    assign uart_tx = LOOP_CONTROL_ENABLE ? control_uart_tx :
+    assign uart_tx = LOOP_CONTROL_ENABLE ? (banner_busy ? banner_tx : control_uart_tx) :
                      (AUDIO_STREAM ? audio_uart_tx : debug_uart_tx);
 
     always @(posedge clk_50m or negedge mgc_ready) begin

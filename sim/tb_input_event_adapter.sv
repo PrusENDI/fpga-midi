@@ -89,12 +89,24 @@ module tb_input_event_adapter;
    step(3); if(!modulation_valid || modulation_event!==held) $fatal(1,"modulation hold");
    clear_adapter(); if(modulation_valid || overflow) $fatal(1,"flush cancels modulation");
    modulation_ready=1; mode=MODE_LIVE;
+   // One-cycle downstream stalls are normal. A single pending event plus one
+   // additional event fits the adapter's two-entry live queue and must not
+   // be reported as overflow.
+   report('h1000,'h1000,'h8000); report('h1000,'h1000,'h8000);
+   live_ready=0;
+   report('h1000,'h1000,'h9000); report('h1000,'h1000,'ha000);
+   if(overflow) $fatal(1,"two-entry live queue falsely overflowed");
+   live_ready=1; step(4); clear_adapter(); mode=MODE_LIVE;
    report('h1000,'h1000,'h8000); report('h1000,'h1000,'h8000);
    live_ready=0; report('h1000,'hf000,'h8000); report('h1000,'hf000,'h8000);
    held=live_event; step(3); if(!live_valid || live_event!==held) $fatal(1,"live hold");
    report('h5000,'hf000,'h9000);
-   if(!overflow || !live_valid || live_event[2:0]!=EVENT_ALL_NOTES_OFF) $fatal(1,"bounded overflow safeoff");
-   live_ready=1; step(3); clear_adapter();
+   if(overflow || !live_valid) $fatal(1,"LIVE stall must coalesce without overflow");
+   live_ready=1; step(3);
+   old_on=ons;
+   report('h1000,'h1000,'h8000); report('h1000,'h1000,'h8000);
+   if(ons<=old_on) $fatal(1,"LIVE must recover after safeoff handshake");
+   clear_adapter();
    report('h1000,'h1000,'h8000); report('h1000,'h1000,'h8000);
    old_on=offs; step(105); if(offs<=old_on) $fatal(1,"timeout release");
    $display("tb_input_event_adapter PASS"); $finish;

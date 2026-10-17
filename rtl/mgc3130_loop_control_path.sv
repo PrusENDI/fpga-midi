@@ -5,6 +5,8 @@ module mgc3130_loop_control_path #(
     parameter integer CLK_HZ=50_000_000,
     parameter integer BAUD=115_200,
     parameter integer USE_GOWIN_RAM=1,
+    parameter integer USE_GOWIN_FIFO=0,
+    parameter integer USE_REF_UART_RX=0,
     parameter integer OP_TIMEOUT_CYCLES=CLK_HZ,
     parameter integer BOUNDARY_TIMEOUT_CYCLES=1_700_000_000,
     parameter integer RX_TIMEOUT_CYCLES=500000
@@ -21,14 +23,17 @@ module mgc3130_loop_control_path #(
     output wire rx_overflow, output wire rx_framing_error,
     output wire adapter_overflow,
     output wire signed [15:0] mixed_sample, output wire sample_valid,
-    output wire [2:0] active_voice_count
+    output wire [2:0] active_voice_count,
+    output reg [15:0] report_count, output reg [15:0] xyz_count
 );
     wire rx_valid, rx_ready;
     wire [7:0] rx_data;
-    uart_control_link #(.CLK_HZ(CLK_HZ),.BAUD(BAUD),.FIFO_DEPTH(16)) command_rx (
+    wire rx_overflow_i, rx_framing_error_i;
+    wire adapter_overflow_i;
+    uart_control_link #(.CLK_HZ(CLK_HZ),.BAUD(BAUD),.FIFO_DEPTH(16),.USE_GOWIN_FIFO(USE_GOWIN_FIFO),.USE_REF_UART_RX(USE_REF_UART_RX)) command_rx (
         .clk(clk), .rst(!rst_n), .rx(uart_rx), .rx_valid(rx_valid),
-        .rx_ready(rx_ready), .rx_data(rx_data), .overflow(rx_overflow),
-        .framing_error(rx_framing_error)
+        .rx_ready(rx_ready), .rx_data(rx_data), .overflow(rx_overflow_i),
+        .framing_error(rx_framing_error_i)
     );
 
     wire latched_input_valid, latched_xyz_valid, latched_report_valid;
@@ -55,6 +60,11 @@ module mgc3130_loop_control_path #(
     wire record_valid, record_ready; wire [63:0] record_data;
     wire modulation_valid, modulation_ready; wire [63:0] modulation_data;
     wire record_start, record_start_ready, adapter_idle;
+    wire adapter_flush;
+    // The loop control plane accepts the one-cycle record-start handshake
+    // whenever the adapter is armed; there is no downstream backpressure
+    // signal at this boundary.
+    assign record_start_ready = 1'b1;
     input_event_adapter adapter (
         .clk(clk), .rst_n(rst_n), .report_valid(latched_report_valid),
         .xyz_valid(latched_xyz_valid), .report_error(latched_report_error),
@@ -62,13 +72,13 @@ module mgc3130_loop_control_path #(
         .touch_valid(latched_touch_valid), .touch_info(latched_touch_info),
         .presence_valid(1'b0), .present(1'b1), .mode(mode),
         .selected_track(selected_track), .loop_tick(loop_tick),
-        .start_enter(start_enter), .start_exit(start_exit), .flush(1'b0),
+        .start_enter(start_enter), .start_exit(start_exit), .flush(adapter_flush),
         .live_valid(live_valid), .live_ready(live_ready), .live_event(live_data),
         .record_valid(record_valid), .record_ready(record_ready), .record_event(record_data),
         .modulation_valid(modulation_valid), .modulation_ready(modulation_ready),
         .modulation_event(modulation_data), .record_start(record_start),
         .record_start_ready(record_start_ready), .idle(adapter_idle),
-        .overflow(adapter_overflow)
+        .overflow(adapter_overflow_i)
     );
 
     loop_audio_path #(.CLK_HZ(CLK_HZ),.USE_GOWIN_RAM(USE_GOWIN_RAM),
@@ -82,15 +92,30 @@ module mgc3130_loop_control_path #(
         .record_valid(record_valid), .record_ready(record_ready), .record_data(record_data),
         .modulation_valid(modulation_valid), .modulation_ready(modulation_ready),
         .modulation_data(modulation_data), .adapter_idle(adapter_idle),
+        .flush_events(adapter_flush),
         .mixed_sample(mixed_sample), .sample_valid(sample_valid),
         .active_voice_count(active_voice_count), .mode(mode),
         .selected_track(selected_track), .start_enter(start_enter),
         .start_exit(start_exit), .loop_tick(loop_tick),
-        .active_valid(active_valid), .fault_latched(fault_latched)
+        .active_valid(active_valid), .fault_latched(fault_latched),
+        .adapter_overflow(adapter_overflow_i),
+        .report_count(report_count), .xyz_count(xyz_count)
     );
-    // The adapter's one-bit overflow and physical RX diagnostics are retained
-    // in the integration boundary for board-level status instrumentation.
-    assign rx_overflow = command_rx.overflow;
-    assign rx_framing_error = command_rx.framing_error;
-    assign adapter_overflow = adapter.overflow;
+    // Keep diagnostic output ports as explicit single-driver nets.  The Gowin
+    // synthesizer is stricter than simulation when a child output is connected
+    // directly to a parent output port.
+    assign rx_overflow = rx_overflow_i;
+    assign rx_framing_error = rx_framing_error_i;
+    assign adapter_overflow = adapter_overflow_i;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            report_count <= 16'd0;
+            xyz_count <= 16'd0;
+        end else begin
+            if (report_valid && report_count != 16'hffff)
+                report_count <= report_count + 1'b1;
+            if (report_valid && xyz_valid && !report_error && xyz_count != 16'hffff)
+                xyz_count <= xyz_count + 1'b1;
+        end
+    end
 endmodule

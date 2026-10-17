@@ -8,7 +8,11 @@ module tb_loop_control_plane #(parameter USE_GOWIN_RAM=0);
     reg [63:0] in_data=0,record_in_data=0;wire [63:0] out_data;wire record_in_ready;
     wire [3:0] mode;wire [1:0] selected_track;
     wire [15:0] bpm_shadow,active_bpm,start_enter,start_exit;
-    wire [6:0] loop_tick;wire active_valid,fault_latched,live_enable,record_enable,play_enable;
+    wire [6:0] loop_tick;wire active_valid,fault_latched,live_enable,record_enable,play_enable,flush_events;wire [2:0] router_debug;wire [7:0] router_status;
+    reg [15:0] report_count=0,xyz_count=0,sample_count=0;
+    reg [7:0] note_on_count=0;
+    reg [2:0] active_voice_count=0;
+    reg [7:0] diag_flags=0;
     loop_control_plane #(.CLK_HZ(12000),.USE_GOWIN_RAM(USE_GOWIN_RAM),
         .OP_TIMEOUT_CYCLES(4000),.BOUNDARY_TIMEOUT_CYCLES(400000),.RX_TIMEOUT_CYCLES(100)) dut(.*);
     reg [7:0] response[0:9];integer reply_index=0;

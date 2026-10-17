@@ -18,7 +18,14 @@ module loop_control_plane #(
     output wire [3:0] mode,output wire [1:0] selected_track,
     output wire [15:0] bpm_shadow,active_bpm,start_enter,start_exit,
     output wire [6:0] loop_tick,output wire active_valid,fault_latched,
-    output wire live_enable,record_enable,play_enable
+    output wire live_enable,record_enable,play_enable,
+    output wire flush_events,
+    output wire [2:0] router_debug,
+    output wire [7:0] router_status,
+    input wire [15:0] report_count,xyz_count,sample_count,
+    input wire [7:0] note_on_count,
+    input wire [2:0] active_voice_count,
+    input wire [7:0] diag_flags
 );
     wire req_valid,req_ready,req_write,rsp_valid,rsp_ready;
     wire [7:0] req_addr,rsp_status;wire [31:0] req_wdata,rsp_rdata;
@@ -39,12 +46,15 @@ module loop_control_plane #(
         .cmd_rsp_valid(cmd_rsp_valid),.cmd_rsp_ready(cmd_rsp_ready),.cmd_rsp_status(cmd_rsp_status),.cmd_rsp_data(cmd_rsp_data),
         .mode(mode),.selected_track(selected_track),.bpm_shadow(bpm_shadow),.active_bpm(active_bpm),
         .start_enter(start_enter),.start_exit(start_exit),.loop_tick(loop_tick),.active_valid(active_valid),
-        .commit_pending(store_commit_pending),.fault_latched(fault_latched));
+        .commit_pending(store_commit_pending),.fault_latched(fault_latched),
+        .report_count(report_count),.xyz_count(xyz_count),.sample_count(sample_count),
+        .note_on_count(note_on_count),.active_voice_count(active_voice_count),.diag_flags(diag_flags),
+        .router_status(router_status));
     wire store_ctrl_valid,store_ctrl_ready,store_ctrl_done,store_commit_ack,store_busy;
     wire [2:0] store_ctrl_op;wire [1:0] store_ctrl_track;
     wire [19:0] store_record_count;wire [3:0] store_overflow;
     wire store_abort,store_boundary,scheduler_run,scheduler_stop,scheduler_reset,boundary_ready;
-    wire kill_valid,kill_ready,flush_events,router_idle,record_accepted,record_overflow;
+    wire kill_valid,kill_ready,router_idle,record_accepted,record_overflow;
     wire sixteenth_ce,loop_boundary,scheduler_fault;
     mode_manager #(.OP_TIMEOUT_CYCLES(OP_TIMEOUT_CYCLES),.BOUNDARY_TIMEOUT_CYCLES(BOUNDARY_TIMEOUT_CYCLES)) manager (
         .clk(clk),.rst_n(rst_n),.cmd_valid(cmd_valid),.cmd_ready(cmd_ready),.cmd_opcode(cmd_opcode),.cmd_arg0(cmd_arg0),.cmd_arg1(cmd_arg1),
@@ -80,17 +90,33 @@ module loop_control_plane #(
         .event_valid(sched_valid),.event_ready(sched_ready),.event_data(sched_data),.sixteenth_ce(sixteenth_ce),
         .loop_tick(loop_tick),.loop_boundary(loop_boundary),.stall(),.fault_valid(scheduler_fault),.fault_code(),.fault_info(),
         .heartbeat_toggle(),.active_bpm(active_bpm));
-    wire routed_in_valid,routed_in_ready;wire [63:0] routed_in_data;
-    input_event_mux input_mux (
+    wire ingress_live_valid,ingress_live_ready;wire [63:0] ingress_live_data;
+    wire ingress_record_valid,ingress_record_ready;wire [63:0] ingress_record_data;
+    wire [15:0] ingress_live_level,ingress_record_level;wire ingress_mod_pending;
+    performance_event_ingress #(.DEPTH(16)) ingress (
         .clk(clk),.rst_n(rst_n),.flush(flush_events | urgent_edge),
-        .live_valid(in_valid),.live_ready(in_ready),.live_data(in_data),
-        .record_valid(record_in_valid),.record_ready(record_in_ready),.record_data(record_in_data),
-        .out_valid(routed_in_valid),.out_ready(routed_in_ready),.out_data(routed_in_data));
-    performance_event_router router (
+        .live_in_valid(in_valid),.live_in_ready(in_ready),.live_in_data(in_data),
+        .live_out_valid(ingress_live_valid),.live_out_ready(ingress_live_ready),.live_out_data(ingress_live_data),
+        .record_in_valid(record_in_valid),.record_in_ready(record_in_ready),.record_in_data(record_in_data),
+        .record_out_valid(ingress_record_valid),.record_out_ready(ingress_record_ready),.record_out_data(ingress_record_data),
+        .modulation_in_valid(1'b0),.modulation_in_ready(),.modulation_in_data(64'd0),
+        .modulation_out_valid(),.modulation_out_ready(1'b0),.modulation_out_data(),
+        .live_level(ingress_live_level),.record_level(ingress_record_level),.modulation_pending(ingress_mod_pending));
+    performance_event_router #(.SPLIT_INPUTS(1)) router (
         .clk(clk),.rst_n(rst_n),.flush(flush_events | urgent_edge),.live_enable(live_enable),.record_enable(record_enable),.play_enable(play_enable),
         .selected_track(selected_track),.loop_tick(loop_tick),.store_record_count(store_record_count),
-        .in_valid(routed_in_valid),.in_ready(routed_in_ready),.in_data(routed_in_data),.sched_valid(sched_valid),.sched_ready(sched_ready),.sched_data(sched_data),
+        .in_valid(1'b0),.in_ready(),.in_data(64'd0),
+        .live_in_valid(ingress_live_valid),.live_in_ready(ingress_live_ready),.live_in_data(ingress_live_data),
+        .record_in_valid(ingress_record_valid),.record_in_ready(ingress_record_ready),.record_in_data(ingress_record_data),
+        .sched_valid(sched_valid),.sched_ready(sched_ready),.sched_data(sched_data),
         .kill_valid(kill_valid),.kill_ready(kill_ready),.out_valid(out_valid),.out_ready(out_ready),.out_data(out_data),
         .write_valid(write_valid),.write_ready(write_ready),.write_track(write_track),.write_slot(write_slot),.write_data(write_data),
-        .idle(router_idle),.record_accepted(record_accepted),.record_overflow(record_overflow));
+        .idle(router_idle),.record_accepted(record_accepted),.record_overflow(record_overflow),
+        .pending_debug(router_debug));
+    // One-byte read-only snapshot for board bring-up.  It distinguishes a
+    // router arbitration gate from a stuck adapter/mux handshake.
+    // CSR 0x44 exposes independent queue occupancy.  Pending arbitration and
+    // kill state remain in the audio diagnostic byte and are never inferred
+    // from a single shared ready bit.
+    assign router_status={ingress_record_level[3:0],ingress_live_level[3:0]};
 endmodule

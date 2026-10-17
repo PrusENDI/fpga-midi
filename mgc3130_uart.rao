@@ -2,85 +2,131 @@
 <GAO_CONFIG>
     <Version>3.0</Version>
     <Mode>Standard</Mode>
-    <AoCore index="0" sample_clock="clk_50m" trig_type="0" storage_depth="8192" window_num="1" capture_amount="8192" implementation="0" trigger_pos="0" module_name="mgc3130_uart_top" force_trigger_by_falling_edge="false" capture_init_data_enabled="false">
+    <AoCore index="0" sample_clock="clk_50m" trig_type="0" storage_depth="8192" window_num="1" capture_amount="8192" implementation="0" trigger_pos="0" module_name="mgc3130_uart_loop_top" force_trigger_by_falling_edge="false" capture_init_data_enabled="false">
         <SignalList>
-            <Signal capture_enable="true">u_reader/ts_in</Signal>
-            <Signal capture_enable="true">u_reader/sda_in</Signal>
-            <Signal capture_enable="true">u_reader/scl_in</Signal>
-            <Signal capture_enable="true">u_reader/ts_oe</Signal>
-            <Signal capture_enable="true">u_reader/report_valid</Signal>
-            <Signal capture_enable="true">u_reader/report_error</Signal>
-            <Signal capture_enable="true">u_reader/ip_wr_en</Signal>
-            <Signal capture_enable="true">u_reader/ip_rd_en</Signal>
-            <Bus capture_enable="true" name="u_reader/state[5:0]">
-                <Signal>u_reader/state[5]</Signal>
-                <Signal>u_reader/state[4]</Signal>
-                <Signal>u_reader/state[3]</Signal>
-                <Signal>u_reader/state[2]</Signal>
-                <Signal>u_reader/state[1]</Signal>
-                <Signal>u_reader/state[0]</Signal>
+            <Signal capture_enable="true">u_top/u_reader/ts_in</Signal>
+            <Signal capture_enable="true">u_top/u_reader/sda_in</Signal>
+            <Signal capture_enable="true">u_top/u_reader/scl_in</Signal>
+            <Signal capture_enable="true">u_top/u_reader/ts_oe</Signal>
+            <Signal capture_enable="true">u_top/u_reader/report_valid</Signal>
+            <Signal capture_enable="true">u_top/u_reader/report_error</Signal>
+            <Signal capture_enable="true">u_top/u_loop_control_path/report_valid</Signal>
+            <Signal capture_enable="true">u_top/u_loop_control_path/xyz_valid</Signal>
+            <Signal capture_enable="true">u_top/u_loop_control_path/report_error</Signal>
+            <Signal capture_enable="true">u_top/u_loop_control_path/latched_report_valid</Signal>
+            <Signal capture_enable="true">u_top/u_loop_control_path/latched_xyz_valid</Signal>
+            <Signal capture_enable="true">u_top/u_loop_control_path/adapter/live_valid</Signal>
+            <Signal capture_enable="true">u_top/u_loop_control_path/adapter/live_ready</Signal>
+            <Signal capture_enable="true">u_top/u_loop_control_path/audio_path/note_on</Signal>
+            <Signal capture_enable="true">u_top/u_loop_control_path/audio_path/note_off</Signal>
+            <Signal capture_enable="true">u_top/u_loop_control_path/audio_path/sample_valid</Signal>
+            <Bus capture_enable="true" name="u_top/u_loop_control_path/report_count[15:0]">
+                <Signal>u_top/u_loop_control_path/report_count[15]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[14]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[13]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[12]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[11]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[10]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[9]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[8]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[7]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[6]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[5]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[4]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[3]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[2]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[1]</Signal>
+                <Signal>u_top/u_loop_control_path/report_count[0]</Signal>
             </Bus>
-            <Bus capture_enable="true" name="u_reader/ip_status[7:0]">
-                <Signal>u_reader/ip_status[7]</Signal>
-                <Signal>u_reader/ip_status[6]</Signal>
-                <Signal>u_reader/ip_status[5]</Signal>
-                <Signal>u_reader/ip_status[4]</Signal>
-                <Signal>u_reader/ip_status[3]</Signal>
-                <Signal>u_reader/ip_status[2]</Signal>
-                <Signal>u_reader/ip_status[1]</Signal>
-                <Signal>u_reader/ip_status[0]</Signal>
+            <Bus capture_enable="true" name="u_top/u_loop_control_path/xyz_count[15:0]">
+                <Signal>u_top/u_loop_control_path/xyz_count[15]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[14]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[13]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[12]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[11]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[10]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[9]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[8]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[7]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[6]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[5]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[4]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[3]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[2]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[1]</Signal>
+                <Signal>u_top/u_loop_control_path/xyz_count[0]</Signal>
             </Bus>
-            <Bus capture_enable="true" name="u_reader/rx_byte[7:0]">
-                <Signal>u_reader/rx_byte[7]</Signal>
-                <Signal>u_reader/rx_byte[6]</Signal>
-                <Signal>u_reader/rx_byte[5]</Signal>
-                <Signal>u_reader/rx_byte[4]</Signal>
-                <Signal>u_reader/rx_byte[3]</Signal>
-                <Signal>u_reader/rx_byte[2]</Signal>
-                <Signal>u_reader/rx_byte[1]</Signal>
-                <Signal>u_reader/rx_byte[0]</Signal>
+            <Signal capture_enable="true">u_top/u_reader/ip_wr_en</Signal>
+            <Signal capture_enable="true">u_top/u_reader/ip_rd_en</Signal>
+            <Bus capture_enable="true" name="u_top/u_reader/state[5:0]">
+                <Signal>u_top/u_reader/state[5]</Signal>
+                <Signal>u_top/u_reader/state[4]</Signal>
+                <Signal>u_top/u_reader/state[3]</Signal>
+                <Signal>u_top/u_reader/state[2]</Signal>
+                <Signal>u_top/u_reader/state[1]</Signal>
+                <Signal>u_top/u_reader/state[0]</Signal>
             </Bus>
-            <Bus capture_enable="true" name="u_reader/frame_length[7:0]">
-                <Signal>u_reader/frame_length[7]</Signal>
-                <Signal>u_reader/frame_length[6]</Signal>
-                <Signal>u_reader/frame_length[5]</Signal>
-                <Signal>u_reader/frame_length[4]</Signal>
-                <Signal>u_reader/frame_length[3]</Signal>
-                <Signal>u_reader/frame_length[2]</Signal>
-                <Signal>u_reader/frame_length[1]</Signal>
-                <Signal>u_reader/frame_length[0]</Signal>
+            <Bus capture_enable="true" name="u_top/u_reader/ip_status[7:0]">
+                <Signal>u_top/u_reader/ip_status[7]</Signal>
+                <Signal>u_top/u_reader/ip_status[6]</Signal>
+                <Signal>u_top/u_reader/ip_status[5]</Signal>
+                <Signal>u_top/u_reader/ip_status[4]</Signal>
+                <Signal>u_top/u_reader/ip_status[3]</Signal>
+                <Signal>u_top/u_reader/ip_status[2]</Signal>
+                <Signal>u_top/u_reader/ip_status[1]</Signal>
+                <Signal>u_top/u_reader/ip_status[0]</Signal>
             </Bus>
-            <Bus capture_enable="true" name="u_reader/ip_wr_data[7:0]">
-                <Signal>u_reader/ip_wr_data[7]</Signal>
-                <Signal>u_reader/ip_wr_data[6]</Signal>
-                <Signal>u_reader/ip_wr_data[5]</Signal>
-                <Signal>u_reader/ip_wr_data[4]</Signal>
-                <Signal>u_reader/ip_wr_data[3]</Signal>
-                <Signal>u_reader/ip_wr_data[2]</Signal>
-                <Signal>u_reader/ip_wr_data[1]</Signal>
-                <Signal>u_reader/ip_wr_data[0]</Signal>
+            <Bus capture_enable="true" name="u_top/u_reader/rx_byte[7:0]">
+                <Signal>u_top/u_reader/rx_byte[7]</Signal>
+                <Signal>u_top/u_reader/rx_byte[6]</Signal>
+                <Signal>u_top/u_reader/rx_byte[5]</Signal>
+                <Signal>u_top/u_reader/rx_byte[4]</Signal>
+                <Signal>u_top/u_reader/rx_byte[3]</Signal>
+                <Signal>u_top/u_reader/rx_byte[2]</Signal>
+                <Signal>u_top/u_reader/rx_byte[1]</Signal>
+                <Signal>u_top/u_reader/rx_byte[0]</Signal>
             </Bus>
-            <Bus capture_enable="true" name="u_reader/last_message_id[7:0]">
-                <Signal>u_reader/last_message_id[7]</Signal>
-                <Signal>u_reader/last_message_id[6]</Signal>
-                <Signal>u_reader/last_message_id[5]</Signal>
-                <Signal>u_reader/last_message_id[4]</Signal>
-                <Signal>u_reader/last_message_id[3]</Signal>
-                <Signal>u_reader/last_message_id[2]</Signal>
-                <Signal>u_reader/last_message_id[1]</Signal>
-                <Signal>u_reader/last_message_id[0]</Signal>
+            <Bus capture_enable="true" name="u_top/u_reader/frame_length[7:0]">
+                <Signal>u_top/u_reader/frame_length[7]</Signal>
+                <Signal>u_top/u_reader/frame_length[6]</Signal>
+                <Signal>u_top/u_reader/frame_length[5]</Signal>
+                <Signal>u_top/u_reader/frame_length[4]</Signal>
+                <Signal>u_top/u_reader/frame_length[3]</Signal>
+                <Signal>u_top/u_reader/frame_length[2]</Signal>
+                <Signal>u_top/u_reader/frame_length[1]</Signal>
+                <Signal>u_top/u_reader/frame_length[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_top/u_reader/ip_wr_data[7:0]">
+                <Signal>u_top/u_reader/ip_wr_data[7]</Signal>
+                <Signal>u_top/u_reader/ip_wr_data[6]</Signal>
+                <Signal>u_top/u_reader/ip_wr_data[5]</Signal>
+                <Signal>u_top/u_reader/ip_wr_data[4]</Signal>
+                <Signal>u_top/u_reader/ip_wr_data[3]</Signal>
+                <Signal>u_top/u_reader/ip_wr_data[2]</Signal>
+                <Signal>u_top/u_reader/ip_wr_data[1]</Signal>
+                <Signal>u_top/u_reader/ip_wr_data[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_top/u_reader/last_message_id[7:0]">
+                <Signal>u_top/u_reader/last_message_id[7]</Signal>
+                <Signal>u_top/u_reader/last_message_id[6]</Signal>
+                <Signal>u_top/u_reader/last_message_id[5]</Signal>
+                <Signal>u_top/u_reader/last_message_id[4]</Signal>
+                <Signal>u_top/u_reader/last_message_id[3]</Signal>
+                <Signal>u_top/u_reader/last_message_id[2]</Signal>
+                <Signal>u_top/u_reader/last_message_id[1]</Signal>
+                <Signal>u_top/u_reader/last_message_id[0]</Signal>
             </Bus>
         </SignalList>
         <Triggers>
             <Trigger index="0">
                 <SignalList>
-                    <Bus restorename="u_reader/state[5:0]">
-                        <Signal>u_reader/state[5]</Signal>
-                        <Signal>u_reader/state[4]</Signal>
-                        <Signal>u_reader/state[3]</Signal>
-                        <Signal>u_reader/state[2]</Signal>
-                        <Signal>u_reader/state[1]</Signal>
-                        <Signal>u_reader/state[0]</Signal>
+                    <Bus restorename="u_top/u_reader/state[5:0]">
+                        <Signal>u_top/u_reader/state[5]</Signal>
+                        <Signal>u_top/u_reader/state[4]</Signal>
+                        <Signal>u_top/u_reader/state[3]</Signal>
+                        <Signal>u_top/u_reader/state[2]</Signal>
+                        <Signal>u_top/u_reader/state[1]</Signal>
+                        <Signal>u_top/u_reader/state[0]</Signal>
                     </Bus>
                 </SignalList>
             </Trigger>

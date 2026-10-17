@@ -20,6 +20,77 @@
 - Do not add a softcore in this implementation pass.
 - Use Gowin FIFO/RAM IP only behind project-owned wrappers; do not expose vendor-specific ports to control logic.
 - Every new module must have a focused simulation test before top-level integration.
+- Mode-specific event paths must not share backpressure state: LIVE audio, recording
+  storage, playback scheduling, and modulation each own an ingress/queue boundary.
+  `ALL_NOTES_OFF` and flush remain the only global safety controls.
+
+## Task 12: Separate mode-gated event queues and clarify arbitration
+
+The current `input_event_mux` and `performance_event_router` share one input
+pending slot between LIVE, completed recording tails, and audio output. This
+causes a blocked Loop-RAM write or record tail to lower `live_ready`, even though
+pure LIVE mode does not use Loop storage. Replace that implicit coupling with
+explicit mode gates and independent queue contracts.
+
+**Files:**
+
+- Create: `rtl/performance_event_ingress.sv` (or equivalent project-owned mode gate)
+- Modify: `rtl/input_event_adapter.sv`
+- Modify: `rtl/input_event_mux.sv` or remove it from the live/record boundary
+- Modify: `rtl/performance_event_router.sv`
+- Modify: `rtl/loop_control_plane.sv`
+- Modify: `rtl/loop_audio_path.sv`
+- Create: `sim/tb_performance_event_ingress.sv`
+- Create: `sim/tb_mode_gated_event_paths.sv`
+- Modify: `docs/loop-audio-integration-interface.md`
+
+**Contract:**
+
+1. `NOTE_ON`, `NOTE_OFF`, and `ALL_NOTES_OFF` use lossless valid/ready queues;
+   an event is removed only on a successful handshake.
+2. `CONTROL_POINT` uses a latest-value/coalescing register so stale modulation
+   cannot fill the note queue.
+3. RECORD/OVERDUB storage has an independent record queue and RAM writer. A
+   record write stall must not lower LIVE audio `ready`.
+4. PLAY scheduler output remains independent from sensor ingress. OVERDUB merges
+   scheduler and live audio only at the final output arbiter.
+5. `ALL_NOTES_OFF` is a global safety channel. STOP, reset, overflow recovery,
+   and scheduler faults flush ordinary queues before publishing the kill event.
+6. `live_enable=0` gates new LIVE events, but completed record tails may still
+   drain through the record queue during COMMIT_PENDING.
+7. The final output priority is explicit:
+
+   ```text
+   ALL_NOTES_OFF > scheduler event > LIVE note event > modulation point
+   ```
+
+8. The design must expose independent diagnostics for live queue level/full,
+   record queue level/full, modulation pending, and kill pending. A single
+   `router=0` value must no longer hide which input path is blocked.
+
+**Implementation order:**
+
+- [x] Step 1: Add failing simulations proving a stalled record writer does not
+  lower LIVE `ready`, and a stalled mixer only fills the LIVE queue.
+- [x] Step 2: Add the ingress mode gate and independent portable queues using
+  the existing project-owned FIFO wrapper; keep vendor FIFO selection behind
+  the wrapper.
+- [x] Step 3: Move record-tail draining to the record queue and make modulation
+  latest-value/coalescing explicit.
+- [x] Step 4: Rewrite final arbitration with an explicit kill/scheduler/live/
+  modulation priority table and stable valid/data during stalls.
+- [x] Step 5: Run focused, control-plane, board-boundary, and top-level tests;
+  inspect resource/timing impact before selecting a Gowin FIFO IP instance.
+- [ ] Step 6: Update diagnostics and the hardware test procedure, then rebuild
+  P&R only after all queue and arbitration tests pass.
+
+Implementation evidence (2026-10-17): `performance_event_ingress.sv` now
+contains independent LIVE/RECORD portable FIFOs and a coalescing modulation
+register. `loop_control_plane.sv` uses split router inputs; RECORD has priority
+only when selecting an event, while LIVE ready is deasserted in that cycle so
+the unselected LIVE FIFO entry cannot be popped. Focused mode-gated, control
+plane, audio-path, board-boundary, top-level, and router-timing simulations all
+pass. Gowin synthesis/P&R remains the final unchecked step.
 
 ---
 

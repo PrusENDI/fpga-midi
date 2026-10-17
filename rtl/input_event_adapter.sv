@@ -50,13 +50,14 @@ module input_event_adapter #(
  reg [7:0] last_expression;
  reg [63:0] record_note;
  reg [31:0] timeout_count;
+ reg overflow_blocked;
  wire capturing=mode==MODE_RECORDING || mode==MODE_OVERDUB;
  wire performing=mode==MODE_LIVE || capturing;
  wire prior_capture=prior_mode==MODE_RECORDING || prior_mode==MODE_OVERDUB;
  wire good_report=report_valid && xyz_valid && !report_error && !(presence_valid && !present);
  wire release_report=report_valid && (!xyz_valid || report_error || (presence_valid && !present));
  wire expired=timeout_count>=TIMEOUT_CYCLES-1;
- wire outputs_blocked=(live_count!=0 && !live_ready) || (record_valid && !record_ready) ||
+ wire outputs_blocked=(live_count==2 && !live_ready) || (record_valid && !record_ready) ||
                       (modulation_valid && !modulation_ready);
  assign live_valid=live_count!=0;
  assign live_event=live_head;
@@ -100,7 +101,7 @@ module input_event_adapter #(
                (next_history[1] && next_history[2]);
  task safe_overflow;
  begin
-   overflow<=1; live_count<=1; live_head<=event_word(EVENT_ALL_NOTES_OFF,0,selected_track);
+   overflow<=1; overflow_blocked<=1; live_count<=1; live_head<=event_word(EVENT_ALL_NOTES_OFF,0,selected_track);
    record_valid<=0; modulation_valid<=0; note_active<=0; record_active<=0; record_start<=0;
  end
  endtask
@@ -108,13 +109,22 @@ module input_event_adapter #(
  begin
    if(live_count==0 || (live_count==1 && live_ready)) begin live_head<=value; live_count<=1; end
    else if(live_count==1 || live_ready) begin live_tail<=value; live_count<=2; end
-   else safe_overflow();
+   else if(mode==MODE_LIVE) begin
+     // LIVE is a lossy monitor by design: if the mixer is temporarily
+     // blocked, retain a safe release followed by the newest event instead
+     // of applying recording-style overflow/fault semantics.
+     live_head<=event_word(EVENT_ALL_NOTES_OFF,0,selected_track);
+     live_tail<=value; live_count<=2;
+   end else safe_overflow();
  end
  endtask
  task live_pair(input [63:0] first,input [63:0] second);
  begin
    if(live_count==0 || (live_count==1 && live_ready)) begin
      live_head<=first; live_tail<=second; live_count<=2;
+   end else if(mode==MODE_LIVE) begin
+     live_head<=event_word(EVENT_ALL_NOTES_OFF,0,selected_track);
+     live_tail<=second; live_count<=2;
    end else safe_overflow();
  end
  endtask
@@ -143,24 +153,30 @@ module input_event_adapter #(
    if(!rst_n) begin
      live_count<=0; live_head<=0; live_tail<=0; record_valid<=0; record_event<=0;
      modulation_valid<=0; modulation_event<=0; record_start<=0; overflow<=0;
-     prior_mode<=MODE_IDLE; note_active<=0; record_active<=0; start_armed<=1;
+     prior_mode<=MODE_IDLE; note_active<=0; record_active<=0; start_armed<=1; overflow_blocked<=0;
      active_note<=0; active_track<=0; note_candidate<=0; note_count<=0; cell_count<=0;
      cell_position<=0; cell_candidate<=0; cell_highwater<=0; start_history<=0;
      last_expression<=0; record_note<=0; timeout_count<=0;
    end else begin
      prior_mode<=mode;
-     if(live_count!=0 && live_ready) begin live_head<=live_tail; live_count<=live_count-1'b1; end
+     if(live_count!=0 && live_ready) begin
+       live_head<=live_tail; live_count<=live_count-1'b1;
+       // The safety ALL_NOTES_OFF event is the only item emitted while an
+       // overflow is blocked.  Once it is accepted, LIVE can resume while
+       // the public overflow flag remains sticky until an explicit flush.
+       if(overflow_blocked && live_count==1 && mode==MODE_LIVE) overflow_blocked<=0;
+     end
      if(record_valid && record_ready) record_valid<=0;
      if(modulation_valid && modulation_ready) modulation_valid<=0;
      if(record_start && record_start_ready) record_start<=0;
      if(good_report) timeout_count<=0;
      else if(!expired) timeout_count<=timeout_count+1'b1;
      if(flush) begin
-       live_count<=0; record_valid<=0; modulation_valid<=0; record_start<=0; overflow<=0;
+       live_count<=0; record_valid<=0; modulation_valid<=0; record_start<=0; overflow<=0; overflow_blocked<=0;
        note_active<=0; record_active<=0; note_count<=0; cell_count<=0;
        cell_highwater<=0; cell_position<=0; cell_candidate<=0; start_history<=0;
        start_armed<=1; timeout_count<=0;
-     end else if(!overflow) begin
+     end else if(!overflow_blocked) begin
        // Boundary completion takes priority over even a same-edge sensor report.
        if(prior_capture && !capturing) begin
          release_note(mode==MODE_COMMIT_PENDING);
@@ -174,7 +190,7 @@ module input_event_adapter #(
        end else if(expired || (prior_mode==MODE_PLAY && mode!=MODE_PLAY && mode!=MODE_OVERDUB_ARMED)) begin
          modulation_valid<=0;
        end else if(good_report) begin
-         if(outputs_blocked) safe_overflow();
+         if(outputs_blocked && mode!=MODE_LIVE) safe_overflow();
          else begin
            if(mode==MODE_RECORD_ARMED) begin
              start_history<=next_history;

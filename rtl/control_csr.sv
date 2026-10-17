@@ -12,7 +12,12 @@ module control_csr (
     input wire [7:0] cmd_rsp_status,input wire [31:0] cmd_rsp_data,
     input wire [3:0] mode,input wire [1:0] selected_track,
     input wire [15:0] bpm_shadow,active_bpm,start_enter,start_exit,
-    input wire [6:0] loop_tick,input wire active_valid,commit_pending,fault_latched
+    input wire [6:0] loop_tick,input wire active_valid,commit_pending,fault_latched,
+    input wire [15:0] report_count,xyz_count,sample_count,
+    input wire [7:0] note_on_count,
+    input wire [2:0] active_voice_count,
+    input wire [7:0] diag_flags,
+    input wire [7:0] router_status
 );
     import control_protocol_pkg::*;
     reg waiting;
@@ -47,6 +52,9 @@ module control_csr (
                 CSR_THRESHOLDS: read_value={start_exit,start_enter};
                 CSR_POSITION: read_value={21'd0,fault_latched,commit_pending,active_valid,1'b0,loop_tick};
                 CSR_FAULT: read_value={31'd0,fault_latched};
+                CSR_DIAG_INPUT: read_value={xyz_count,report_count};
+                CSR_DIAG_AUDIO: read_value={sample_count,note_on_count,diag_flags};
+                CSR_DIAG_ROUTER: read_value={24'd0,router_status};
                 default: address_valid=0;
             endcase
         end

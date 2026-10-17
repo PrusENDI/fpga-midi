@@ -8,6 +8,8 @@ module uart_rx #(
  output reg valid,input wire ready,output reg [7:0] data,output reg framing_error);
  localparam integer CLKS_PER_BIT=CLK_HZ/BAUD;
  localparam integer HALF_BIT=(CLKS_PER_BIT<2)?1:(CLKS_PER_BIT/2);
+ localparam [15:0] CLKS_PER_BIT_M1=CLKS_PER_BIT-1;
+ localparam [15:0] HALF_BIT_M1=HALF_BIT-1;
  reg [15:0] count;reg [3:0] bit_index;reg active;reg [7:0] shift;
  reg rx_meta,rx_sync;
  always @(posedge clk) begin
@@ -15,11 +17,11 @@ module uart_rx #(
   else begin
    rx_meta<=rx;rx_sync<=rx_meta;
    if(valid && ready) begin valid<=0;framing_error<=0;end
-   if(!active && !valid && !rx_sync) begin active<=1;count<=HALF_BIT-1;bit_index<=0;shift<=0;end
+   if(!active && !valid && !rx_sync) begin active<=1;count<=HALF_BIT_M1;bit_index<=0;shift<=0;end
    else if(active) begin
     if(count!=0) count<=count-1;
     else begin
-     count<=CLKS_PER_BIT-1;
+     count<=CLKS_PER_BIT_M1;
      if(bit_index==0) begin
       if(!rx_sync) bit_index<=1; else active<=0;
      end else if(bit_index<=8) begin
