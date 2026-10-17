@@ -57,11 +57,11 @@ module loop_audio_path #(
  // the control event repeatedly while the router waits forever for ready.
  assign out_ready=bridge_ready;
  assign modulation_ready=bridge_ready && !out_valid;
- wire note_on,note_off,expression_valid;wire [6:0] note_number;wire [7:0] velocity;
+ wire note_on,note_off,expression_valid,soft_timbre;wire [6:0] note_number;wire [7:0] velocity;
  performance_event_voice_bridge bridge(.clk(clk),.rst_n(rst_n),.event_valid(bridge_valid),.event_ready(bridge_ready),.event_data(bridge_data),
-   .note_on(note_on),.note_off(note_off),.expression_valid(expression_valid),.note_number(note_number),.velocity(velocity));
+   .note_on(note_on),.note_off(note_off),.expression_valid(expression_valid),.soft_timbre(soft_timbre),.note_number(note_number),.velocity(velocity));
  mgc3130_voice_mixer #(.CLK_HZ(CLK_HZ)) mixer(.clk(clk),.rst_n(rst_n),.note_on(note_on),.note_off(note_off),
-   .note_number(note_number),.velocity(velocity),.expression_valid(expression_valid),.sample_valid(sample_valid),
+   .note_number(note_number),.velocity(velocity),.expression_valid(expression_valid),.soft_timbre(soft_timbre),.sample_valid(sample_valid),
    .mixed_sample(mixed_sample),.active_voice_count(active_voice_count));
  always @(posedge clk or negedge rst_n) begin
    if(!rst_n) begin note_on_count<=0; sample_count<=0; end

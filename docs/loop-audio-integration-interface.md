@@ -11,9 +11,15 @@ completed record_event -> RECORD FIFO -> loop_control_plane
     -> sample_valid / mixed_sample
 ```
 
-已完成录音事件带 `flags[61]`，只写入 Loop 存储，不再重复送入 mixer。
-`performance_event_voice_bridge` 将 NOTE_ON、NOTE_OFF、ALL_NOTES_OFF 和
-CONTROL_POINT 转为旧 mixer 的单周期脉冲；控制层的 valid/ready 握手在桥接处完成。
+LIVE 事件使用 `flags[60]` 选择柔和音色；完成录音事件在写入 Loop 存储前清除该位，
+因此已有 Loop 回放仍使用兼容的方波音色。`performance_event_voice_bridge` 将该位
+传递为 `soft_timbre`，并把 NOTE_ON、NOTE_OFF、ALL_NOTES_OFF 和 CONTROL_POINT
+转为 mixer 的单周期脉冲；控制层的 valid/ready 握手在桥接处完成。
+
+`mgc3130_voice_mixer` 在 `soft_timbre=1` 时使用方波、短攻击/释放包络和相位
+滑音。连续的 NOTE_OFF→NOTE_ON 会复用当前声部，不插入旧方波路径的 5 ms 静音；
+独立 NOTE_OFF 会把目标增益降到零后释放声部。`soft_timbre=0` 保留旧方波和
+Loop 回放行为，`ALL_NOTES_OFF` 仍由事件路径立即清理。
 
 板级 `mgc3130_uart_top` 通过 `LOOP_CONTROL_ENABLE` 在旧路径和 Loop 路径之间选择；
 `mgc3130_uart_loop_top` 固定启用 Loop 路径。USB-UART RX 接到 FPGA `B3`，C3

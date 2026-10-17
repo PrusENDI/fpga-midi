@@ -6,6 +6,27 @@ module mgc3130_uart_top #(
     parameter integer LOOP_CONTROL_ENABLE = 0,
     parameter integer USE_GOWIN_UART_FIFO = 0,
     parameter integer USE_REF_UART_RX = 0,
+    parameter integer INPUT_FILTER_SHIFT = 2,
+    parameter integer INPUT_X_HYSTERESIS = 256,
+    parameter integer INPUT_NOTE_HYSTERESIS = 512,
+    parameter [15:0] INPUT_X_MIN = 16'h1000,
+    parameter [15:0] INPUT_X_MAX = 16'hf000,
+    parameter [15:0] INPUT_Y_MIN = 16'h1000,
+    parameter [15:0] INPUT_Y_MAX = 16'hf000,
+    parameter [15:0] LIVE_Y_MIN = 16'h1700,
+    parameter [15:0] LIVE_Y_MAX = 16'he900,
+    parameter [15:0] LIVE_Y_B1 = 16'h2b40,
+    parameter [15:0] LIVE_Y_B2 = 16'h4580,
+    parameter [15:0] LIVE_Y_B3 = 16'h5fc0,
+    parameter [15:0] LIVE_Y_B4 = 16'h7a00,
+    parameter [15:0] LIVE_Y_B5 = 16'h9440,
+    parameter [15:0] LIVE_Y_B6 = 16'hae80,
+    parameter [15:0] LIVE_Y_B7 = 16'hc8c0,
+    parameter integer LIVE_Z_PRESS_CONFIRM = 2,
+    parameter integer LIVE_Z_RELEASE_CONFIRM = 2,
+    parameter [15:0] LIVE_Z_PRESS_THRESHOLD = 16'h9000,
+    parameter [15:0] LIVE_Z_RELEASE_THRESHOLD = 16'hB000,
+    parameter [15:0] XY_DECOUPLE_DEADBAND = 16'h0100,
     parameter integer RESET_LOW_MS = 250,
     parameter integer STARTUP_WAIT_MS = 2000
 ) (
@@ -167,6 +188,7 @@ module mgc3130_uart_top #(
         .note_number        (synth_note_number),
         .velocity           (synth_velocity),
         .expression_valid   (synth_expression_valid),
+        .soft_timbre        (1'b0),
         .sample_valid       (synth_sample_valid),
         .mixed_sample       (synth_mixed_sample),
         .active_voice_count (synth_active_voice_count)
@@ -174,7 +196,16 @@ module mgc3130_uart_top #(
 
     mgc3130_loop_control_path #(
         .CLK_HZ(50_000_000), .BAUD(115_200), .USE_GOWIN_RAM(1),
-        .USE_GOWIN_FIFO(USE_GOWIN_UART_FIFO), .USE_REF_UART_RX(USE_REF_UART_RX)
+        .USE_GOWIN_FIFO(USE_GOWIN_UART_FIFO), .USE_REF_UART_RX(USE_REF_UART_RX),
+        .INPUT_FILTER_SHIFT(INPUT_FILTER_SHIFT), .INPUT_X_HYSTERESIS(INPUT_X_HYSTERESIS),
+        .INPUT_NOTE_HYSTERESIS(INPUT_NOTE_HYSTERESIS), .INPUT_X_MIN(INPUT_X_MIN),
+        .INPUT_X_MAX(INPUT_X_MAX), .INPUT_Y_MIN(INPUT_Y_MIN), .INPUT_Y_MAX(INPUT_Y_MAX),
+        .LIVE_Y_MIN(LIVE_Y_MIN), .LIVE_Y_MAX(LIVE_Y_MAX),
+        .LIVE_Y_B1(LIVE_Y_B1), .LIVE_Y_B2(LIVE_Y_B2), .LIVE_Y_B3(LIVE_Y_B3),
+        .LIVE_Y_B4(LIVE_Y_B4), .LIVE_Y_B5(LIVE_Y_B5), .LIVE_Y_B6(LIVE_Y_B6), .LIVE_Y_B7(LIVE_Y_B7),
+        .LIVE_Z_PRESS_CONFIRM(LIVE_Z_PRESS_CONFIRM), .LIVE_Z_RELEASE_CONFIRM(LIVE_Z_RELEASE_CONFIRM),
+        .LIVE_Z_PRESS_THRESHOLD(LIVE_Z_PRESS_THRESHOLD), .LIVE_Z_RELEASE_THRESHOLD(LIVE_Z_RELEASE_THRESHOLD),
+        .XY_DECOUPLE_DEADBAND(XY_DECOUPLE_DEADBAND)
     ) u_loop_control_path (
         .clk(clk_50m), .rst_n(mgc_ready), .uart_rx(uart_rx),
         .tx_valid(loop_tx_valid), .tx_ready(control_serializer_ready), .tx_data(loop_tx_data),

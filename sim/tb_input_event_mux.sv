@@ -2,7 +2,7 @@
 module tb_input_event_mux;
  reg clk=0;always #5 clk=~clk;reg rst_n=0,flush=0;
  reg live_valid=0,record_valid=0,out_ready=1;reg [63:0] live_data=64'h11,record_data=64'h22;
- wire live_ready,record_ready,out_valid;wire [63:0] out_data;
+ wire live_ready,record_ready,out_valid;wire [63:0] out_data;wire pending_debug;
  input_event_mux dut(.*);
  initial begin
   repeat(2)@(posedge clk);rst_n=1;

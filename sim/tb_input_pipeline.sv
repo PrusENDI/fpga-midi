@@ -26,7 +26,7 @@ module tb_input_pipeline;
  reg live_ready=1;
  wire live_valid,record_valid,modulation_valid,record_start,idle,overflow;
  wire [63:0] live_event,record_event,modulation_event;
- input_event_adapter #(.NOTE_CONFIRM(2),.TIMEOUT_CYCLES(200)) adapter(
+ input_event_adapter #(.NOTE_CONFIRM(2),.LIVE_Z_PRESS_CONFIRM(1),.LIVE_Z_RELEASE_CONFIRM(1),.LIVE_Z_PRESS_THRESHOLD(16'he000),.LIVE_Z_RELEASE_THRESHOLD(16'hf000),.TIMEOUT_CYCLES(200)) adapter(
    .clk(clk),.rst_n(rst_n),.report_valid(report_valid_latched),.xyz_valid(xyz_valid_latched),
    .report_error(report_error_latched),.x_position(x_latched),.y_position(y_latched),.z_position(z_latched),
    .touch_valid(touch_valid_latched),.touch_info(touch_info_latched),.presence_valid(1'b0),.present(1'b1),

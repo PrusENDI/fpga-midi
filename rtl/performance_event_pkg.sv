@@ -21,6 +21,9 @@ package performance_event_pkg;
     localparam integer EVENT_AMP_LSB = 42;
     localparam integer EVENT_TIMBRE_LSB = 50;
     localparam integer EVENT_FLAGS_LSB = 58;
+    // LIVE events use the soft, expressive timbre. Stored loop events clear
+    // this bit so existing loop playback keeps the legacy sound.
+    localparam integer EVENT_FLAG_SOFT_TIMBRE = 60;
 
     function automatic [2:0] event_type;
         input [63:0] value;

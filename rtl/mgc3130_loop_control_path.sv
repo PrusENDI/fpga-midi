@@ -7,6 +7,27 @@ module mgc3130_loop_control_path #(
     parameter integer USE_GOWIN_RAM=1,
     parameter integer USE_GOWIN_FIFO=0,
     parameter integer USE_REF_UART_RX=0,
+    parameter integer INPUT_FILTER_SHIFT=2,
+    parameter integer INPUT_X_HYSTERESIS=256,
+    parameter integer INPUT_NOTE_HYSTERESIS=512,
+    parameter [15:0] INPUT_X_MIN=16'h1000,
+    parameter [15:0] INPUT_X_MAX=16'hf000,
+    parameter [15:0] INPUT_Y_MIN=16'h1000,
+    parameter [15:0] INPUT_Y_MAX=16'hf000,
+    parameter [15:0] LIVE_Y_MIN=16'h1700,
+    parameter [15:0] LIVE_Y_MAX=16'he900,
+    parameter [15:0] LIVE_Y_B1=16'h2b40,
+    parameter [15:0] LIVE_Y_B2=16'h4580,
+    parameter [15:0] LIVE_Y_B3=16'h5fc0,
+    parameter [15:0] LIVE_Y_B4=16'h7a00,
+    parameter [15:0] LIVE_Y_B5=16'h9440,
+    parameter [15:0] LIVE_Y_B6=16'hae80,
+    parameter [15:0] LIVE_Y_B7=16'hc8c0,
+    parameter integer LIVE_Z_PRESS_CONFIRM=2,
+    parameter integer LIVE_Z_RELEASE_CONFIRM=2,
+    parameter [15:0] LIVE_Z_PRESS_THRESHOLD=16'h9000,
+    parameter [15:0] LIVE_Z_RELEASE_THRESHOLD=16'hb000,
+    parameter [15:0] XY_DECOUPLE_DEADBAND=16'h0100,
     parameter integer OP_TIMEOUT_CYCLES=CLK_HZ,
     parameter integer BOUNDARY_TIMEOUT_CYCLES=1_700_000_000,
     parameter integer RX_TIMEOUT_CYCLES=500000
@@ -65,7 +86,14 @@ module mgc3130_loop_control_path #(
     // whenever the adapter is armed; there is no downstream backpressure
     // signal at this boundary.
     assign record_start_ready = 1'b1;
-    input_event_adapter adapter (
+    input_event_adapter #(.COORD_FILTER_SHIFT(INPUT_FILTER_SHIFT),.X_HYSTERESIS(INPUT_X_HYSTERESIS),
+        .NOTE_HYSTERESIS(INPUT_NOTE_HYSTERESIS),.X_MIN(INPUT_X_MIN),.X_MAX(INPUT_X_MAX),
+        .Y_MIN(INPUT_Y_MIN),.Y_MAX(INPUT_Y_MAX),.LIVE_Y_MIN(LIVE_Y_MIN),.LIVE_Y_MAX(LIVE_Y_MAX),
+        .LIVE_Y_B1(LIVE_Y_B1),.LIVE_Y_B2(LIVE_Y_B2),
+        .LIVE_Y_B3(LIVE_Y_B3),.LIVE_Y_B4(LIVE_Y_B4),.LIVE_Y_B5(LIVE_Y_B5),.LIVE_Y_B6(LIVE_Y_B6),
+        .LIVE_Y_B7(LIVE_Y_B7),.LIVE_Z_PRESS_CONFIRM(LIVE_Z_PRESS_CONFIRM),
+        .LIVE_Z_RELEASE_CONFIRM(LIVE_Z_RELEASE_CONFIRM),.LIVE_Z_PRESS_THRESHOLD(LIVE_Z_PRESS_THRESHOLD),
+        .LIVE_Z_RELEASE_THRESHOLD(LIVE_Z_RELEASE_THRESHOLD),.XY_DECOUPLE_DEADBAND(XY_DECOUPLE_DEADBAND)) adapter (
         .clk(clk), .rst_n(rst_n), .report_valid(latched_report_valid),
         .xyz_valid(latched_xyz_valid), .report_error(latched_report_error),
         .x_position(latched_x), .y_position(latched_y), .z_position(latched_z),
