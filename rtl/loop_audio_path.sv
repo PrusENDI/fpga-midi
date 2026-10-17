@@ -14,12 +14,14 @@ module loop_audio_path #(
  input wire record_start,
  input wire live_valid,output wire live_ready,input wire [63:0] live_data,
  input wire record_valid,output wire record_ready,input wire [63:0] record_data,
+ input wire modulation_valid,output wire modulation_ready,input wire [63:0] modulation_data,
  input wire adapter_idle,
  output wire signed [15:0] mixed_sample,output wire sample_valid,
  output wire [2:0] active_voice_count,output wire [3:0] mode,
+ output wire [1:0] selected_track,output wire [15:0] start_enter,start_exit,
  output wire [6:0] loop_tick,output wire active_valid,output wire fault_latched);
  wire out_valid,out_ready;wire [63:0] out_data;
- wire selected_track;wire [15:0] bpm_shadow,active_bpm,start_enter,start_exit;
+ wire [15:0] bpm_shadow,active_bpm;
  wire live_enable,record_enable,play_enable;wire [1:0] track;
  loop_control_plane #(.CLK_HZ(CLK_HZ),.USE_GOWIN_RAM(USE_GOWIN_RAM),
    .OP_TIMEOUT_CYCLES(OP_TIMEOUT_CYCLES),.BOUNDARY_TIMEOUT_CYCLES(BOUNDARY_TIMEOUT_CYCLES),.RX_TIMEOUT_CYCLES(RX_TIMEOUT_CYCLES)) control(
@@ -31,8 +33,16 @@ module loop_audio_path #(
    .bpm_shadow(bpm_shadow),.active_bpm(active_bpm),.start_enter(start_enter),.start_exit(start_exit),
    .loop_tick(loop_tick),.active_valid(active_valid),.fault_latched(fault_latched),
    .live_enable(live_enable),.record_enable(record_enable),.play_enable(play_enable));
+ assign selected_track=track;
+ // Control-plane playback has priority over external modulation. The adapter
+ // holds modulation_valid while modulation_ready is low, so no event is lost.
+ wire bridge_valid,bridge_ready;wire [63:0] bridge_data;
+ assign bridge_valid=out_valid || modulation_valid;
+ assign bridge_data=out_valid ? out_data : modulation_data;
+ assign out_ready=bridge_ready && !modulation_valid;
+ assign modulation_ready=bridge_ready && !out_valid;
  wire note_on,note_off,expression_valid;wire [6:0] note_number;wire [7:0] velocity;
- performance_event_voice_bridge bridge(.clk(clk),.rst_n(rst_n),.event_valid(out_valid),.event_ready(out_ready),.event_data(out_data),
+ performance_event_voice_bridge bridge(.clk(clk),.rst_n(rst_n),.event_valid(bridge_valid),.event_ready(bridge_ready),.event_data(bridge_data),
    .note_on(note_on),.note_off(note_off),.expression_valid(expression_valid),.note_number(note_number),.velocity(velocity));
  mgc3130_voice_mixer #(.CLK_HZ(CLK_HZ)) mixer(.clk(clk),.rst_n(rst_n),.note_on(note_on),.note_off(note_off),
    .note_number(note_number),.velocity(velocity),.expression_valid(expression_valid),.sample_valid(sample_valid),
