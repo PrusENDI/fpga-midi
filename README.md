@@ -289,3 +289,7 @@ mgc3130_reader
 用户回报 K=7、D=31811112。第一字节 0x31 对应解析状态 12、读操作 1；末两字节表示最后读到索引 17、Size 为 18。旧解析器只接受 24 字节和 0x001E，因此拒绝了已完整读取的 0x91 消息。
 
 此次修订按上述官方 SDK 的可选字段布局解析，并增加 F/L 输出。日志自身未给出实际掩码，不能仅由 18 字节断定一定是 0x0012；以新串口 F 值为准。
+
+### Loop 顶层切换
+
+`mgc3130_uart_top` 的 `LOOP_CONTROL_ENABLE` 参数控制路径选择。设为 `1` 时，B3 接收 Loop 二进制命令，C3 返回 mailbox 应答，PCM5102A 使用 Loop mixer 输出；设为 `0` 时保留旧 ASCII/音频路径。RX overflow、framing error、adapter overflow 和控制 fault 已在 Loop 边界暴露。Presence 释放按 XYZ 无效或超时处理，TouchInfo 仅用于诊断。

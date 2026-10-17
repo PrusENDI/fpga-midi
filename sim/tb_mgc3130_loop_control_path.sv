@@ -2,7 +2,7 @@
 module tb_mgc3130_loop_control_path;
  reg clk=0; always #5 clk=~clk; reg rst_n=0,uart_rx=1,tx_ready=1;
  reg report_valid=0,xyz_valid=0,report_error=0,touch_valid=0; reg [15:0] x_position=0,y_position=16'h8000,z_position=16'hc000; reg [7:0] gesture_code=0; reg [31:0] touch_info=0;
- wire tx_valid; wire [7:0] tx_data; wire [3:0] mode; wire [2:0] active_voice_count; wire signed [15:0] mixed_sample; wire sample_valid; wire [1:0] selected_track; wire [6:0] loop_tick; wire active_valid,fault_latched;
+ wire tx_valid; wire [7:0] tx_data; wire [3:0] mode; wire [2:0] active_voice_count; wire signed [15:0] mixed_sample; wire sample_valid; wire [1:0] selected_track; wire [6:0] loop_tick; wire active_valid,fault_latched; wire rx_overflow,rx_framing_error,adapter_overflow;
  mgc3130_loop_control_path #(.CLK_HZ(100_000),.BAUD(10_000),.USE_GOWIN_RAM(0),.OP_TIMEOUT_CYCLES(200),.RX_TIMEOUT_CYCLES(3000)) dut(.*);
  task bit_in(input bit b); begin uart_rx=b; repeat(10) @(negedge clk); end endtask
  task byte_in(input [7:0] b); integer i; begin bit_in(0); for(i=0;i<8;i=i+1) bit_in(b[i]); bit_in(1); end endtask

@@ -18,10 +18,12 @@ module mgc3130_loop_control_path #(
     output wire [3:0] mode, output wire [1:0] selected_track,
     output wire [6:0] loop_tick, output wire active_valid,
     output wire fault_latched,
+    output wire rx_overflow, output wire rx_framing_error,
+    output wire adapter_overflow,
     output wire signed [15:0] mixed_sample, output wire sample_valid,
     output wire [2:0] active_voice_count
 );
-    wire rx_valid, rx_ready, rx_overflow, rx_framing_error;
+    wire rx_valid, rx_ready;
     wire [7:0] rx_data;
     uart_control_link #(.CLK_HZ(CLK_HZ),.BAUD(BAUD),.FIFO_DEPTH(16)) command_rx (
         .clk(clk), .rst(!rst_n), .rx(uart_rx), .rx_valid(rx_valid),
@@ -52,7 +54,7 @@ module mgc3130_loop_control_path #(
     wire live_valid, live_ready; wire [63:0] live_data;
     wire record_valid, record_ready; wire [63:0] record_data;
     wire modulation_valid, modulation_ready; wire [63:0] modulation_data;
-    wire record_start, record_start_ready, adapter_idle, adapter_overflow;
+    wire record_start, record_start_ready, adapter_idle;
     input_event_adapter adapter (
         .clk(clk), .rst_n(rst_n), .report_valid(latched_report_valid),
         .xyz_valid(latched_xyz_valid), .report_error(latched_report_error),
@@ -88,5 +90,7 @@ module mgc3130_loop_control_path #(
     );
     // The adapter's one-bit overflow and physical RX diagnostics are retained
     // in the integration boundary for board-level status instrumentation.
-    wire board_diag_unused = rx_overflow | rx_framing_error | adapter_overflow | latched_input_valid;
+    assign rx_overflow = command_rx.overflow;
+    assign rx_framing_error = command_rx.framing_error;
+    assign adapter_overflow = adapter.overflow;
 endmodule

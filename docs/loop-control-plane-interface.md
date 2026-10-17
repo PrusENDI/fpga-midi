@@ -116,3 +116,11 @@ TX 阻塞时 STOP 取消 BPM、active 保留、CLEAR 和状态读取。
 唯一 RTL 警告为输入事件 track 位 in_data[4:3] 未使用：路由器按 selected_track 重写该字段。
 这是包含 Loop 存储和调度器的独立控制层资源，不含合成器、传感器和物理 UART。
 没有执行板级 P&R、烧录或硬件播放验证；现有位流不包含这些新增功能。
+
+## 板级集成状态（2026-10-17）
+
+`mgc3130_loop_control_path` 已连接 B3 RX、RX FIFO、命令邮箱、MGC3130 输入适配器和 Loop 音频路径。`mgc3130_uart_top` 增加 `LOOP_CONTROL_ENABLE` 参数：启用时，C3 输出 mailbox 二进制应答，I²S/音频 UART 使用 Loop mixer；关闭时保留旧 ASCII/音频路径。
+
+板级诊断信号已暴露为 `rx_overflow`、`rx_framing_error` 和 `adapter_overflow`，控制故障继续由 `fault_latched` 提供。Presence 当前采用 XYZ 无效或输入超时释放；TouchInfo 保留为诊断字段，未将其解释为通用 presence 位。
+
+验证脚本：`scripts/test_top_loop.ps1`、`scripts/test_uart_byte_serializer.ps1` 和 `scripts/test_board_integration.ps1`。Gowin 全工程 P&R 和实机烧录仍需在新顶层完成后执行。

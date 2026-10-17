@@ -73,6 +73,7 @@ module mgc3130_uart_top #(
     wire signed [15:0] loop_mixed_sample;
     wire loop_sample_valid;
     wire [2:0] loop_active_voice_count;
+    wire loop_rx_overflow, loop_rx_framing_error, loop_adapter_overflow;
     wire signed [15:0] selected_mixed_sample;
     wire selected_sample_valid;
     assign selected_mixed_sample = LOOP_CONTROL_ENABLE ? loop_mixed_sample : synth_mixed_sample;
@@ -175,6 +176,8 @@ module mgc3130_uart_top #(
         .gesture_code(gesture_code), .mode(loop_mode),
         .selected_track(loop_selected_track), .loop_tick(loop_tick),
         .active_valid(loop_active_valid), .fault_latched(loop_fault_latched),
+        .rx_overflow(loop_rx_overflow), .rx_framing_error(loop_rx_framing_error),
+        .adapter_overflow(loop_adapter_overflow),
         .mixed_sample(loop_mixed_sample), .sample_valid(loop_sample_valid),
         .active_voice_count(loop_active_voice_count)
     );
