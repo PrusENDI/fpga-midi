@@ -17,10 +17,10 @@ module performance_event_fifo_wrapper #(
     output reg         underflow,
     output wire [15:0] level
 );
-    // The vendor implementation is selected only after a generated FIFO_SC
-    // instance has been checked for this exact device and parameter set.
-    // Keeping the fallback here makes simulation and review independent of
-    // encrypted Gowin simulation models.
+    // This project intentionally uses the portable synchronous RTL FIFO. No
+    // generated Gowin FIFO wrapper has been validated for the GW5A parameter
+    // set, so enabling the vendor mode is rejected at elaboration rather than
+    // silently synthesizing an unverified primitive.
     generate
         if (USE_GOWIN_FIFO) begin : g_vendor_fifo
             initial $error("USE_GOWIN_FIFO requires a generated FIFO_SC wrapper");

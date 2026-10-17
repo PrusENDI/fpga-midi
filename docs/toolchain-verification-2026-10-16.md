@@ -48,7 +48,12 @@ Timing/resource reports: `impl/pnr/mgc3130_uart.tr` and `mgc3130_uart.rpt.txt`.
 This is the existing top-level design with `AUDIO_STREAM=0`, `AUDIO_OUTPUT=1`
 and GAO enabled. Audio UART being swept is expected in this configuration.
 The event FIFO is not yet integrated into the top level. Its simulation covers
-only the RTL fallback: ordering, full/empty, sticky diagnostics and flush.
+the selected RTL fallback: ordering, full/empty, sticky diagnostics and flush.
+`USE_GOWIN_FIFO=1` remains intentionally unsupported because no generated
+GW5A FIFO wrapper/model with the required 64-bit interface was validated;
+the wrapper fails at elaboration instead of accepting an unverified vendor
+implementation. Resource accounting therefore includes the RTL FIFO only
+when a consumer instantiates it.
 It does not verify a generated Gowin FIFO model, simultaneous transfer coverage,
 four-track Loop functionality, sensor interaction or board audio output.
 No board programming or hardware validation was performed in this run.

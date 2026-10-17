@@ -50,7 +50,7 @@ produces a mixer event.
 - [ ] Step 2: Add the parameterized path selection and top-level instance.
 - [ ] Step 3: Run the top-level test for both parameter values and compile the
   complete RTL source list.
-- [ ] Step 4: Commit `Integrate Loop path into board top`.
+- [x] Step 4: Commit `Integrate Loop path into board top`.
 
 ### Task 9: Serialize Loop mailbox responses on C3
 
@@ -69,7 +69,7 @@ byte until `uart_tx.busy=0`, apply backpressure, and preserve ordering.
 - [ ] Step 2: Run it and verify it fails before the serializer exists.
 - [ ] Step 3: Implement the serializer and connect it to C3.
 - [ ] Step 4: Run serializer and board integration tests.
-- [ ] Step 5: Commit `Serialize Loop mailbox responses on UART TX`.
+- [x] Step 5: Commit `Serialize Loop mailbox responses on UART TX`.
 
 ### Task 10: Expose diagnostics and define Presence release
 
@@ -89,7 +89,7 @@ sticky diagnostics.
 - [ ] Step 1: Add failing invalid-report and diagnostic assertions.
 - [ ] Step 2: Implement status wiring and timeout release.
 - [ ] Step 3: Run the focused test and update the interface documentation.
-- [ ] Step 4: Commit `Expose Loop diagnostics and release policy`.
+- [x] Step 4: Commit `Expose Loop diagnostics and release policy`.
 
 ### Task 11: Close FIFO/IP and full-build evidence
 
