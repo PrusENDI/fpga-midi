@@ -18,10 +18,13 @@ module performance_event_router(
  reg [3:0] record_slot;
  wire output_room=!output_pending || out_ready;
  wire [4:0] selected_count=store_record_count[selected_track*5 +: 5];
+ wire record_only=in_data[61];
  wire recordable=(in_data[2:0]==EVENT_NOTE_ON ||
                   in_data[2:0]==EVENT_NOTE_OFF ||
                   in_data[2:0]==EVENT_CONTROL_POINT);
- assign in_ready=!flush && live_enable && !kill_valid && !monitor_pending && !record_pending;
+ // Completed record tails may arrive after the manager enters COMMIT_PENDING
+ // and disables live_enable; their flag makes them storage-only and safe here.
+ assign in_ready=!flush && (live_enable || record_only) && !kill_valid && !monitor_pending && !record_pending;
  assign write_valid=!flush && record_pending;
  assign write_track=record_track;
  assign write_slot=record_slot;
@@ -55,13 +58,16 @@ module performance_event_router(
     end
    end
    if(in_valid && in_ready)begin
-    monitor_pending<=1;
-    monitor_data<={in_data[63:5],selected_track,in_data[2:0]};
-    if(record_enable && recordable)begin
+    if(!record_only) begin
+     monitor_pending<=1;
+     monitor_data<={in_data[63:5],selected_track,in_data[2:0]};
+    end
+    if((record_enable || record_only) && recordable)begin
      if(selected_count>=16)record_overflow<=1;
      else begin
-      record_pending<=1;record_track<=selected_track;record_slot<=selected_count[3:0];
-      record_data<={in_data[63:12],loop_tick,selected_track,in_data[2:0]};
+      record_pending<=1;record_track<=record_only ? in_data[4:3] : selected_track;
+      record_slot<=selected_count[3:0];
+      record_data<=record_only ? in_data : {in_data[63:12],loop_tick,selected_track,in_data[2:0]};
      end
     end
    end

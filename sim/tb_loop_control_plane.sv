@@ -2,10 +2,10 @@
 module tb_loop_control_plane #(parameter USE_GOWIN_RAM=0);
     reg clk=0;always #5 clk=~clk;
     GSR GSR(.GSRI(1'b1));
-    reg rst_n=0,rx_valid=0,tx_ready=1,record_start=0,in_valid=0,out_ready=1;
+    reg rst_n=0,rx_valid=0,tx_ready=1,record_start=0,in_valid=0,record_in_valid=0,adapter_idle=1,out_ready=1;
     wire rx_ready,tx_valid,in_ready,out_valid;
     reg [7:0] rx_data=0;wire [7:0] tx_data;
-    reg [63:0] in_data=0;wire [63:0] out_data;
+    reg [63:0] in_data=0,record_in_data=0;wire [63:0] out_data;wire record_in_ready;
     wire [3:0] mode;wire [1:0] selected_track;
     wire [15:0] bpm_shadow,active_bpm,start_enter,start_exit;
     wire [6:0] loop_tick;wire active_valid,fault_latched,live_enable,record_enable,play_enable;

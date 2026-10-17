@@ -25,6 +25,9 @@
         <File path="rtl/loop_scheduler.sv" type="file.verilog" enable="1"/>
         <File path="rtl/control_protocol_pkg.sv" type="file.verilog" enable="1"/>
         <File path="rtl/input_event_adapter.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/input_event_mux.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/performance_event_voice_bridge.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/loop_audio_path.sv" type="file.verilog" enable="1"/>
         <File path="rtl/command_mailbox.sv" type="file.verilog" enable="1"/>
         <File path="rtl/control_csr.sv" type="file.verilog" enable="1"/>
         <File path="rtl/mode_manager.sv" type="file.verilog" enable="1"/>

@@ -59,6 +59,13 @@ module tb_performance_event_router;
   cycles(4);sched_valid=0;out_ready=1;cycles(3);
   // Non-note/control metadata is monitored, never recorded.
   old_writes=writes;send(64'd5);cycles(4);if(writes!=old_writes)$fatal(1,"recorded unsupported event");
+  // A completed duration tail is storage-only and remains accepted after
+  // record_enable/live_enable have been withdrawn for COMMIT_PENDING.
+  live_enable=0;record_enable=0;store_record_count=0;write_ready=1;out_ready=1;old_outputs=outputs;
+  in_data=64'd0;in_data[2:0]=EVENT_NOTE_ON;in_data[4:3]=2'd1;in_data[11:5]=7'd9;
+  in_data[18:12]=7'd4;in_data[25:19]=7'd60;in_data[61]=1'b1;
+  in_valid=1;cycles(2);in_valid=0;cycles(2);
+  if(writes!=old_writes+1 || outputs!=old_outputs || !idle)$fatal(1,"record tail drain");
   $display("tb_performance_event_router PASS");$finish;
  end
  initial begin #100000;$fatal(1,"router timeout");end

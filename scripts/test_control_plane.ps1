@@ -9,7 +9,7 @@ try {
     if(!(Test-Path work/_info)){& "$ModelSimBin/vlib.exe" work;if($LASTEXITCODE -ne 0){throw 'vlib failed'}}
     $sources=@('rtl/control_protocol_pkg.sv','rtl/performance_event_pkg.sv',
       'rtl/loop_event_ram.sv','rtl/loop_event_store.sv','rtl/loop_scheduler.sv',
-      'rtl/command_mailbox.sv','rtl/control_csr.sv','rtl/mode_manager.sv','rtl/performance_event_router.sv','rtl/loop_control_plane.sv',
+      'rtl/command_mailbox.sv','rtl/control_csr.sv','rtl/mode_manager.sv','rtl/performance_event_router.sv','rtl/input_event_mux.sv','rtl/loop_control_plane.sv',
       'sim/tb_command_mailbox.sv','sim/tb_control_csr.sv','sim/tb_mode_manager.sv','sim/tb_performance_event_router.sv','sim/tb_loop_control_plane.sv') |
         ForEach-Object {Join-Path $projectRoot $_}
     & "$ModelSimBin/vlog.exe" -sv -work work $GowinSimLib @sources *> compile.log

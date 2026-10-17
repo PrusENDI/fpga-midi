@@ -168,6 +168,14 @@ touch_valid can become active.
 
 ### Task 6: Integrate the control plane without disturbing audio
 
+2026-10-17 boundary implementation: added `input_event_mux`,
+`performance_event_voice_bridge`, and `loop_audio_path`. Completed duration
+events are marked storage-only and remain drainable after capture disables live
+input; manager commit waits for adapter idle. ModelSim passes the input mux,
+voice bridge, loop audio path, and control-plane RTL/Gowin-RAM tests. The board
+top remains on its legacy path because it has UART TX only; physical UART RX/FIFO
+and sensor-to-control instantiation are still required before replacing it.
+
 **Files:**
 - Modify: `rtl/mgc3130_uart_top.sv`
 - Modify: `mgc3130_uart.gprj`
@@ -179,11 +187,11 @@ The integration must apply the frozen interaction defaults: BPM changes at the n
 - Connect input adapter → input FIFO → mode manager → Loop store/scheduler → existing voice manager.
 - Keep `sample_ce`, DDS, mixer, I²S, and optional audio UART as independent consumers.
 
-- [ ] Step 1: Run the integration test with a synthetic event stream and verify LIVE, RECORD, PLAY, and OVERDUB behavior.
-- [ ] Step 2: Verify STOP and recovery close all voices and preserve active bank.
-- [ ] Step 3: Integrate the modules and expose status/error fields through the existing diagnostic path.
-- [ ] Step 4: Run all focused simulations and `git diff --check`.
-- [ ] Step 5: Commit with `git add rtl/mgc3130_uart_top.sv mgc3130_uart.gprj sim/tb_loop_control_integration.sv && git commit -m "Integrate fixed-resource Loop control plane"`.
+- [x] Step 1: Run a synthetic LIVE/PLAY/STOP integration at the control-to-mixer boundary; full RECORD/OVERDUB board wiring remains gated on the RX path.
+- [x] Step 2: Verify STOP and recovery close voices and preserve active bank in the control-plane regression.
+- [ ] Step 3: Integrate physical UART RX, sensor adapter, and expose complete status/error fields through the board diagnostic path.
+- [x] Step 4: Run focused simulations and `git diff --check`.
+- [ ] Step 5: Commit final board integration after UART RX and PCM/I²S top-level wiring are complete.
 
 ### Task 7: Run synthesis and hardware-safe verification
 

@@ -12,6 +12,8 @@ module loop_control_plane #(
     output wire tx_valid,input wire tx_ready,output wire [7:0] tx_data,
     input wire record_start,
     input wire in_valid,output wire in_ready,input wire [63:0] in_data,
+    input wire record_in_valid,output wire record_in_ready,input wire [63:0] record_in_data,
+    input wire adapter_idle,
     output wire out_valid,input wire out_ready,output wire [63:0] out_data,
     output wire [3:0] mode,output wire [1:0] selected_track,
     output wire [15:0] bpm_shadow,active_bpm,start_enter,start_exit,
@@ -52,7 +54,7 @@ module loop_control_plane #(
         .store_ctrl_ready(store_ctrl_ready),.store_ctrl_done(store_ctrl_done),.store_commit_pending(store_commit_pending),
         .store_commit_ack(store_commit_ack),.store_active_valid(active_valid),.store_busy(store_busy),
         .store_record_count(store_record_count),.store_overflow(store_overflow | {4{record_overflow}}),
-        .router_idle(router_idle),.record_accepted(record_accepted),.store_ctrl_valid(store_ctrl_valid),
+        .router_idle(router_idle && adapter_idle),.record_accepted(record_accepted),.store_ctrl_valid(store_ctrl_valid),
         .store_ctrl_op(store_ctrl_op),.store_ctrl_track(store_ctrl_track),.store_abort(store_abort),.store_boundary(store_boundary),
         .scheduler_run(scheduler_run),.scheduler_stop(scheduler_stop),.scheduler_reset(scheduler_reset),.boundary_ready(boundary_ready),
         .kill_valid(kill_valid),.kill_ready(kill_ready),.flush_events(flush_events),.mode(mode),.selected_track(selected_track),
@@ -78,10 +80,16 @@ module loop_control_plane #(
         .event_valid(sched_valid),.event_ready(sched_ready),.event_data(sched_data),.sixteenth_ce(sixteenth_ce),
         .loop_tick(loop_tick),.loop_boundary(loop_boundary),.stall(),.fault_valid(scheduler_fault),.fault_code(),.fault_info(),
         .heartbeat_toggle(),.active_bpm(active_bpm));
+    wire routed_in_valid,routed_in_ready;wire [63:0] routed_in_data;
+    input_event_mux input_mux (
+        .clk(clk),.rst_n(rst_n),.flush(flush_events | urgent_edge),
+        .live_valid(in_valid),.live_ready(in_ready),.live_data(in_data),
+        .record_valid(record_in_valid),.record_ready(record_in_ready),.record_data(record_in_data),
+        .out_valid(routed_in_valid),.out_ready(routed_in_ready),.out_data(routed_in_data));
     performance_event_router router (
         .clk(clk),.rst_n(rst_n),.flush(flush_events | urgent_edge),.live_enable(live_enable),.record_enable(record_enable),.play_enable(play_enable),
         .selected_track(selected_track),.loop_tick(loop_tick),.store_record_count(store_record_count),
-        .in_valid(in_valid),.in_ready(in_ready),.in_data(in_data),.sched_valid(sched_valid),.sched_ready(sched_ready),.sched_data(sched_data),
+        .in_valid(routed_in_valid),.in_ready(routed_in_ready),.in_data(routed_in_data),.sched_valid(sched_valid),.sched_ready(sched_ready),.sched_data(sched_data),
         .kill_valid(kill_valid),.kill_ready(kill_ready),.out_valid(out_valid),.out_ready(out_ready),.out_data(out_data),
         .write_valid(write_valid),.write_ready(write_ready),.write_track(write_track),.write_slot(write_slot),.write_data(write_data),
         .idle(router_idle),.record_accepted(record_accepted),.record_overflow(record_overflow));
