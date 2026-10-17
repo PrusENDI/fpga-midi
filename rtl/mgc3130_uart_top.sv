@@ -10,6 +10,7 @@ module mgc3130_uart_top #(
     inout  wire mgc_ts,
     inout  wire mgc_mclr,
     output wire uart_tx,
+    input wire uart_rx,
     output wire pcm5102a_bck,
     output wire pcm5102a_lrck,
     output wire pcm5102a_din
@@ -54,6 +55,14 @@ module mgc3130_uart_top #(
     wire [2:0] synth_active_voice_count;
     wire debug_uart_tx;
     wire audio_uart_tx;
+    wire command_rx_valid,command_rx_error;
+    wire [7:0] command_rx_data;
+    // Physical RX is now reserved on B3. It is exposed to the future command
+    // mailbox integration while the legacy audio/ASCII paths remain unchanged.
+    uart_rx #(.CLK_HZ(50_000_000),.BAUD(115_200)) u_command_rx (
+        .clk(clk_50m),.rst(!mgc_ready),.rx(uart_rx),.valid(command_rx_valid),
+        .ready(1'b1),.data(command_rx_data),.framing_error(command_rx_error)
+    );
     wire i2s_bck;
     wire i2s_lrck;
     wire i2s_din;

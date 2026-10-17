@@ -4,6 +4,8 @@ IO_LOC  "clk_50m" E2;
 // routes FPGA UART TX to C3 (the official UART example uses C3).
 // J4 is a bottom-header pin and does not reach the onboard USB-UART.
 IO_LOC  "uart_tx" C3;
+// USB-UART bridge RX input (board pin confirmed by user).
+IO_LOC  "uart_rx" B3;
 // PCM5102A I2S output on unused J3 header pins.
 IO_LOC  "pcm5102a_bck"  G1;
 IO_LOC  "pcm5102a_lrck" L3;
@@ -18,6 +20,7 @@ IO_LOC  "mgc_mclr" L2;
 
 IO_PORT "clk_50m" IO_TYPE=LVCMOS33 PULL_MODE=DOWN BANK_VCCIO=3.3;
 IO_PORT "uart_tx" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_PORT "uart_rx" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
 IO_PORT "pcm5102a_bck"  IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE BANK_VCCIO=3.3;
 IO_PORT "pcm5102a_lrck" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE BANK_VCCIO=3.3;
 IO_PORT "pcm5102a_din"  IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=NONE BANK_VCCIO=3.3;

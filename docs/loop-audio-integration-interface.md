@@ -17,8 +17,8 @@ live_event / completed record_event
 CONTROL_POINT 转为旧 mixer 的单周期脉冲；控制层的 valid/ready 握手在桥接处完成。
 
 当前板级 `mgc3130_uart_top` 仍保留旧的 MGC3130→pattern_input→mixer 路径。
-原因是板级端口只有 `uart_tx`，没有 UART RX，无法接收规划中的二进制模式命令；
-直接替换会使 RECORD/PLAY/STOP 无法操作。下一步应增加物理 UART RX 和 RX FIFO，
+USB-UART RX 已由用户确认接到 FPGA `B3`，并已加入独立 `uart_rx` 8N1 接收器；
+接收器已通过有效字节和帧错误仿真，但尚未接入命令邮箱或 RX FIFO，直接替换仍会使 RECORD/PLAY/STOP 无法操作。下一步应增加 RX FIFO，
 再把 `input_event_adapter` 的 live/record/modulation 输出接入此边界，并将
 `performance_event_voice_bridge` 的输出切换为唯一 mixer 输入。
 

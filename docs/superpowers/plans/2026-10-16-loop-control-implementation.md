@@ -175,6 +175,8 @@ input; manager commit waits for adapter idle. ModelSim passes the input mux,
 voice bridge, loop audio path, and control-plane RTL/Gowin-RAM tests. The board
 top remains on its legacy path because it has UART TX only; physical UART RX/FIFO
 and sensor-to-control instantiation are still required before replacing it.
+The user confirmed the USB-UART RX pin as B3; `uart_rx` and its B3 constraint are
+now added and independently verified, but byte FIFO/mailbox wiring remains open.
 
 **Files:**
 - Modify: `rtl/mgc3130_uart_top.sv`
