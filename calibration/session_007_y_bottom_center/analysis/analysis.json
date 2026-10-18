@@ -1,0 +1,49 @@
+{
+  "session": "session_007_y_bottom_center",
+  "frames": 4707,
+  "valid_frames": 4705,
+  "invalid_frames": 2,
+  "sequence_gap_frames": 641,
+  "sequence_gap_events": 1,
+  "valid_runs": 4,
+  "segments": 29,
+  "moving_segments": 13,
+  "stationary_segments": 16,
+  "x_min": 37092,
+  "x_max": 63048,
+  "y_min": 0,
+  "y_max": 55927,
+  "z_min": 5391,
+  "z_max": 65535,
+  "edge_runs": {
+    "x_low": [],
+    "x_high": [],
+    "y_low": [
+      {
+        "frames": 10,
+        "start_sequence": 54701,
+        "end_sequence": 54710,
+        "other_median": 43340.5,
+        "other_min": 42029,
+        "other_max": 48106
+      }
+    ],
+    "y_high": []
+  },
+  "center": {
+    "frames": 1758,
+    "x_median": 41158,
+    "x_mean": 41167.7,
+    "x_min": 39918,
+    "x_max": 44413,
+    "y_median": 51232,
+    "y_mean": 51262.2,
+    "y_min": 46711,
+    "y_max": 55854
+  },
+  "outputs": [
+    "segments.csv",
+    "trajectory_sample.csv",
+    "trajectory.svg"
+  ]
+}

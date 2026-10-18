@@ -1,0 +1,85 @@
+{
+  "input": "samples.csv",
+  "valid_frames": 5697,
+  "invalid_frames": 10,
+  "valid_runs": 10,
+  "median_window": 5,
+  "speed_horizon_frames": 10,
+  "moving_threshold_coordinate_counts_per_frame": 50.0,
+  "minimum_run_frames": 20,
+  "segment_axes": "X/Y combined",
+  "invalid_reports_are_trajectory_breaks": true,
+  "segments": 47,
+  "moving_segments": 19,
+  "stationary_segments": 28,
+  "invalid_report_sequences": [
+    10,
+    483,
+    1027,
+    1411,
+    1748,
+    3134,
+    4329,
+    4735,
+    5145,
+    5462
+  ],
+  "large_xy_jump_count": 9,
+  "large_xy_jumps": [
+    [
+      482,
+      484,
+      40646
+    ],
+    [
+      1026,
+      1028,
+      51409
+    ],
+    [
+      1410,
+      1412,
+      49916
+    ],
+    [
+      1747,
+      1749,
+      49052
+    ],
+    [
+      3133,
+      3135,
+      42774
+    ],
+    [
+      4328,
+      4330,
+      72091
+    ],
+    [
+      4734,
+      4736,
+      43860
+    ],
+    [
+      5144,
+      5146,
+      55381
+    ],
+    [
+      5461,
+      5463,
+      66092
+    ]
+  ],
+  "large_jumps_are_after_invalid_reports": true,
+  "outputs": [
+    "segments.csv",
+    "action_segments.csv",
+    "trajectory_sample.csv",
+    "trajectory.svg"
+  ],
+  "action_segments": 29,
+  "action_moving_segments": 14,
+  "action_stationary_segments": 15
+}

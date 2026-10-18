@@ -13,6 +13,8 @@ module loop_control_plane #(
     input wire record_start,
     input wire in_valid,output wire in_ready,input wire [63:0] in_data,
     input wire record_in_valid,output wire record_in_ready,input wire [63:0] record_in_data,
+    input wire modulation_in_valid,output wire modulation_in_ready,input wire [63:0] modulation_in_data,
+    output wire modulation_out_valid,input wire modulation_out_ready,output wire [63:0] modulation_out_data,
     input wire adapter_idle,
     output wire out_valid,input wire out_ready,output wire [63:0] out_data,
     output wire [3:0] mode,output wire [1:0] selected_track,
@@ -99,8 +101,8 @@ module loop_control_plane #(
         .live_out_valid(ingress_live_valid),.live_out_ready(ingress_live_ready),.live_out_data(ingress_live_data),
         .record_in_valid(record_in_valid),.record_in_ready(record_in_ready),.record_in_data(record_in_data),
         .record_out_valid(ingress_record_valid),.record_out_ready(ingress_record_ready),.record_out_data(ingress_record_data),
-        .modulation_in_valid(1'b0),.modulation_in_ready(),.modulation_in_data(64'd0),
-        .modulation_out_valid(),.modulation_out_ready(1'b0),.modulation_out_data(),
+        .modulation_in_valid(modulation_in_valid),.modulation_in_ready(modulation_in_ready),.modulation_in_data(modulation_in_data),
+        .modulation_out_valid(modulation_out_valid),.modulation_out_ready(modulation_out_ready),.modulation_out_data(modulation_out_data),
         .live_level(ingress_live_level),.record_level(ingress_record_level),.modulation_pending(ingress_mod_pending));
     performance_event_router #(.SPLIT_INPUTS(1)) router (
         .clk(clk),.rst_n(rst_n),.flush(flush_events | urgent_edge),.live_enable(live_enable),.record_enable(record_enable),.play_enable(play_enable),

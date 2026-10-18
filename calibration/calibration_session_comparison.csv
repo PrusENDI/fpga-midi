@@ -1,0 +1,5 @@
+session,frames,valid_frames,invalid_frames,sequence_gap_frames,sequence_gap_events,x_min,x_max,y_min,y_max,z_min,z_max,center_x_median,center_y_median,x_low_longest_frames,x_low_other_median,x_high_longest_frames,x_high_other_median,y_low_longest_frames,y_low_other_median,y_high_longest_frames,y_high_other_median
+session_005_x_left_center,3505,3496,9,4430,1,0,65535,21,58139,4995,65535,39884,51447,583,41759,54,38893.5,,,,
+session_006_x_right_center,3847,3836,11,0,0,0,65535,6089,61209,1447,65535,41114,51803,44,42085.0,994,51093.0,,,,
+session_007_y_bottom_center,4707,4705,2,641,1,37092,63048,0,55927,5391,65535,41158,51232,,,,,10,43340.5,,
+session_008_y_top_center,3973,3964,9,315,1,37158,65535,4083,65535,3155,65535,41678,52680,,,46,31675.0,,,439,43856

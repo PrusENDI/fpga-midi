@@ -1,0 +1,110 @@
+{
+  "session": "session_0016_NEWCENTER",
+  "threshold": 4096,
+  "frames": 3513,
+  "valid_frames_all": 3506,
+  "invalid_frames_all": 7,
+  "largest_gap_before": 59,
+  "largest_gap_before_sequence": 5064,
+  "principal_track_start_sequence": 5064,
+  "principal_track_end_sequence": 8336,
+  "principal_track_frames": 3273,
+  "principal_track_valid_frames": 3267,
+  "principal_track_invalid_frames": 6,
+  "principal_track_invalid_sequences": [
+    5761,
+    6313,
+    6947,
+    7400,
+    7833,
+    8188
+  ],
+  "x_range": [
+    16736,
+    65535
+  ],
+  "y_range": [
+    0,
+    53702
+  ],
+  "z_range": [
+    2471,
+    65535
+  ],
+  "edge_stats": {
+    "x_left": {
+      "threshold": 4096,
+      "frames": 0,
+      "primary_median": null,
+      "primary_p05": null,
+      "primary_p95": null,
+      "primary_min": null,
+      "primary_max": null,
+      "primary_std": 0.0,
+      "other_median": null,
+      "other_p05": null,
+      "other_p95": null,
+      "other_min": null,
+      "other_max": null
+    },
+    "x_right": {
+      "threshold": 4096,
+      "frames": 24,
+      "primary_median": 64927.0,
+      "primary_p05": 62430.35,
+      "primary_p95": 65535.0,
+      "primary_min": 62027,
+      "primary_max": 65535,
+      "primary_std": 1129.0778068142954,
+      "other_median": 888.0,
+      "other_p05": 0.0,
+      "other_p95": 21763.149999999998,
+      "other_min": 0,
+      "other_max": 22199
+    },
+    "y_bottom": {
+      "threshold": 4096,
+      "frames": 80,
+      "primary_median": 0.0,
+      "primary_p05": 0.0,
+      "primary_p95": 3151.45,
+      "primary_min": 0,
+      "primary_max": 4033,
+      "primary_std": 1035.923412446932,
+      "other_median": 23073.0,
+      "other_p05": 16796.15,
+      "other_p95": 65405.25,
+      "other_min": 16736,
+      "other_max": 65535
+    },
+    "y_top": {
+      "threshold": 4096,
+      "frames": 0,
+      "primary_median": null,
+      "primary_p05": null,
+      "primary_p95": null,
+      "primary_min": null,
+      "primary_max": null,
+      "primary_std": 0.0,
+      "other_median": null,
+      "other_p05": null,
+      "other_p95": null,
+      "other_min": null,
+      "other_max": null
+    }
+  },
+  "significant_single_edge_order": [
+    {
+      "edge": "B",
+      "start_sequence": 5064,
+      "end_sequence": 5100,
+      "frames": 37
+    }
+  ],
+  "edge_runs_count": 8,
+  "outputs": [
+    "edge_segments.csv",
+    "trajectory_sample.csv",
+    "trajectory.svg"
+  ]
+}

@@ -12,8 +12,8 @@ completed record_event -> RECORD FIFO -> loop_control_plane
 ```
 
 已完成录音事件带 `flags[61]`，只写入 Loop 存储，不再重复送入 mixer。
-`performance_event_voice_bridge` 将 NOTE_ON、NOTE_OFF、ALL_NOTES_OFF 和
-CONTROL_POINT 转为旧 mixer 的单周期脉冲；控制层的 valid/ready 握手在桥接处完成。
+`performance_event_voice_bridge` 将 NOTE_ON、NOTE_OFF、ALL_NOTES_OFF、NOTE_REVOICE
+和 CONTROL_POINT 转为 mixer 的单周期脉冲；控制层的 valid/ready 握手在桥接处完成。
 
 板级 `mgc3130_uart_top` 通过 `LOOP_CONTROL_ENABLE` 在旧路径和 Loop 路径之间选择；
 `mgc3130_uart_loop_top` 固定启用 Loop 路径。USB-UART RX 接到 FPGA `B3`，C3
@@ -61,6 +61,26 @@ STOP 关闭全部声部。此测试使用低频参数，只证明握手和事件
 bits 3:0 LIVE FIFO level (0–15)
 bits 7:4 RECORD FIFO level (0–15)
 ```
+
+## LIVE XYZ 演奏映射
+
+在 `MODE_LIVE` 中，X 使用完整 `0x0000..0xffff` 范围划分为八个音区，
+对应 C4、D4、E4、F4、G4、A4、B4、C5；Y 只参与 X/Y 变化率稳定确认。
+LIVE Z 使用压力区间 `4096..36864`。当前触发点取原来的一半：Z 下降到
+`Z_ON=18432` 后生成 NOTE_ON，Z 上升到 `Z_OFF=20480` 后生成 NOTE_OFF。
+根据 COM4 校准数据，
+`0..4095` 是触摸饱和段，`4096..16383` 是近触摸段；因此 4096 以下继续保持
+按下并钳制为最大力度，20480 的释放点在触发点上方保留了小缓冲。Z 越小，
+力度目标越大；力度作为 `EVENT_CONTROL_POINT` 经过 latest-value 合并并在
+mixer 中渐变。按住 Z 时，X 音区稳定变化生成 LIVE-only 的
+`EVENT_NOTE_REVOICE`，它不会写入 Loop RAM，而由 mixer 保持两个振荡器运行并将
+DDS 相位步进连续逼近新目标音。主振荡器为三角波，辅助振荡器为低比例轻微失谐
+saw 波，并带小幅低频 vibrato；因此目标音仍来自 C 大调集合，但音高在目标之间
+连续滑动。NOTE_ON/OFF 保持音符状态硬切换，起音、力度和换音过程由采样率斜率平滑。
+
+RECORD/OVERDUB 仍使用原有输入适配器、Loop tick、RECORD FIFO 和调度器，
+不受 LIVE 专用 X/Z 门控影响。LIVE 离散事件继续使用深度 16 FIFO；力度不
+占用该 FIFO。
 
 该寄存器用于确认录音写入阻塞是否正在填充 RECORD FIFO；LIVE FIFO
 即使录音写端阻塞也可以独立接收事件。`diag-audio` 的 router 位仍显示

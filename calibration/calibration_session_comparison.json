@@ -1,0 +1,329 @@
+[
+  {
+    "session": "session_005_x_left_center",
+    "frames": 3505,
+    "valid_frames": 3496,
+    "invalid_frames": 9,
+    "sequence_gap_frames": 4430,
+    "sequence_gap_events": 1,
+    "valid_runs": 9,
+    "segments": 36,
+    "moving_segments": 14,
+    "stationary_segments": 22,
+    "x_min": 0,
+    "x_max": 65535,
+    "y_min": 21,
+    "y_max": 58139,
+    "z_min": 4995,
+    "z_max": 65535,
+    "edge_runs": {
+      "x_low": [
+        {
+          "frames": 583,
+          "start_sequence": 42710,
+          "end_sequence": 43293,
+          "other_median": 41759,
+          "other_min": 35332,
+          "other_max": 43414
+        },
+        {
+          "frames": 135,
+          "start_sequence": 43744,
+          "end_sequence": 43878,
+          "other_median": 42238,
+          "other_min": 20124,
+          "other_max": 43284
+        },
+        {
+          "frames": 41,
+          "start_sequence": 44245,
+          "end_sequence": 44285,
+          "other_median": 35025,
+          "other_min": 21086,
+          "other_max": 41802
+        },
+        {
+          "frames": 33,
+          "start_sequence": 45010,
+          "end_sequence": 45042,
+          "other_median": 46074,
+          "other_min": 45623,
+          "other_max": 46140
+        },
+        {
+          "frames": 25,
+          "start_sequence": 37895,
+          "end_sequence": 37919,
+          "other_median": 40801,
+          "other_min": 40754,
+          "other_max": 41022
+        },
+        {
+          "frames": 24,
+          "start_sequence": 45288,
+          "end_sequence": 45311,
+          "other_median": 44605.0,
+          "other_min": 44174,
+          "other_max": 45301
+        }
+      ],
+      "x_high": [
+        {
+          "frames": 54,
+          "start_sequence": 43688,
+          "end_sequence": 43741,
+          "other_median": 38893.5,
+          "other_min": 37965,
+          "other_max": 44418
+        },
+        {
+          "frames": 30,
+          "start_sequence": 45313,
+          "end_sequence": 45342,
+          "other_median": 56390.5,
+          "other_min": 55625,
+          "other_max": 58139
+        }
+      ],
+      "y_low": [],
+      "y_high": []
+    },
+    "center": {
+      "frames": 1447,
+      "x_median": 39884,
+      "x_mean": 40040.6,
+      "x_min": 36915,
+      "x_max": 43546,
+      "y_median": 51447,
+      "y_mean": 51516.9,
+      "y_min": 47876,
+      "y_max": 55315
+    },
+    "outputs": [
+      "segments.csv",
+      "trajectory_sample.csv",
+      "trajectory.svg"
+    ]
+  },
+  {
+    "session": "session_006_x_right_center",
+    "frames": 3847,
+    "valid_frames": 3836,
+    "invalid_frames": 11,
+    "sequence_gap_frames": 0,
+    "sequence_gap_events": 0,
+    "valid_runs": 6,
+    "segments": 29,
+    "moving_segments": 12,
+    "stationary_segments": 17,
+    "x_min": 0,
+    "x_max": 65535,
+    "y_min": 6089,
+    "y_max": 61209,
+    "z_min": 1447,
+    "z_max": 65535,
+    "edge_runs": {
+      "x_low": [
+        {
+          "frames": 44,
+          "start_sequence": 45754,
+          "end_sequence": 45797,
+          "other_median": 42085.0,
+          "other_min": 41967,
+          "other_max": 42435
+        }
+      ],
+      "x_high": [
+        {
+          "frames": 994,
+          "start_sequence": 47200,
+          "end_sequence": 48194,
+          "other_median": 51093.0,
+          "other_min": 34307,
+          "other_max": 53555
+        },
+        {
+          "frames": 493,
+          "start_sequence": 46143,
+          "end_sequence": 46636,
+          "other_median": 50865,
+          "other_min": 25307,
+          "other_max": 51278
+        },
+        {
+          "frames": 380,
+          "start_sequence": 49105,
+          "end_sequence": 49484,
+          "other_median": 52223.0,
+          "other_min": 50456,
+          "other_max": 53680
+        },
+        {
+          "frames": 29,
+          "start_sequence": 45810,
+          "end_sequence": 45844,
+          "other_median": 25480,
+          "other_min": 21550,
+          "other_max": 61209
+        }
+      ],
+      "y_low": [],
+      "y_high": []
+    },
+    "center": {
+      "frames": 1233,
+      "x_median": 41114,
+      "x_mean": 41830.4,
+      "x_min": 38549,
+      "x_max": 49988,
+      "y_median": 51803,
+      "y_mean": 51836.3,
+      "y_min": 48604,
+      "y_max": 53943
+    },
+    "outputs": [
+      "segments.csv",
+      "trajectory_sample.csv",
+      "trajectory.svg"
+    ]
+  },
+  {
+    "session": "session_007_y_bottom_center",
+    "frames": 4707,
+    "valid_frames": 4705,
+    "invalid_frames": 2,
+    "sequence_gap_frames": 641,
+    "sequence_gap_events": 1,
+    "valid_runs": 4,
+    "segments": 29,
+    "moving_segments": 13,
+    "stationary_segments": 16,
+    "x_min": 37092,
+    "x_max": 63048,
+    "y_min": 0,
+    "y_max": 55927,
+    "z_min": 5391,
+    "z_max": 65535,
+    "edge_runs": {
+      "x_low": [],
+      "x_high": [],
+      "y_low": [
+        {
+          "frames": 10,
+          "start_sequence": 54701,
+          "end_sequence": 54710,
+          "other_median": 43340.5,
+          "other_min": 42029,
+          "other_max": 48106
+        }
+      ],
+      "y_high": []
+    },
+    "center": {
+      "frames": 1758,
+      "x_median": 41158,
+      "x_mean": 41167.7,
+      "x_min": 39918,
+      "x_max": 44413,
+      "y_median": 51232,
+      "y_mean": 51262.2,
+      "y_min": 46711,
+      "y_max": 55854
+    },
+    "outputs": [
+      "segments.csv",
+      "trajectory_sample.csv",
+      "trajectory.svg"
+    ]
+  },
+  {
+    "session": "session_008_y_top_center",
+    "frames": 3973,
+    "valid_frames": 3964,
+    "invalid_frames": 9,
+    "sequence_gap_frames": 315,
+    "sequence_gap_events": 1,
+    "valid_runs": 9,
+    "segments": 50,
+    "moving_segments": 21,
+    "stationary_segments": 29,
+    "x_min": 37158,
+    "x_max": 65535,
+    "y_min": 4083,
+    "y_max": 65535,
+    "z_min": 3155,
+    "z_max": 65535,
+    "edge_runs": {
+      "x_low": [],
+      "x_high": [
+        {
+          "frames": 46,
+          "start_sequence": 55074,
+          "end_sequence": 55436,
+          "other_median": 31675.0,
+          "other_min": 10541,
+          "other_max": 42873
+        }
+      ],
+      "y_low": [],
+      "y_high": [
+        {
+          "frames": 439,
+          "start_sequence": 55906,
+          "end_sequence": 56344,
+          "other_median": 43856,
+          "other_min": 42860,
+          "other_max": 44325
+        },
+        {
+          "frames": 125,
+          "start_sequence": 56649,
+          "end_sequence": 56773,
+          "other_median": 43534,
+          "other_min": 42223,
+          "other_max": 43793
+        },
+        {
+          "frames": 77,
+          "start_sequence": 59084,
+          "end_sequence": 59160,
+          "other_median": 45579,
+          "other_min": 41423,
+          "other_max": 45814
+        },
+        {
+          "frames": 55,
+          "start_sequence": 57931,
+          "end_sequence": 57985,
+          "other_median": 47214,
+          "other_min": 45535,
+          "other_max": 47558
+        },
+        {
+          "frames": 54,
+          "start_sequence": 57363,
+          "end_sequence": 57416,
+          "other_median": 46627.0,
+          "other_min": 43964,
+          "other_max": 46924
+        }
+      ]
+    },
+    "center": {
+      "frames": 1523,
+      "x_median": 41678,
+      "x_mean": 41289.7,
+      "x_min": 38043,
+      "x_max": 43912,
+      "y_median": 52680,
+      "y_mean": 52907.5,
+      "y_min": 49899,
+      "y_max": 59937
+    },
+    "outputs": [
+      "segments.csv",
+      "trajectory_sample.csv",
+      "trajectory.svg"
+    ]
+  }
+]

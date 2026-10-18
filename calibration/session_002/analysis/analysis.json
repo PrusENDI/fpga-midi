@@ -1,0 +1,21 @@
+{
+  "valid_frames": 4539,
+  "invalid_frames": 77,
+  "sequence_gap_frames": 16094,
+  "sequence_gap_events": 1,
+  "valid_runs": 24,
+  "segments": 71,
+  "moving_segments": 30,
+  "stationary_segments": 41,
+  "method": {
+    "median_window": 5,
+    "speed_horizon": 10,
+    "moving_threshold": 50,
+    "minimum_run": 20
+  },
+  "outputs": [
+    "segments.csv",
+    "trajectory_sample.csv",
+    "trajectory.svg"
+  ]
+}

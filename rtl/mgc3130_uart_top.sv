@@ -164,6 +164,7 @@ module mgc3130_uart_top #(
         .rst_n              (mgc_ready),
         .note_on            (synth_note_on),
         .note_off           (synth_note_off),
+        .note_revoice       (1'b0),
         .note_number        (synth_note_number),
         .velocity           (synth_velocity),
         .expression_valid   (synth_expression_valid),

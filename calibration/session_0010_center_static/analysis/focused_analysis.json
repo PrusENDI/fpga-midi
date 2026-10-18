@@ -1,0 +1,67 @@
+{
+  "session": "session_0010_center_static",
+  "frames": 3202,
+  "valid_frames": 3194,
+  "invalid_frames": 8,
+  "crc_errors_reported": 1,
+  "sequence_gap_events_wrap_aware": [
+    {
+      "from": 3638,
+      "to": 3675,
+      "missing_frames": 36
+    }
+  ],
+  "sequence_wraps": 0,
+  "sequence_gap_frames_wrap_aware": 36,
+  "sentinel_placeholder_frames": 54,
+  "x_min": 32767,
+  "x_max": 65535,
+  "y_min": 0,
+  "y_max": 57580,
+  "z_min": 3780,
+  "z_max": 65535,
+  "center_stable_windows": {
+    "window_frames": 101,
+    "candidate_frames": 2014,
+    "x_median": 41444.0,
+    "x_mean": 41415.6,
+    "x_std_across_candidates": 689.0,
+    "y_median": 52024.5,
+    "y_mean": 51831.3,
+    "y_std_across_candidates": 3575.0,
+    "sequence_start": 3456,
+    "sequence_end": 6434
+  },
+  "edge_runs": {
+    "x_low": [],
+    "x_high": [
+      {
+        "frames": 34,
+        "start_sequence": 3548,
+        "end_sequence": 3581,
+        "other_median": 50543.0,
+        "other_min": 24335,
+        "other_max": 50814
+      },
+      {
+        "frames": 7,
+        "start_sequence": 5953,
+        "end_sequence": 5959,
+        "other_median": 33529,
+        "other_min": 33387,
+        "other_max": 33878
+      }
+    ],
+    "y_low": [
+      {
+        "frames": 127,
+        "start_sequence": 3404,
+        "end_sequence": 3530,
+        "other_median": 41457,
+        "other_min": 40525,
+        "other_max": 42345
+      }
+    ],
+    "y_high": []
+  }
+}

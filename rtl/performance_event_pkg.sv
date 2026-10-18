@@ -5,6 +5,9 @@ package performance_event_pkg;
     localparam logic [2:0] EVENT_LOOP_BOUNDARY = 3'd3;
     localparam logic [2:0] EVENT_ALL_NOTES_OFF = 3'd4;
     localparam logic [2:0] EVENT_ERROR         = 3'd5;
+    // LIVE-only soft chord replacement. It is deliberately outside the
+    // recordable NOTE_ON/OFF event set.
+    localparam logic [2:0] EVENT_NOTE_REVOICE  = 3'd6;
 
     // [63:62] reserved, [61:58] flags, [57:50] timbre,
     // [49:42] amplitude, [41:34] signed pitch, [33:26] velocity,

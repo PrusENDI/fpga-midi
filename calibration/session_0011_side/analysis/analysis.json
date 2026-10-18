@@ -1,0 +1,204 @@
+{
+  "session": "session_0011_side",
+  "threshold": 4096,
+  "frames": 4679,
+  "valid_frames_all": 4666,
+  "invalid_frames_all": 13,
+  "largest_gap_before": 6536,
+  "largest_gap_before_sequence": 13437,
+  "principal_track_start_sequence": 13437,
+  "principal_track_end_sequence": 17875,
+  "principal_track_frames": 4439,
+  "principal_track_valid_frames": 4435,
+  "principal_track_invalid_frames": 4,
+  "principal_track_invalid_sequences": [
+    16545,
+    17219,
+    17654,
+    17875
+  ],
+  "x_range": [
+    0,
+    65535
+  ],
+  "y_range": [
+    0,
+    65535
+  ],
+  "z_range": [
+    2410,
+    64580
+  ],
+  "edge_stats": {
+    "x_left": {
+      "threshold": 4096,
+      "frames": 268,
+      "primary_median": 2118.5,
+      "primary_p05": 0.0,
+      "primary_p95": 3877.0999999999995,
+      "primary_min": 0,
+      "primary_max": 4083,
+      "primary_std": 1578.435548280115,
+      "other_median": 4901.5,
+      "other_p05": 0.0,
+      "other_p95": 24625.99999999999,
+      "other_min": 0,
+      "other_max": 33206
+    },
+    "x_right": {
+      "threshold": 4096,
+      "frames": 1984,
+      "primary_median": 65535.0,
+      "primary_p05": 65459.85,
+      "primary_p95": 65535.0,
+      "primary_min": 61455,
+      "primary_max": 65535,
+      "primary_std": 438.38349448590265,
+      "other_median": 49100.5,
+      "other_p05": 0.0,
+      "other_p95": 65535.0,
+      "other_min": 0,
+      "other_max": 65535
+    },
+    "y_bottom": {
+      "threshold": 4096,
+      "frames": 1208,
+      "primary_median": 0.0,
+      "primary_p05": 0.0,
+      "primary_p95": 3573.5999999999995,
+      "primary_min": 0,
+      "primary_max": 4093,
+      "primary_std": 1219.342918959237,
+      "other_median": 65535.0,
+      "other_p05": 2928.5,
+      "other_p95": 65535.0,
+      "other_min": 0,
+      "other_max": 65535
+    },
+    "y_top": {
+      "threshold": 4096,
+      "frames": 1770,
+      "primary_median": 65535.0,
+      "primary_p05": 61950.45,
+      "primary_p95": 65535.0,
+      "primary_min": 61443,
+      "primary_max": 65535,
+      "primary_std": 1067.0441425907418,
+      "other_median": 63687.0,
+      "other_p05": 14324.9,
+      "other_p95": 65535.0,
+      "other_min": 13334,
+      "other_max": 65535
+    }
+  },
+  "significant_single_edge_order": [
+    {
+      "edge": "B",
+      "start_sequence": 13437,
+      "end_sequence": 13699,
+      "frames": 263
+    },
+    {
+      "edge": "R",
+      "start_sequence": 13861,
+      "end_sequence": 13939,
+      "frames": 79
+    },
+    {
+      "edge": "T",
+      "start_sequence": 14091,
+      "end_sequence": 14273,
+      "frames": 153
+    },
+    {
+      "edge": "R",
+      "start_sequence": 14582,
+      "end_sequence": 14776,
+      "frames": 104
+    },
+    {
+      "edge": "T",
+      "start_sequence": 14943,
+      "end_sequence": 15102,
+      "frames": 160
+    },
+    {
+      "edge": "L",
+      "start_sequence": 15158,
+      "end_sequence": 15240,
+      "frames": 83
+    },
+    {
+      "edge": "R",
+      "start_sequence": 15455,
+      "end_sequence": 15500,
+      "frames": 46
+    },
+    {
+      "edge": "T",
+      "start_sequence": 15652,
+      "end_sequence": 15797,
+      "frames": 146
+    },
+    {
+      "edge": "B",
+      "start_sequence": 15927,
+      "end_sequence": 15963,
+      "frames": 37
+    },
+    {
+      "edge": "R",
+      "start_sequence": 16110,
+      "end_sequence": 16155,
+      "frames": 46
+    },
+    {
+      "edge": "T",
+      "start_sequence": 16342,
+      "end_sequence": 16517,
+      "frames": 176
+    },
+    {
+      "edge": "L",
+      "start_sequence": 16623,
+      "end_sequence": 16666,
+      "frames": 44
+    },
+    {
+      "edge": "R",
+      "start_sequence": 16746,
+      "end_sequence": 16914,
+      "frames": 108
+    },
+    {
+      "edge": "T",
+      "start_sequence": 17065,
+      "end_sequence": 17175,
+      "frames": 111
+    },
+    {
+      "edge": "B",
+      "start_sequence": 17255,
+      "end_sequence": 17355,
+      "frames": 68
+    },
+    {
+      "edge": "T",
+      "start_sequence": 17600,
+      "end_sequence": 17713,
+      "frames": 113
+    },
+    {
+      "edge": "B",
+      "start_sequence": 17792,
+      "end_sequence": 17850,
+      "frames": 59
+    }
+  ],
+  "edge_runs_count": 45,
+  "outputs": [
+    "edge_segments.csv",
+    "trajectory_sample.csv",
+    "trajectory.svg"
+  ]
+}

@@ -12,6 +12,13 @@ module tb_loop_audio_path;
   @(negedge clk);live_data[2:0]=0;live_data[25:19]=60;live_data[33:26]=90;live_valid=1;while(!live_ready)@(negedge clk);@(negedge clk);live_valid=0;repeat(20)@(negedge clk);if(active_voice_count==0)$fatal(1,"live event did not reach mixer");
   // A pending modulation point must not deadlock a simultaneous control event.
   modulation_data[2:0]=4; modulation_valid=1;
+  force dut.control.ingress.modulation_out_ready=1'b0;
+  force dut.control.ingress.modulation_in_valid=1'b1;
+  force dut.control.ingress.modulation_in_data=64'h1234;
+  @(posedge clk); #1 if(!dut.control.ingress.modulation_pending)$fatal(1,"modulation was not routed through ingress");
+  release dut.control.ingress.modulation_out_ready;
+  release dut.control.ingress.modulation_in_valid;
+  release dut.control.ingress.modulation_in_data;
   force dut.out_valid=1'b1;
   #1 if(!dut.out_ready)$fatal(1,"control ready blocked by modulation");
   release dut.out_valid;

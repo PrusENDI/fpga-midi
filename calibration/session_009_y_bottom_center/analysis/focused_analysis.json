@@ -1,0 +1,100 @@
+{
+  "session": "session_009_y_bottom_center",
+  "frames": 4431,
+  "valid_frames": 4418,
+  "invalid_frames": 13,
+  "crc_errors_reported": 0,
+  "sequence_gap_events_wrap_aware": [
+    {
+      "from": 59423,
+      "to": 64721,
+      "missing_frames": 5297
+    }
+  ],
+  "sequence_wraps": 1,
+  "sequence_gap_frames_wrap_aware": 5297,
+  "sentinel_placeholder_frames": 0,
+  "x_min": 27508,
+  "x_max": 65535,
+  "y_min": 0,
+  "y_max": 65535,
+  "z_min": 6585,
+  "z_max": 65535,
+  "center_stable_windows": {
+    "window_frames": 101,
+    "candidate_frames": 1117,
+    "x_median": 40430,
+    "x_mean": 40802.6,
+    "x_std_across_candidates": 942.7,
+    "y_median": 50324,
+    "y_mean": 45156.0,
+    "y_std_across_candidates": 13651.1,
+    "sequence_start": 65190,
+    "sequence_end": 3185
+  },
+  "edge_runs": {
+    "x_low": [],
+    "x_high": [
+      {
+        "frames": 90,
+        "start_sequence": 59312,
+        "end_sequence": 59408,
+        "other_median": 29997.0,
+        "other_min": 0,
+        "other_max": 40708
+      }
+    ],
+    "y_low": [
+      {
+        "frames": 471,
+        "start_sequence": 732,
+        "end_sequence": 1202,
+        "other_median": 42570,
+        "other_min": 27508,
+        "other_max": 47462
+      },
+      {
+        "frames": 235,
+        "start_sequence": 1876,
+        "end_sequence": 2110,
+        "other_median": 48770,
+        "other_min": 43429,
+        "other_max": 61804
+      },
+      {
+        "frames": 196,
+        "start_sequence": 56,
+        "end_sequence": 251,
+        "other_median": 47100.5,
+        "other_min": 42212,
+        "other_max": 48410
+      },
+      {
+        "frames": 148,
+        "start_sequence": 64842,
+        "end_sequence": 64990,
+        "other_median": 40805.0,
+        "other_min": 31065,
+        "other_max": 41526
+      },
+      {
+        "frames": 48,
+        "start_sequence": 59400,
+        "end_sequence": 64747,
+        "other_median": 50064.0,
+        "other_min": 36684,
+        "other_max": 65535
+      }
+    ],
+    "y_high": [
+      {
+        "frames": 127,
+        "start_sequence": 59184,
+        "end_sequence": 59310,
+        "other_median": 45351,
+        "other_min": 45223,
+        "other_max": 45507
+      }
+    ]
+  }
+}

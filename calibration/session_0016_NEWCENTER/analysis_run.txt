@@ -1,0 +1,367 @@
+{
+  "session": "session_0016_NEWCENTER",
+  "threshold": 4096,
+  "frames": 3513,
+  "valid_frames": 3506,
+  "invalid_frames": 7,
+  "sequence_gap_events": [
+    {
+      "sequence": 5064,
+      "gap_before": 59
+    }
+  ],
+  "overall_range": {
+    "x": [
+      0,
+      65535
+    ],
+    "y": [
+      0,
+      65534
+    ],
+    "z": [
+      2471,
+      65535
+    ]
+  },
+  "blocks": [
+    {
+      "start_sequence": 4765,
+      "end_sequence": 5004,
+      "frames": 240,
+      "valid_frames": 239,
+      "invalid_sequences": [
+        4972
+      ],
+      "x_range": [
+        0,
+        65535
+      ],
+      "y_range": [
+        16312,
+        65534
+      ],
+      "z_range": [
+        3233,
+        57103
+      ],
+      "edge_stats": {
+        "x_left": {
+          "frames": 101,
+          "primary_median": 0,
+          "primary_p05": 0,
+          "primary_p95": 2427,
+          "primary_min": 0,
+          "primary_max": 3812,
+          "other_median": 17186,
+          "other_min": 16312,
+          "other_max": 24300
+        },
+        "x_right": {
+          "frames": 72,
+          "primary_median": 65535.0,
+          "primary_p05": 65535.0,
+          "primary_p95": 65535.0,
+          "primary_min": 62815,
+          "primary_max": 65535,
+          "other_median": 65534.0,
+          "other_min": 25892,
+          "other_max": 65534
+        },
+        "y_bottom": {
+          "frames": 0,
+          "primary_median": null,
+          "primary_p05": null,
+          "primary_p95": null,
+          "primary_min": null,
+          "primary_max": null,
+          "other_median": null,
+          "other_min": null,
+          "other_max": null
+        },
+        "y_top": {
+          "frames": 51,
+          "primary_median": 65534,
+          "primary_p05": 65534.0,
+          "primary_p95": 65534.0,
+          "primary_min": 61811,
+          "primary_max": 65534,
+          "other_median": 65535,
+          "other_min": 65535,
+          "other_max": 65535
+        }
+      },
+      "edge_order": [
+        {
+          "edge": "L",
+          "start_sequence": 4765,
+          "end_sequence": 4865,
+          "frames": 101
+        },
+        {
+          "edge": "R",
+          "start_sequence": 4932,
+          "end_sequence": 4952,
+          "frames": 21
+        }
+      ],
+      "runs": [
+        {
+          "label": "L",
+          "start_sequence": 4765,
+          "end_sequence": 4865,
+          "frames": 101
+        },
+        {
+          "label": ".",
+          "start_sequence": 4866,
+          "end_sequence": 4931,
+          "frames": 66
+        },
+        {
+          "label": "R",
+          "start_sequence": 4932,
+          "end_sequence": 4952,
+          "frames": 21
+        },
+        {
+          "label": "RT",
+          "start_sequence": 4953,
+          "end_sequence": 4971,
+          "frames": 19
+        },
+        {
+          "label": "INVALID",
+          "start_sequence": 4972,
+          "end_sequence": 4972,
+          "frames": 1
+        },
+        {
+          "label": "RT",
+          "start_sequence": 4973,
+          "end_sequence": 5004,
+          "frames": 32
+        }
+      ]
+    },
+    {
+      "start_sequence": 5064,
+      "end_sequence": 8336,
+      "frames": 3273,
+      "valid_frames": 3267,
+      "invalid_sequences": [
+        5761,
+        6313,
+        6947,
+        7400,
+        7833,
+        8188
+      ],
+      "x_range": [
+        16736,
+        65535
+      ],
+      "y_range": [
+        0,
+        53702
+      ],
+      "z_range": [
+        2471,
+        65535
+      ],
+      "edge_stats": {
+        "x_left": {
+          "frames": 0,
+          "primary_median": null,
+          "primary_p05": null,
+          "primary_p95": null,
+          "primary_min": null,
+          "primary_max": null,
+          "other_median": null,
+          "other_min": null,
+          "other_max": null
+        },
+        "x_right": {
+          "frames": 24,
+          "primary_median": 64927.0,
+          "primary_p05": 62430.35,
+          "primary_p95": 65535.0,
+          "primary_min": 62027,
+          "primary_max": 65535,
+          "other_median": 888.0,
+          "other_min": 0,
+          "other_max": 22199
+        },
+        "y_bottom": {
+          "frames": 80,
+          "primary_median": 0.0,
+          "primary_p05": 0.0,
+          "primary_p95": 3151.45,
+          "primary_min": 0,
+          "primary_max": 4033,
+          "other_median": 23073.0,
+          "other_min": 16736,
+          "other_max": 65535
+        },
+        "y_top": {
+          "frames": 0,
+          "primary_median": null,
+          "primary_p05": null,
+          "primary_p95": null,
+          "primary_min": null,
+          "primary_max": null,
+          "other_median": null,
+          "other_min": null,
+          "other_max": null
+        }
+      },
+      "edge_order": [
+        {
+          "edge": "B",
+          "start_sequence": 5064,
+          "end_sequence": 5100,
+          "frames": 37
+        }
+      ],
+      "runs": [
+        {
+          "label": "B",
+          "start_sequence": 5064,
+          "end_sequence": 5100,
+          "frames": 37
+        },
+        {
+          "label": ".",
+          "start_sequence": 5101,
+          "end_sequence": 5760,
+          "frames": 660
+        },
+        {
+          "label": "INVALID",
+          "start_sequence": 5761,
+          "end_sequence": 5761,
+          "frames": 1
+        },
+        {
+          "label": "B",
+          "start_sequence": 5762,
+          "end_sequence": 5767,
+          "frames": 6
+        },
+        {
+          "label": ".",
+          "start_sequence": 5768,
+          "end_sequence": 6312,
+          "frames": 545
+        },
+        {
+          "label": "INVALID",
+          "start_sequence": 6313,
+          "end_sequence": 6313,
+          "frames": 1
+        },
+        {
+          "label": "B",
+          "start_sequence": 6314,
+          "end_sequence": 6318,
+          "frames": 5
+        },
+        {
+          "label": ".",
+          "start_sequence": 6319,
+          "end_sequence": 6946,
+          "frames": 628
+        },
+        {
+          "label": "INVALID",
+          "start_sequence": 6947,
+          "end_sequence": 6947,
+          "frames": 1
+        },
+        {
+          "label": "R",
+          "start_sequence": 6948,
+          "end_sequence": 6956,
+          "frames": 9
+        },
+        {
+          "label": ".",
+          "start_sequence": 6957,
+          "end_sequence": 7399,
+          "frames": 443
+        },
+        {
+          "label": "INVALID",
+          "start_sequence": 7400,
+          "end_sequence": 7400,
+          "frames": 1
+        },
+        {
+          "label": "RB",
+          "start_sequence": 7401,
+          "end_sequence": 7407,
+          "frames": 7
+        },
+        {
+          "label": "B",
+          "start_sequence": 7408,
+          "end_sequence": 7416,
+          "frames": 9
+        },
+        {
+          "label": ".",
+          "start_sequence": 7417,
+          "end_sequence": 7832,
+          "frames": 416
+        },
+        {
+          "label": "INVALID",
+          "start_sequence": 7833,
+          "end_sequence": 7833,
+          "frames": 1
+        },
+        {
+          "label": "RB",
+          "start_sequence": 7834,
+          "end_sequence": 7841,
+          "frames": 8
+        },
+        {
+          "label": ".",
+          "start_sequence": 7842,
+          "end_sequence": 8187,
+          "frames": 346
+        },
+        {
+          "label": "INVALID",
+          "start_sequence": 8188,
+          "end_sequence": 8188,
+          "frames": 1
+        },
+        {
+          "label": "B",
+          "start_sequence": 8189,
+          "end_sequence": 8196,
+          "frames": 8
+        },
+        {
+          "label": ".",
+          "start_sequence": 8197,
+          "end_sequence": 8336,
+          "frames": 140
+        }
+      ]
+    }
+  ],
+  "interpretation": {
+    "x_left_observed": 0,
+    "y_bottom_observed": 0,
+    "left_edge_reached": true,
+    "bottom_edge_reached": true,
+    "note": "Physical board-side sweep does not provide a left-edge X calibration sample; most samples concentrate on right/top edges."
+  },
+  "outputs": [
+    "edge_segments.csv",
+    "trajectory_sample.csv"
+  ]
+}

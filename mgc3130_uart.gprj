@@ -1,52 +1,55 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1" encoding="UTF-8"?>
 <!DOCTYPE gowin-fpga-project>
 <Project>
     <Template>FPGA</Template>
     <Version>5</Version>
     <Device name="GW5A-25A" pn="GW5A-LV25MG121NES">gw5a25a-000</Device>
     <FileList>
-        <File path="rtl/mgc3130_uart_top.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/mgc3130_uart_loop_top.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/mgc3130_reader.sv" type="file.verilog" enable="1"/>
-        <File path="ip/gowin_i2c_master/I2C_MASTER_TOP.v" type="file.verilog" enable="1"/>
         <File path="ip/gowin_i2c_master/I2C_MASTER.vp" type="file.verilog" enable="1"/>
-        <File path="rtl/mgc3130_reset_seq.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/mgc3130_input_latch.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/mgc3130_pattern_input.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/mgc3130_voice_mixer.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/mgc3130_audio_uart_tx.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/i2s_pcm5102a_tx.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/mgc_uart_report_tx.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/uart_heartbeat.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/uart_tx.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/uart_rx.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/uart_rx_ref.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/uart_rx_fifo.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/gowin_uart_rx_fifo.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/uart_control_link.sv" type="file.verilog" enable="1"/>
-        <File path="ip/gowin_uart_rx_fifo/fifo_sc_top.v" type="file.verilog" enable="1"/>
+        <File path="ip/gowin_i2c_master/I2C_MASTER_TOP.v" type="file.verilog" enable="1"/>
         <File path="ip/gowin_uart_rx_fifo/fifo_sc.v" type="file.verilog" enable="1"/>
-        <File path="rtl/performance_event_pkg.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/performance_event_fifo_wrapper.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/performance_event_ingress.sv" type="file.verilog" enable="1"/>
+        <File path="ip/gowin_uart_rx_fifo/fifo_sc_top.v" type="file.verilog" enable="1"/>
+        <File path="rtl/command_mailbox.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/control_csr.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/control_protocol_pkg.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/gowin_uart_rx_fifo.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/i2s_pcm5102a_tx.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/input_event_adapter.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/input_event_mux.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/loop_audio_path.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/loop_control_plane.sv" type="file.verilog" enable="1"/>
         <File path="rtl/loop_event_ram.sv" type="file.verilog" enable="1"/>
         <File path="rtl/loop_event_store.sv" type="file.verilog" enable="1"/>
         <File path="rtl/loop_scheduler.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/control_protocol_pkg.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/input_event_adapter.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/input_event_mux.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/performance_event_voice_bridge.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/loop_audio_path.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/command_mailbox.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/control_csr.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/mode_manager.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/performance_event_router.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/loop_control_plane.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/live_xyz_mapper.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_audio_uart_tx.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_calibration_capture.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_input_latch.sv" type="file.verilog" enable="1"/>
         <File path="rtl/mgc3130_loop_control_path.sv" type="file.verilog" enable="1"/>
-        <File path="rtl/uart_byte_serializer.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_pattern_input.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_reader.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_reset_seq.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_uart_calibration_top.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_uart_loop_top.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_uart_top.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc3130_voice_mixer.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mgc_uart_report_tx.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/mode_manager.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/performance_event_fifo_wrapper.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/performance_event_ingress.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/performance_event_pkg.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/performance_event_router.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/performance_event_voice_bridge.sv" type="file.verilog" enable="1"/>
         <File path="rtl/uart_banner_tx.sv" type="file.verilog" enable="1"/>
-        <File path="mgc3130_uart.rao" type="file.gao" enable="1"/>
+        <File path="rtl/uart_byte_serializer.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/uart_control_link.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/uart_heartbeat.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/uart_rx.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/uart_rx_fifo.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/uart_rx_ref.sv" type="file.verilog" enable="1"/>
+        <File path="rtl/uart_tx.sv" type="file.verilog" enable="1"/>
         <File path="mgc3130_uart.cst" type="file.cst" enable="1"/>
         <File path="mgc3130_uart.sdc" type="file.sdc" enable="1"/>
+        <File path="mgc3130_uart.rao" type="file.gao" enable="1"/>
     </FileList>
 </Project>

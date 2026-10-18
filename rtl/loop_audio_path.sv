@@ -24,6 +24,7 @@ module loop_audio_path #(
  input wire [15:0] report_count,xyz_count,
   input wire adapter_overflow);
  wire out_valid,out_ready;wire [63:0] out_data;
+ wire ingress_mod_valid, ingress_mod_ready; wire [63:0] ingress_mod_data;
  wire [15:0] bpm_shadow,active_bpm;
  wire live_enable,record_enable,play_enable;wire [1:0] track;
  wire [7:0] diag_flags;
@@ -39,6 +40,8 @@ module loop_audio_path #(
    .tx_valid(tx_valid),.tx_ready(tx_ready),.tx_data(tx_data),.record_start(record_start),
    .in_valid(live_valid),.in_ready(live_ready),.in_data(live_data),
    .record_in_valid(record_valid),.record_in_ready(record_ready),.record_in_data(record_data),.adapter_idle(adapter_idle),
+   .modulation_in_valid(modulation_valid),.modulation_in_ready(modulation_ready),.modulation_in_data(modulation_data),
+   .modulation_out_valid(ingress_mod_valid),.modulation_out_ready(ingress_mod_ready),.modulation_out_data(ingress_mod_data),
    .out_valid(out_valid),.out_ready(out_ready),.out_data(out_data),.mode(mode),.selected_track(track),
    .bpm_shadow(bpm_shadow),.active_bpm(active_bpm),.start_enter(start_enter),.start_exit(start_exit),
    .loop_tick(loop_tick),.active_valid(active_valid),.fault_latched(fault_latched),
@@ -50,17 +53,17 @@ module loop_audio_path #(
  // Control-plane playback has priority over external modulation. The adapter
  // holds modulation_valid while modulation_ready is low, so no event is lost.
  wire bridge_valid,bridge_ready;wire [63:0] bridge_data;
- assign bridge_valid=out_valid || modulation_valid;
- assign bridge_data=out_valid ? out_data : modulation_data;
+ assign bridge_valid=out_valid || ingress_mod_valid;
+ assign bridge_data=out_valid ? out_data : ingress_mod_data;
  // The control-plane event has priority at the bridge.  It must still see
  // ready when a modulation point is pending; otherwise the bridge consumes
  // the control event repeatedly while the router waits forever for ready.
  assign out_ready=bridge_ready;
- assign modulation_ready=bridge_ready && !out_valid;
- wire note_on,note_off,expression_valid;wire [6:0] note_number;wire [7:0] velocity;
+ assign ingress_mod_ready=bridge_ready && !out_valid;
+ wire note_on,note_off,note_revoice,expression_valid;wire [6:0] note_number;wire [7:0] velocity;
  performance_event_voice_bridge bridge(.clk(clk),.rst_n(rst_n),.event_valid(bridge_valid),.event_ready(bridge_ready),.event_data(bridge_data),
-   .note_on(note_on),.note_off(note_off),.expression_valid(expression_valid),.note_number(note_number),.velocity(velocity));
- mgc3130_voice_mixer #(.CLK_HZ(CLK_HZ)) mixer(.clk(clk),.rst_n(rst_n),.note_on(note_on),.note_off(note_off),
+   .note_on(note_on),.note_off(note_off),.note_revoice(note_revoice),.expression_valid(expression_valid),.note_number(note_number),.velocity(velocity));
+ mgc3130_voice_mixer #(.CLK_HZ(CLK_HZ)) mixer(.clk(clk),.rst_n(rst_n),.note_on(note_on),.note_off(note_off),.note_revoice(note_revoice),
    .note_number(note_number),.velocity(velocity),.expression_valid(expression_valid),.sample_valid(sample_valid),
    .mixed_sample(mixed_sample),.active_voice_count(active_voice_count));
  always @(posedge clk or negedge rst_n) begin

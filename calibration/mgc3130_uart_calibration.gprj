@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE gowin-fpga-project>
+<Project>
+    <Template>FPGA</Template>
+    <Version>5</Version>
+    <Device name="GW5A-25A" pn="GW5A-LV25MG121NES">gw5a25a-000</Device>
+    <FileList>
+        <File path="../ip/gowin_i2c_master/I2C_MASTER.vp" type="file.verilog" enable="1"/>
+        <File path="../ip/gowin_i2c_master/I2C_MASTER_TOP.v" type="file.verilog" enable="1"/>
+        <File path="../rtl/uart_tx.sv" type="file.verilog" enable="1"/>
+        <File path="../rtl/uart_byte_serializer.sv" type="file.verilog" enable="1"/>
+        <File path="../rtl/mgc3130_calibration_capture.sv" type="file.verilog" enable="1"/>
+        <File path="../rtl/mgc3130_input_latch.sv" type="file.verilog" enable="1"/>
+        <File path="../rtl/mgc3130_reader.sv" type="file.verilog" enable="1"/>
+        <File path="../rtl/mgc3130_reset_seq.sv" type="file.verilog" enable="1"/>
+        <File path="../rtl/mgc3130_uart_calibration_top.sv" type="file.verilog" enable="1"/>
+        <File path="../mgc3130_uart.cst" type="file.cst" enable="1"/>
+        <File path="mgc3130_uart_calibration.sdc" type="file.sdc" enable="1"/>
+    </FileList>
+</Project>

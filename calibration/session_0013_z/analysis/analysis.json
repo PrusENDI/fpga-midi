@@ -1,0 +1,112 @@
+{
+  "session": "session_0013_z",
+  "frames": 2983,
+  "valid_frames_all": 2975,
+  "invalid_frames_all": 8,
+  "crc_errors_from_summary": 1,
+  "largest_gap_before": 8095,
+  "largest_gap_before_sequence": 35119,
+  "principal_track_start_sequence": 35119,
+  "principal_track_end_sequence": 37862,
+  "principal_track_frames": 2744,
+  "principal_track_valid_frames": 2737,
+  "principal_track_invalid_sequences": [
+    35750,
+    36187,
+    36634,
+    37049,
+    37338,
+    37632,
+    37862
+  ],
+  "z_range": [
+    309,
+    65535
+  ],
+  "x_range": [
+    15969,
+    65535
+  ],
+  "y_range": [
+    0,
+    60061
+  ],
+  "z_direction_counts": {
+    "down": 1099,
+    "flat": 708,
+    "up": 929
+  },
+  "levels": [
+    {
+      "name": "touch_candidate",
+      "z_range": [
+        0,
+        4095
+      ],
+      "frames": 203,
+      "z_median": 2048,
+      "z_p05": 392.90000000000003,
+      "z_p95": 3710.7,
+      "x_median": 37614,
+      "y_median": 51827
+    },
+    {
+      "name": "near_touch",
+      "z_range": [
+        4096,
+        16383
+      ],
+      "frames": 918,
+      "z_median": 7797.0,
+      "z_p05": 4851.65,
+      "z_p95": 14957.449999999999,
+      "x_median": 38065.0,
+      "y_median": 53855.5
+    },
+    {
+      "name": "mid",
+      "z_range": [
+        16384,
+        32767
+      ],
+      "frames": 643,
+      "z_median": 24331,
+      "z_p05": 17458.0,
+      "z_p95": 31654.5,
+      "x_median": 39170,
+      "y_median": 55686
+    },
+    {
+      "name": "approach",
+      "z_range": [
+        32768,
+        49151
+      ],
+      "frames": 503,
+      "z_median": 40238,
+      "z_p05": 33656.8,
+      "z_p95": 48078.5,
+      "x_median": 35539,
+      "y_median": 51770
+    },
+    {
+      "name": "float_candidate",
+      "z_range": [
+        49152,
+        65535
+      ],
+      "frames": 470,
+      "z_median": 58520.0,
+      "z_p05": 50030.95,
+      "z_p95": 65535.0,
+      "x_median": 38322.5,
+      "y_median": 51215.5
+    }
+  ],
+  "level_runs": 74,
+  "outputs": [
+    "z_level_segments.csv",
+    "z_trace_sample.csv",
+    "z_trace.svg"
+  ]
+}

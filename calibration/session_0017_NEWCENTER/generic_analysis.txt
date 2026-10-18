@@ -1,0 +1,117 @@
+{
+  "session": "session_0017_NEWCENTER",
+  "threshold": 4096,
+  "frames": 4323,
+  "valid_frames_all": 4320,
+  "invalid_frames_all": 3,
+  "largest_gap_before": 3966,
+  "largest_gap_before_sequence": 12566,
+  "principal_track_start_sequence": 12566,
+  "principal_track_end_sequence": 16648,
+  "principal_track_frames": 4083,
+  "principal_track_valid_frames": 4082,
+  "principal_track_invalid_frames": 1,
+  "principal_track_invalid_sequences": [
+    15314
+  ],
+  "x_range": [
+    0,
+    62717
+  ],
+  "y_range": [
+    0,
+    65534
+  ],
+  "z_range": [
+    6844,
+    65535
+  ],
+  "edge_stats": {
+    "x_left": {
+      "threshold": 4096,
+      "frames": 76,
+      "primary_median": 1442.5,
+      "primary_p05": 0.0,
+      "primary_p95": 3468.75,
+      "primary_min": 0,
+      "primary_max": 4058,
+      "primary_std": 1244.0865843253216,
+      "other_median": 55096.5,
+      "other_p05": 10357.5,
+      "other_p95": 65534.0,
+      "other_min": 8733,
+      "other_max": 65534
+    },
+    "x_right": {
+      "threshold": 4096,
+      "frames": 1,
+      "primary_median": 62717,
+      "primary_p05": 62717,
+      "primary_p95": 62717,
+      "primary_min": 62717,
+      "primary_max": 62717,
+      "primary_std": 0.0,
+      "other_median": 0,
+      "other_p05": 0,
+      "other_p95": 0,
+      "other_min": 0,
+      "other_max": 0
+    },
+    "y_bottom": {
+      "threshold": 4096,
+      "frames": 105,
+      "primary_median": 0,
+      "primary_p05": 0.0,
+      "primary_p95": 1826.1999999999985,
+      "primary_min": 0,
+      "primary_max": 4075,
+      "primary_std": 741.1219594582317,
+      "other_median": 45289,
+      "other_p05": 42545.8,
+      "other_p95": 53807.2,
+      "other_min": 42493,
+      "other_max": 62717
+    },
+    "y_top": {
+      "threshold": 4096,
+      "frames": 54,
+      "primary_median": 64290.5,
+      "primary_p05": 61913.65,
+      "primary_p95": 65534.0,
+      "primary_min": 61469,
+      "primary_max": 65534,
+      "primary_std": 1319.2133057174003,
+      "other_median": 4473.5,
+      "other_p05": 1475.35,
+      "other_p95": 7689.05,
+      "other_min": 1439,
+      "other_max": 7852
+    }
+  },
+  "significant_single_edge_order": [
+    {
+      "edge": "B",
+      "start_sequence": 12567,
+      "end_sequence": 12670,
+      "frames": 104
+    },
+    {
+      "edge": "L",
+      "start_sequence": 15315,
+      "end_sequence": 15365,
+      "frames": 51
+    },
+    {
+      "edge": "T",
+      "start_sequence": 15391,
+      "end_sequence": 15419,
+      "frames": 29
+    }
+  ],
+  "edge_runs_count": 5,
+  "outputs": [
+    "edge_segments.csv",
+    "trajectory_sample.csv",
+    "trajectory.svg"
+  ]
+}

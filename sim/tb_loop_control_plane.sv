@@ -13,6 +13,8 @@ module tb_loop_control_plane #(parameter USE_GOWIN_RAM=0);
     reg [7:0] note_on_count=0;
     reg [2:0] active_voice_count=0;
     reg [7:0] diag_flags=0;
+    reg modulation_in_valid=0; wire modulation_in_ready; reg [63:0] modulation_in_data=0;
+    wire modulation_out_valid; reg modulation_out_ready=1; wire [63:0] modulation_out_data;
     loop_control_plane #(.CLK_HZ(12000),.USE_GOWIN_RAM(USE_GOWIN_RAM),
         .OP_TIMEOUT_CYCLES(4000),.BOUNDARY_TIMEOUT_CYCLES(400000),.RX_TIMEOUT_CYCLES(100)) dut(.*);
     reg [7:0] response[0:9];integer reply_index=0;

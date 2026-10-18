@@ -1,0 +1,13 @@
+{
+  "frames": 4323,
+  "reports": 4323,
+  "metadata_frames": 0,
+  "sequence_gaps": 3966,
+  "crc_errors": 0,
+  "x_min": 0,
+  "x_max": 65535,
+  "y_min": 0,
+  "y_max": 65534,
+  "z_min": 3094,
+  "z_max": 65535
+}

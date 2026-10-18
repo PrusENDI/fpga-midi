@@ -1,0 +1,106 @@
+{
+  "session": "session_005_x_left_center",
+  "frames": 3505,
+  "valid_frames": 3496,
+  "invalid_frames": 9,
+  "sequence_gap_frames": 4430,
+  "sequence_gap_events": 1,
+  "valid_runs": 9,
+  "segments": 36,
+  "moving_segments": 14,
+  "stationary_segments": 22,
+  "x_min": 0,
+  "x_max": 65535,
+  "y_min": 21,
+  "y_max": 58139,
+  "z_min": 4995,
+  "z_max": 65535,
+  "edge_runs": {
+    "x_low": [
+      {
+        "frames": 583,
+        "start_sequence": 42710,
+        "end_sequence": 43293,
+        "other_median": 41759,
+        "other_min": 35332,
+        "other_max": 43414
+      },
+      {
+        "frames": 135,
+        "start_sequence": 43744,
+        "end_sequence": 43878,
+        "other_median": 42238,
+        "other_min": 20124,
+        "other_max": 43284
+      },
+      {
+        "frames": 41,
+        "start_sequence": 44245,
+        "end_sequence": 44285,
+        "other_median": 35025,
+        "other_min": 21086,
+        "other_max": 41802
+      },
+      {
+        "frames": 33,
+        "start_sequence": 45010,
+        "end_sequence": 45042,
+        "other_median": 46074,
+        "other_min": 45623,
+        "other_max": 46140
+      },
+      {
+        "frames": 25,
+        "start_sequence": 37895,
+        "end_sequence": 37919,
+        "other_median": 40801,
+        "other_min": 40754,
+        "other_max": 41022
+      },
+      {
+        "frames": 24,
+        "start_sequence": 45288,
+        "end_sequence": 45311,
+        "other_median": 44605.0,
+        "other_min": 44174,
+        "other_max": 45301
+      }
+    ],
+    "x_high": [
+      {
+        "frames": 54,
+        "start_sequence": 43688,
+        "end_sequence": 43741,
+        "other_median": 38893.5,
+        "other_min": 37965,
+        "other_max": 44418
+      },
+      {
+        "frames": 30,
+        "start_sequence": 45313,
+        "end_sequence": 45342,
+        "other_median": 56390.5,
+        "other_min": 55625,
+        "other_max": 58139
+      }
+    ],
+    "y_low": [],
+    "y_high": []
+  },
+  "center": {
+    "frames": 1447,
+    "x_median": 39884,
+    "x_mean": 40040.6,
+    "x_min": 36915,
+    "x_max": 43546,
+    "y_median": 51447,
+    "y_mean": 51516.9,
+    "y_min": 47876,
+    "y_max": 55315
+  },
+  "outputs": [
+    "segments.csv",
+    "trajectory_sample.csv",
+    "trajectory.svg"
+  ]
+}
