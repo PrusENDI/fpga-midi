@@ -1,0 +1,252 @@
+{
+  "version": 1,
+  "style": "ambient",
+  "loop_ticks": 128,
+  "events": [
+    {
+      "track": "bass",
+      "type": "note_on",
+      "tick": 0,
+      "duration": 16,
+      "note": 45,
+      "velocity": 60
+    },
+    {
+      "track": "drums",
+      "type": "note_on",
+      "tick": 0,
+      "duration": 1,
+      "note": 36,
+      "velocity": 80
+    },
+    {
+      "track": "lead",
+      "type": "note_on",
+      "tick": 0,
+      "duration": 80,
+      "note": 74,
+      "velocity": 92
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 0,
+      "duration": 32,
+      "note": 57,
+      "velocity": 38
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 0,
+      "duration": 32,
+      "note": 60,
+      "velocity": 38
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 0,
+      "duration": 32,
+      "note": 64,
+      "velocity": 38
+    },
+    {
+      "track": "bass",
+      "type": "note_on",
+      "tick": 16,
+      "duration": 16,
+      "note": 45,
+      "velocity": 60
+    },
+    {
+      "track": "bass",
+      "type": "note_on",
+      "tick": 32,
+      "duration": 16,
+      "note": 45,
+      "velocity": 60
+    },
+    {
+      "track": "drums",
+      "type": "note_on",
+      "tick": 32,
+      "duration": 1,
+      "note": 38,
+      "velocity": 80
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 32,
+      "duration": 32,
+      "note": 57,
+      "velocity": 38
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 32,
+      "duration": 32,
+      "note": 60,
+      "velocity": 38
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 32,
+      "duration": 32,
+      "note": 64,
+      "velocity": 38
+    },
+    {
+      "track": "bass",
+      "type": "note_on",
+      "tick": 48,
+      "duration": 16,
+      "note": 45,
+      "velocity": 60
+    },
+    {
+      "track": "bass",
+      "type": "note_on",
+      "tick": 64,
+      "duration": 16,
+      "note": 45,
+      "velocity": 60
+    },
+    {
+      "track": "drums",
+      "type": "note_on",
+      "tick": 64,
+      "duration": 1,
+      "note": 36,
+      "velocity": 80
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 64,
+      "duration": 32,
+      "note": 57,
+      "velocity": 38
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 64,
+      "duration": 32,
+      "note": 60,
+      "velocity": 38
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 64,
+      "duration": 32,
+      "note": 64,
+      "velocity": 38
+    },
+    {
+      "track": "bass",
+      "type": "note_on",
+      "tick": 80,
+      "duration": 16,
+      "note": 45,
+      "velocity": 60
+    },
+    {
+      "track": "lead",
+      "type": "note_on",
+      "tick": 80,
+      "duration": 11,
+      "note": 72,
+      "velocity": 92
+    },
+    {
+      "track": "lead",
+      "type": "note_on",
+      "tick": 91,
+      "duration": 22,
+      "note": 81,
+      "velocity": 92
+    },
+    {
+      "track": "bass",
+      "type": "note_on",
+      "tick": 96,
+      "duration": 16,
+      "note": 45,
+      "velocity": 60
+    },
+    {
+      "track": "drums",
+      "type": "note_on",
+      "tick": 96,
+      "duration": 1,
+      "note": 38,
+      "velocity": 80
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 96,
+      "duration": 32,
+      "note": 57,
+      "velocity": 38
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 96,
+      "duration": 32,
+      "note": 60,
+      "velocity": 38
+    },
+    {
+      "track": "pad",
+      "type": "note_on",
+      "tick": 96,
+      "duration": 32,
+      "note": 64,
+      "velocity": 38
+    },
+    {
+      "track": "bass",
+      "type": "note_on",
+      "tick": 112,
+      "duration": 16,
+      "note": 45,
+      "velocity": 60
+    },
+    {
+      "track": "lead",
+      "type": "note_on",
+      "tick": 113,
+      "duration": 14,
+      "note": 67,
+      "velocity": 92
+    },
+    {
+      "track": "lead",
+      "type": "note_on",
+      "tick": 127,
+      "duration": 1,
+      "note": 69,
+      "velocity": 92
+    }
+  ],
+  "diagnostics": {
+    "input_reports": 4666,
+    "resampled_points": 400,
+    "onsets": 5,
+    "high_point_ratio": 0.7165354330708661,
+    "scale": "A_minor_pentatonic",
+    "vamp": "Am_8_bars",
+    "fx": {
+      "reverb": "large",
+      "delay_ms": 600,
+      "filter_lfo": "slow"
+    }
+  }
+}

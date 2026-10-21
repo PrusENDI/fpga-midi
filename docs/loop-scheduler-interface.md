@@ -1,8 +1,11 @@
 # Loop 调度器接口
 
 实现：`rtl/loop_scheduler.sv`。单一 `clk`，默认 50 MHz；`rst_n` 复位。
-它读取 `loop_event_store` 的 active bank，输出统一 64 位事件，不直接驱动合成器，
+它读取 `loop_event_store` 的 active bank，输出统一事件，不直接驱动合成器，
 也不修改任何 Loop RAM。当前未实例化进板上演奏顶层。
+
+本文原有 RTL 骨架按旧四轨事件宽度实现；Melodic Synthwave 规格已冻结为六轨，
+因此轨道 ID、事件宽度和 96 槽扫描将在六轨集成任务中统一升级。本文的边界、背压和完整 128 tick 语义继续有效。
 
 ## 时间与扫描
 
@@ -11,7 +14,7 @@
 128 个完整 16 分音符间隔之后进入下一轮，避免最后一格被提前截断。
 `sixteenth_ce` 在启动和每个截止时间输出一拍，作为音乐时间标记。
 
-每格有固定的三轮扫描，每轮 64 槽：NOTE_OFF → NOTE_ON → CONTROL_POINT。
+每格有固定的三轮扫描，每轮 96 槽：NOTE_OFF → NOTE_ON → CONTROL_POINT。
 同类按槽索引升序，跨轨亦遵循类型优先级。
 RAM 请求 `read_enable/read_index`，响应 `read_valid/read_slot_valid/read_data`。
 对空槽和 RAM 中不属于演奏类的事件类型不产生输出。
@@ -19,7 +22,7 @@ RAM 请求 `read_enable/read_index`，响应 `read_valid/read_slot_valid/read_da
 `event_valid/event_ready` 握手时才完成事件交付；背压期间保持事件和扫描位置。
 `stall` 表示当前输出在等待 ready，不代表音乐时钟暂停。
 若新一格到达而上一格仍未完成，报告超时并停止，不跳格、不补发成串过期音符。
-默认 50 MHz、180 BPM 时每格约 417 万个时钟，正常扫描只需数百个时钟。
+默认 50 MHz、120 BPM 时每格约 625 万个时钟，正常扫描只需数百个时钟。
 
 ### 音符持续时间
 
@@ -43,7 +46,7 @@ duration=0 等待显式 NOTE_OFF 或 Loop 边界。
 
 ## BPM
 
-`bpm_value[15:0]` 允许 60–180，在启动与实际 128 格时间边界锁存；
+`bpm_value[15:0]` 允许 90–120，在启动与实际 128 格时间边界锁存；
 其他时刻的修改不影响当前 Loop。`active_bpm` 返回锁存值。
 非法 BPM 在锁存点引发故障，不在非法速度下播放或提交存储。
 
@@ -94,7 +97,7 @@ STOP 后即使 run 仍高也不会自动重播，需要新 PLAY 上升沿。
 & 'C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe' scripts/synth_loop_scheduler.tcl
 ```
 
-单元测试使用低频时钟参数验证节拍、完整 Loop、类型顺序、全部 64 槽、持续时间、背压、取消和故障。
+单元测试使用低频时钟参数验证节拍、完整 Loop、类型顺序、全部 96 槽、持续时间、背压、取消和故障。
 联合测试连接真实 store，在 RTL RAM 与 Gowin 官方 DPB 模型下运行：验证旧 bank
 最后一格、新 bank 首格、边界提交保护周期、持续时间关音及 STOP 保留 active。
 仿真输出在 `impl/modelsim_loop_scheduler/`；独立综合位于 `impl/loop_scheduler_synth/`。
@@ -104,4 +107,4 @@ STOP 后即使 run 仍高也不会自动重播，需要新 PLAY 上升沿。
 最终 testbench 含关音背压期间/接收同拍的新 PLAY，以及四种取消路径撤销待启动请求。
 Gowin V1.9.12.04 独立综合退出码 0：Logic 356（284 LUT + 72 ALU）、
 182 寄存器、1 个 MULTALU27X18 DSP、0 BSRAM、0 latch。
-这是 scheduler 单模块资源，不是四轨系统的最终总资源。
+这是 scheduler 单模块资源，不是六轨系统的最终总资源。

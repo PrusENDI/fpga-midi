@@ -1,20 +1,38 @@
-# MGC3130 四轨 Loop 与三轴调制顶层规格
+# MGC3130 六轨 Melodic Synthwave Loop 与三轴调制顶层规格
+
+> **主规范引用**：本文件是早期顶层规格和接口设计记录。当前冻结的产品语义、Lead 两级编译、录制回放、和声量化、跨轨监听及异常策略以 [MGC3130 Melodic Synthwave 交互合成器系统设计](../../mgc3130-melodic-synthwave-system-design-2026-10-19.md) 为准；坐标与校准统一见 [坐标与校准规范](../../mgc3130-coordinate-calibration-spec.md)。
 
 ## 目标
 
-在保留现有 MGC3130 手势输入逻辑的基础上，增加可恢复的四轨 Loop 音序器和三轴调制演奏模式。实时音频路径继续由硬件完成，控制、模式和 Loop 管理由后续软核或控制寄存器负责。
+在保留现有 MGC3130 手势输入逻辑的基础上，增加可恢复的六轨 Melodic Synthwave Loop 音序器和三轴调制演奏模式。实时音频路径继续由硬件完成，控制、模式和 Loop 管理由后续软核或控制寄存器负责。
+
+## 风格冻结修订（2026-10-19）
+
+本规格的音乐目标固定为 **Melodic Synthwave**，同时保留 Ambient 空间感：
+
+```text
+4/4、8 小节、128 个 16 分 tick
+默认 100 BPM，可调 90–120 BPM
+直拍默认 swing 50%，最多放宽到 54–56%
+小调 + 小调五声 Lead
+i–VI–III–VII；A 小调示例 Am–F–C–G，每和弦一小节
+Lead 高潮 60%–75%，末音主音
+大混响、500 ms 以上长延迟、慢速滤波 LFO
+```
+
+六轨固定为 Lead、Bass、Pad、Arp、Drums、Texture/FX。只有 Lead 由三维轨迹编译；其余五轨由用户逐轨用 Touch/Tap 或控制事件录制，不由模板自动补写。风格参数可以调节密度和音色，但不能改变这六轨的输入来源和 CAPTURE & LOOP 语义。
 
 ## 已确定的外部规格
 
 - Loop 长度：8 小节
 - 拍号：4/4
-- BPM：60–180
+- BPM：90–120，默认 100
 - 时间量化：16 分音符
 - 每拍 4 格，总计 128 个时间格
-- 轨道数：4
-- 每轨最多 16 个稀疏音符事件
-- 整个 Loop 最多 64 个音符事件
-- 同时发声上限：4 个音
+- 轨道数：6（Lead、Bass、Pad、Arp、Drums、Texture/FX）
+- 每轨最多 16 个首版事件槽；六轨合计最多 96 个事件槽
+- Lead/Bass/Pad/Arp/Texture 的音符事件与 Drums 的打击事件共用统一调度表
+- 同时发声上限：首版 8 个音；超限按 Texture → Arp → Pad → Lead → Bass 的优先级抢占并计数
 - 模式切换：UART 命令
 - MGC3130：只负责演奏输入，不负责切换系统模式
 
@@ -27,7 +45,7 @@ MGC3130 输入
     -> 模式管理器
        -> LIVE 直接演奏
        -> RECORD 写入当前轨道
-       -> LOOP_PLAY 读取四轨事件
+       -> LOOP_PLAY 读取六轨事件
        -> MODULATION 读取三轴调制
     -> 音符调度器
     -> DDS/混音器
@@ -69,9 +87,33 @@ velocity    力度
 
 ## 三轴调制模型
 
-- X 轴：输入手势中的时间推进和事件定位；Loop 播放时间由统一节拍调度器产生。
-- Y 轴：离散音符选择，并可生成连续音高调制，目标范围先定义为约 ±12 半音。
-- Z 轴：力度/音量调制；预留映射到音色或滤波截止频率。
+Loop 播放阶段不使用 XYZ 推进 Loop 时间，也不把位置报告转换成新的音符事件。Loop 时间由统一节拍调度器产生，XYZ 只进入非破坏性的 `performance_mod_layer`：
+
+- X 轴：Timbre/Morph，默认映射滤波 cutoff、波表/振荡器混合、声像和空间宽度；
+- Y 轴：Pitch/Voicing，默认映射 Lead 的受限弯音，并可在安全节拍改变 Pad 转位或 Arp 音域；
+- Z 轴：Expression/Energy，默认映射力度、包络深度、混响/延迟发送和整体能量。
+
+X/Y 以应用层动作参考点为中心做双极归一化，Z 做远近对应的单极归一化。调制数据与音符事件分开处理；不能把每个 50 MHz 时钟样本当成独立音符。
+
+### SDK 校准与应用层中心参考
+
+GestIC SDK 的 `gestic_set_auto_calibration()`、`gestic_force_calibration()` 和 `gestic_get_calibration()` 面向 DSP/电极基线校准。SDK 没有“设置当前位置为 XYZ 原点”或“每次手势从中心点开始”的通用接口；`gestic_touch_center` / `gestic_tap_center` 只是中心电极事件。
+
+应用层在进入 Lead 录制或 PLAY 时，等待 neutral 稳定若干个有效报告，锁存 `x0/y0/z0`，之后使用 `x-x0`、`y-y0`、`z-z0`，再施加 dead zone、低通和 slew。参考点只在显式重新校准、退出模式或 STOP 时更新。运行中不把 `gestic_force_calibration()` 当作动作归零操作。
+
+## Synthwave 轨道表现约束
+
+本系统的目标不是通用实时键盘，而是 CAPTURE & LOOP Melodic Synthwave：稳定四拍、明确旋律、脉冲低音、适度留白和 Ambient 长尾。六轨都由用户逐轨录制，但只有 Lead 由三维轨迹编译；其他轨道仍由真实 Touch/Tap 触发，不由模板补写。
+
+- Bass：稀疏主音/五度长音，弱力度，避免连续跑动；
+- Pad：长 Attack/Release 的长和弦，转位在小节边界生效，优先最小声部移动；
+- Arp：低速稀疏分解和弦，允许跳步和空拍；
+- Drums：低密度氛围打击，不默认持续四拍，双击只形成轻微 flam/roll；
+- Texture/FX：Drone、噪声和效果控制使用长交叉淡化、慢滤波、长混响和延迟。
+
+所有轨道使用统一 Loop 网格，但允许 1/8、1/4 或 1 小节级的宽量化；相邻同类事件优先合并延长；没有用户触发的部分保持留白。
+
+播放时只区分两类曲线：音符事件触发的基础 ADSR，以及 Tap/Flick/有效速度变化触发的手势表现包络。连续 XYZ 只改变已有参数目标，不产生新的 `NOTE_ON`；表现包络调节音量、滤波、空间或整体能量，并可在立即、下一拍或下一小节生效。
 
 调制数据与音符事件分开处理。首版可按时间格保存稀疏控制点，并在播放时对相邻控制点插值；不能把每个 50 MHz 时钟样本当成独立音符。
 
@@ -81,7 +123,7 @@ velocity    力度
 IDLE          无演奏
 LIVE          MGC3130 事件直接进入调度器
 RECORD        将 MGC3130 事件写入选定轨道，同时可监听
-LOOP_PLAY     播放已保存的四轨 Loop
+LOOP_PLAY     播放已保存的六轨 Loop
 OVERDUB       播放旧内容并把新事件叠加到选定轨道
 ERROR         停止新事件，执行清理和恢复
 ```
@@ -130,7 +172,7 @@ ERROR         停止新事件，执行清理和恢复
 MGC3130 I²C
     -> 输入采样与滤波
     -> 手势事件生成器
-    -> 4 轨事件 RAM
+    -> 6 轨事件 RAM
     -> 统一 Loop 调度器
     -> 4 声部音符管理器
     -> DDS + 混音 + I²S
@@ -175,7 +217,7 @@ UART 暂时只实现有限命令：
 
 ```text
 START  STOP  RECORD  OVERDUB  CLEAR  PLAY
-BPM=xxx  TRACK=0..3  STATUS  RESET
+BPM=xxx  TRACK=0..5  STATUS  RESET
 ```
 
 UART 不参与 48 kHz 音频时序，也不能阻塞音频或 Loop 调度。
@@ -193,7 +235,7 @@ UART 卡住      -> 只复位 UART
 
 ### 软核决策
 
-在四轨、每轨 16 个事件的规格下，Loop 调度不需要软核。后续只有在需要复杂编曲编辑、大量参数管理或文件系统时，才重新评估加入软核。即使将来加入软核，48 kHz 音频数据面仍保留在硬件中。
+在六轨、每轨 16 个首版事件槽的规格下，Loop 调度仍不需要软核。后续只有在需要复杂编曲编辑、大量参数管理或文件系统时，才重新评估加入软核。即使将来加入软核，48 kHz 音频数据面仍保留在硬件中。
 
 ## 已确认的模块接口规格
 
@@ -226,20 +268,21 @@ flush         清除队列和活动音符，保留 Loop 内容和配置
 
 ### 演奏事件总线
 
-输入前端、模式管理器、Loop 调度器和音符管理器之间使用固定 64 bit 事件：
+输入前端、模式管理器、Loop 调度器和音符管理器之间使用固定 72 bit 事件，以容纳六轨 ID：
 
 ```text
-63:62  保留，必须为 0
-61:58  flags
-57:50  timbre_mod
-49:42  amp_mod
-41:34  pitch_mod，有符号，单位为 1/16 半音
-33:26  velocity
-25:19  note，MIDI 音符号
-18:12  duration，单位为 16 分音符格
-11:5   tick，0..127
-4:3    track_id，0..3
-2:0    event_type
+71:70  保留，必须为 0
+69:66  flags
+65:58  timbre_mod
+57:50  amp_mod
+49:42  pitch_mod，有符号，单位为 1/16 半音
+41:34  velocity
+33:27  note，MIDI 音符号
+26:20  duration，单位为 16 分音符格
+19:13  tick，0..127
+12:10  track_id，0..5
+9:7    event_type
+6:0    保留，必须为 0
 ```
 
 事件类型为：
@@ -264,11 +307,11 @@ active_bank   当前播放，只读
 shadow_bank   当前录音或编辑，只写
 ```
 
-每个 bank 固定为 4 轨、每轨 16 个事件槽，共 128 个槽位。事件不要求排序，调度器每个 tick 固定扫描 64 个有效播放槽位。存储接口为：
+每个 bank 固定为 6 轨、每轨 16 个事件槽，共 96 个槽位。事件不要求排序，调度器每个 tick 固定扫描 96 个有效播放槽位。存储接口为：
 
 ```text
 write_valid / write_ready
-write_track[1:0] / write_slot[3:0] / write_data[63:0]
+write_track[2:0] / write_slot[3:0] / write_data[63:0]
 clear_track / clear_all
 prepare_overdub
 commit_request / commit_ack
@@ -289,7 +332,7 @@ sixteenth_hz = BPM × 4 / 60
 播放过程中不使用除法器。每次 `sixteenth_ce`：
 
 1. PLAY 从 tick 0 立即扫描；后续相位溢出才推进当前 `loop_tick`；
-2. 按 NOTE_OFF、NOTE_ON、CONTROL_POINT 三轮扫描 4 轨、64 个播放事件槽，保证全局事件类型优先级；
+2. 按 NOTE_OFF、NOTE_ON、CONTROL_POINT 三轮扫描 6 轨、96 个播放事件槽，保证全局事件类型优先级；
 3. 将匹配当前 tick 的事件送入调度 FIFO；
 4. 扫描完成后保持当前 tick，等待下一次相位溢出，不能因扫描完成提前推进音乐时间；
 5. tick 127 持续完整一格后回到 0，先发送 ALL_NOTES_OFF，再发送 LOOP_BOUNDARY 事件；边界事件被接受后才产生存储提交脉冲，并等待存储切换完成再扫描新 tick 0。
@@ -419,17 +462,20 @@ START_EXIT  = 可调左侧释放门限，且 START_EXIT > START_ENTER
 
 Loop 完成后，有效事件数大于零才提交并自动进入 `PLAY`；空录音丢弃 shadow bank 并返回 `IDLE`。
 
-### PLAY 模式调制
+### PLAY 模式表现层
 
-`PLAY` 只播放 active Loop，同时接收 XYZ 作为非破坏实时调制，不写入 Loop RAM：
+`PLAY` 只播放 active Loop，同时接收 XYZ、Touch/Tap 和 Gestures 作为非破坏实时表现层，不写入 Loop RAM，也不追加新乐句：
 
 ```text
-X -> 全局音高/移调偏移
-Y -> 音色或滤波偏移
-Z -> 音量/表达偏移
+XYZ              -> cutoff / resonance / velocity / pan / LFO 等连续调制
+Touch/Tap        -> 瞬时或锁存的包络、音色、mute、stutter 宏
+Flick/Circle     -> 滤波扫描、空间效果或全局调制宏
+AirWheel         -> 慢速调制深度或速率（若启用）
 ```
 
-最终参数由 Loop 保存曲线与实时调制叠加得到。退出 `PLAY` 或执行 `STOP` 时清除实时调制层。
+最终参数由 Loop 保存的基础事件、轨道表现层和全局表现层叠加得到。宏可以立即、下一拍或下一小节生效，并带有 `momentary` 或 `latched` 语义。每个宏带六轨目标掩码，允许只影响 Lead、选定轨道或全局。退出 `PLAY`、执行 `STOP` 或输入超时时，表现层按设定 release 回到中性值。
+
+PLAY 中的手势不得产生 `NOTE_ON`、修改 active/shadow event bank 或持续增加乐句。需要保存调制时，必须进入独立的 `RECORD_MODULATION` 流程，将稀疏控制点写入 Texture/FX 轨道或 modulation lane。PLAY 与 RECORD/OVERDUB 的输入解释互斥。
 
 ### OVERDUB 模式
 

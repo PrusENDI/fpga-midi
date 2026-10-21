@@ -4,13 +4,16 @@
 双缓冲存储和调度器连接起来。全部使用同一个默认 50 MHz 时钟。
 当前是独立可综合模块，尚未实例化到板上顶层。
 
+现有 RTL 接口仍有旧四轨/64 位事件的历史边界；Melodic Synthwave 设计规格已冻结为六轨，
+轨道 ID、事件宽度、命令范围和存储容量将在六轨集成阶段一起升级，避免只改一个模块造成接口不一致。
+
 ## 边界与所有权
 
 - UART 端口是字节级 `rx_valid/ready/data`、`tx_valid/ready/data`。
   `uart_rx` 已实现 8N1 接收，`uart_rx_fifo`（默认 16 字节）隔离物理时序和解析器，
   满载时向接收器施加背压并粘滞记录 overflow/framing_error。B3 是本板 USB-UART RX。
   TX 字节流的物理串行化和完整 mailbox 顶层接线仍待后续集成。
-- 输入、输出为 64 位演奏事件 valid/ready。输入适配器负责确认音符、持续时间、
+- 输入、输出为六轨演奏事件 valid/ready。输入适配器负责确认音符、持续时间、
   重复合并和 Touch/Presence；控制层只标记所选轨道、当前 tick 和追加槽位。
 - 模式管理器独占模式、轨道、BPM、录音生命周期；CSR 不直接写 RAM。
 - 路由器分别完成实时监听和录音握手，任何一路阻塞都不能导致另一条重复交付。
@@ -41,8 +44,8 @@ sequence 原样返回用于关联，不提供去重或自动重试保证。
 | --- | --- | --- |
 | 0 | STATUS | 保留；主机发送 0 |
 | 1 | SET_MODE | arg0=0 IDLE 或 1 LIVE；arg1=0 |
-| 2 | SET_BPM | arg0=60–180；arg1=0 |
-| 3 | SELECT_TRACK | arg0=0–3；arg1=0 |
+| 2 | SET_BPM | arg0=90–120；arg1=0 |
+| 3 | SELECT_TRACK | arg0=0–5；arg1=0 |
 | 4 / 5 | PLAY / STOP | 两参数均为 0 |
 | 6 / 7 | RECORD / OVERDUB | 两参数均为 0 |
 | 8 / 9 | CLEAR_TRACK / CLEAR_ALL | 两参数均为 0 |

@@ -1,0 +1,9 @@
+{"type":"ready","source":"Microchip GestIC SDK","schema":1}
+{"type":"position","timestamp_ms":0,"frame":0,"x":0,"y":100,"z":10000}
+{"type":"position","timestamp_ms":5,"frame":1,"x":100,"y":200,"z":10000}
+{"type":"position","timestamp_ms":10,"frame":2,"x":200,"y":300,"z":10000}
+{"type":"position","timestamp_ms":15,"frame":3,"x":300,"y":400,"z":10000}
+{"type":"position","timestamp_ms":20,"frame":4,"x":400,"y":500,"z":10000}
+{"type":"position","timestamp_ms":25,"frame":5,"x":500,"y":600,"z":10000}
+{"type":"position","timestamp_ms":30,"frame":6,"x":600,"y":700,"z":10000}
+{"type":"position","timestamp_ms":35,"frame":7,"x":700,"y":800,"z":10000}

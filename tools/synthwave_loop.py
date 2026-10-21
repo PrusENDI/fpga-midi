@@ -1,0 +1,713 @@
+"""Dependency-free Capture & Loop compiler for the MGC3130 PC prototype.
+
+The Lead path is deliberately small and explainable. Timestamps define the
+phrase order, a fixed calibrated three-dimensional workspace defines pitch,
+and geometric landmarks define where notes may start. Other tracks retain
+their independent Touch/Tap recording semantics.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import struct
+import wave
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Dict, Iterable, List, Mapping, MutableMapping, Sequence
+
+try:
+    from .host_xyz_filter import FilteredCapture, HostCalibrationProfile, filter_capture
+except ImportError:  # direct script execution
+    from host_xyz_filter import FilteredCapture, HostCalibrationProfile, filter_capture
+
+TRACKS = ("lead", "bass", "pad", "arp", "drums", "texture_fx")
+PENTATONIC = (0, 2, 4, 7, 9)
+
+
+@dataclass(frozen=True)
+class SynthwaveStyle:
+    name: str = "melodic_synthwave"
+    bpm: int = 100
+    loop_bars: int = 8
+    ticks_per_bar: int = 16
+    swing: float = 0.50
+    harmony: tuple = ("Am", "F", "C", "G")
+    scale: str = "A_minor_pentatonic"
+    delay_ms: int = 600
+    reverb: str = "large"
+
+    @property
+    def loop_ticks(self) -> int:
+        return self.loop_bars * self.ticks_per_bar
+
+    @property
+    def loop_ms(self) -> float:
+        return 60000.0 * 4.0 * self.loop_bars / self.bpm
+
+
+@dataclass(frozen=True)
+class CalibrationProfile:
+    name: str = "mgc3130_workspace_v1"
+    offset: tuple = (0.0, 0.0, 0.0)
+    rotation: tuple = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    scale: tuple = (1.0 / 65535.0, 1.0 / 65535.0, 1.0 / 65535.0)
+    q_ref: tuple = (0.0, 0.0, 0.0)
+    workspace_min: tuple = (0.0, 0.0, 0.0)
+    workspace_max: tuple = (1.0, 1.0, 1.0)
+    pitch_axis: tuple = (0.0, 1.0, 0.0)
+    color_axis: tuple = (0.0, 0.0, 1.0)
+    horizontal_axis: tuple = (1.0, 0.0, 0.0)
+    position_valid_required: bool = True
+
+
+@dataclass(frozen=True)
+class PitchSpace:
+    name: str = "a_minor_pentatonic_g3_c5"
+    scale_name: str = "A_minor_pentatonic"
+    min_midi: int = 55
+    max_midi: int = 72
+    center_midi: int = 64
+    register_lock: bool = True
+    pitch_axis: tuple = (0.0, 1.0, 0.0)
+    hysteresis: float = 0.10
+
+    @property
+    def scale_pitches(self) -> tuple[int, ...]:
+        return tuple(n for n in range(self.min_midi, self.max_midi + 1) if n % 12 in PENTATONIC)
+
+
+@dataclass(frozen=True)
+class LeadPatchProfile:
+    name: str = "neon_ambient_lead_v1"
+    voice_mode: str = "mono_legato"
+    oscillator: str = "saw_pulse"
+    attack_ms: int = 35
+    decay_ms: int = 180
+    sustain: float = 0.72
+    release_ms: int = 520
+    glide_ms: int = 85
+    vibrato_hz: float = 4.2
+    vibrato_cents: float = 11.0
+    cutoff_hz: float = 1800.0
+    cutoff_lfo_hz: float = 0.08
+    delay_ms: int = 620
+    delay_feedback: float = 0.30
+    reverb_send: float = 0.28
+
+
+STYLE = SynthwaveStyle()
+DEFAULT_CALIBRATION = CalibrationProfile()
+DEFAULT_PITCH_SPACE = PitchSpace()
+DEFAULT_LEAD_PATCH = LeadPatchProfile()
+
+
+def _number(value: object, default: int = 0) -> int:
+    try:
+        text = str(value).strip()
+        return int(text, 0) if text.lower().startswith("0x") else int(float(text))
+    except (TypeError, ValueError):
+        return default
+
+
+def load_jsonl_records(path: Path | str) -> List[Dict[str, object]]:
+    records: List[Dict[str, object]] = []
+    with Path(path).open(encoding="utf-8-sig") as handle:
+        for line in handle:
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(value, dict) or value.get("type") != "position":
+                continue
+            value = dict(value)
+            value["timestamp_ms"] = float(value.get("timestamp_ms", len(records)))
+            value["x"] = _number(value.get("x"))
+            value["y"] = _number(value.get("y"))
+            value["z"] = _number(value.get("z"))
+            value["touch_flags"] = _number(value.get("touch_flags"))
+            value["tap_flags"] = _number(value.get("tap_flags"))
+            value["gesture"] = _number(value.get("gesture"))
+            records.append(value)
+    records.sort(key=lambda row: float(row["timestamp_ms"]))
+    return records
+
+
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
+
+
+def _dot(a: Sequence[float], b: Sequence[float]) -> float:
+    return sum(float(x) * float(y) for x, y in zip(a, b))
+
+
+def _median(values: Sequence[float]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    return ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def _profile_hash(value: object) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=list).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:16]
+
+
+def _sample_timestamp(sample: Mapping[str, object], fallback: float) -> float:
+    raw = sample.get("timestamp_ms", sample.get("timestamp", fallback))
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _cross(a: Sequence[float], b: Sequence[float]) -> tuple[float, float, float]:
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _unit(vector: Sequence[float]) -> tuple[float, float, float] | None:
+    length = math.sqrt(_dot(vector, vector))
+    if length < 1e-9:
+        return None
+    return tuple(float(value) / length for value in vector)  # type: ignore[return-value]
+
+
+def _gesture_axes(rows: Sequence[Mapping[str, object]], calibration: CalibrationProfile) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float], str | None]:
+    """Return a stable open-path frame without moving the fixed pitch origin."""
+    if len(rows) < 2:
+        return calibration.horizontal_axis, calibration.pitch_axis, calibration.color_axis, "insufficient_endpoints"
+    q0 = tuple(float(rows[0]["q_app"][i]) for i in range(3))
+    q1 = tuple(float(rows[-1]["q_app"][i]) for i in range(3))
+    e = _unit(tuple(q1[i] - q0[i] for i in range(3)))
+    if e is None:
+        return calibration.horizontal_axis, calibration.pitch_axis, calibration.color_axis, "degenerate_endpoint_vector"
+    up = calibration.pitch_axis
+    projected = tuple(up[i] - _dot(up, e) * e[i] for i in range(3))
+    p = _unit(projected)
+    if p is None:
+        return calibration.horizontal_axis, calibration.pitch_axis, calibration.color_axis, "endpoint_parallel_to_pitch_axis"
+    d = _unit(_cross(e, p))
+    if d is None:
+        return calibration.horizontal_axis, calibration.pitch_axis, calibration.color_axis, "degenerate_path_frame"
+    return e, p, d, None
+
+
+def project_sample(sample: Mapping[str, object], calibration: CalibrationProfile = DEFAULT_CALIBRATION,
+                   mode: str = "workspace") -> Dict[str, object]:
+    raw = tuple(float(_number(sample.get(axis), 0)) for axis in ("x", "y", "z"))
+    centered = tuple(raw[i] - calibration.offset[i] for i in range(3))
+    rotated = tuple(_dot(calibration.rotation[i], centered) for i in range(3))
+    q = tuple(rotated[i] * calibration.scale[i] for i in range(3))
+    relative = tuple(q[i] - calibration.q_ref[i] for i in range(3))
+    outside = any(q[i] < calibration.workspace_min[i] or q[i] > calibration.workspace_max[i] for i in range(3))
+    result: Dict[str, object] = dict(sample)
+    result.update({
+        "timestamp_ms": _sample_timestamp(sample, 0.0),
+        "x_raw": raw[0], "y_raw": raw[1], "z_raw": raw[2], "q_app": q,
+        "q_x": q[0], "q_y": q[1], "q_z": q[2],
+        "position_valid": bool(sample.get("position_valid", sample.get("positionValid", True))),
+        "out_of_range": bool(outside), "calibration_mode": mode, "a_rel": 0.0,
+        "b_abs": _dot(relative, calibration.pitch_axis),
+        "c_abs": _dot(relative, calibration.color_axis),
+    })
+    return result
+
+
+def preprocess_samples(samples: Sequence[Mapping[str, object]],
+                       calibration: CalibrationProfile = DEFAULT_CALIBRATION,
+                       mode: str = "workspace",
+                       host_profile: HostCalibrationProfile | None = None,
+                       _filtered_capture: FilteredCapture | None = None) -> List[Dict[str, object]]:
+    if host_profile is not None:
+        filtered_capture = _filtered_capture or filter_capture(samples, host_profile)
+        projected: List[Dict[str, object]] = []
+        for frame in filtered_capture.frames:
+            row = dict(frame)
+            q = frame.get("q_filtered")
+            if q is None:
+                row.update({"q_app": None, "q_x": None, "q_y": None, "q_z": None,
+                            "position_valid": False, "out_of_range": False})
+                projected.append(row)
+                continue
+            q_tuple = tuple(float(value) for value in q)
+            b_raw = float(frame.get("b_abs", 0.0))
+            c_raw = float(frame.get("c_abs", 0.0))
+            b_norm = _clamp((b_raw - host_profile.b_min) / max(1e-9, host_profile.b_max - host_profile.b_min), 0.0, 1.0)
+            c_norm = _clamp(c_raw, 0.0, 1.0)
+            row.update({
+                "q_app": q_tuple, "q_x": q_tuple[0], "q_y": q_tuple[1], "q_z": q_tuple[2],
+                "b_abs_raw": b_raw, "c_abs_raw": c_raw,
+                "b_abs": b_norm, "c_abs": c_norm,
+                "position_valid": True,
+                "out_of_range": any(q_tuple[i] < host_profile.workspace_min[i] or q_tuple[i] > host_profile.workspace_max[i] for i in range(3)),
+            })
+            projected.append(row)
+        projected.sort(key=lambda row: float(row.get("timestamp_ms", 0.0)))
+        if not projected:
+            return []
+        start = float(projected[0].get("timestamp_ms", 0.0))
+        end = float(projected[-1].get("timestamp_ms", start))
+        span = max(1e-9, end - start)
+        for row in projected:
+            row["a_rel"] = _clamp((float(row.get("timestamp_ms", start)) - start) / span, 0.0, 1.0)
+        return projected
+    projected = [project_sample(sample, calibration, mode) for sample in samples]
+    projected.sort(key=lambda row: float(row["timestamp_ms"]))
+    if not projected:
+        return []
+    coords = [[float(row["q_app"][axis]) for row in projected] for axis in range(3)]
+    filtered = [[0.0] * len(projected) for _ in range(3)]
+    for axis in range(3):
+        for i in range(len(projected)):
+            lo, hi = max(0, i - 2), min(len(projected), i + 3)
+            window = coords[axis][lo:hi]
+            med = _median(window)
+            mad = _median([abs(value - med) for value in window])
+            value = coords[axis][i]
+            filtered[axis][i] = med if abs(value - med) > max(0.035, 6.0 * mad) else value
+        previous = filtered[axis][0]
+        for i, value in enumerate(filtered[axis]):
+            previous = value if i == 0 else previous + 0.35 * (value - previous)
+            filtered[axis][i] = previous
+    start, end = float(projected[0]["timestamp_ms"]), float(projected[-1]["timestamp_ms"])
+    span = max(1e-9, end - start)
+    active_axes = (calibration.horizontal_axis, calibration.pitch_axis, calibration.color_axis)
+    alignment_fallback = None
+    if mode == "gesture_aligned":
+        active_axes = _gesture_axes(projected, calibration)[:3]
+        alignment_fallback = _gesture_axes(projected, calibration)[3]
+        if alignment_fallback:
+            active_axes = (calibration.horizontal_axis, calibration.pitch_axis, calibration.color_axis)
+    output: List[Dict[str, object]] = []
+    for i, row in enumerate(projected):
+        q = tuple(filtered[axis][i] for axis in range(3))
+        relative = tuple(q[axis] - calibration.q_ref[axis] for axis in range(3))
+        updated = dict(row)
+        updated.update({
+            "q_app": q, "q_x": q[0], "q_y": q[1], "q_z": q[2],
+            "a_rel": _clamp((float(row["timestamp_ms"]) - start) / span, 0.0, 1.0),
+            "b_abs": _dot(relative, active_axes[1]),
+            "c_abs": _dot(relative, active_axes[2]),
+            "a_path": _dot(tuple(q[axis] - calibration.q_ref[axis] for axis in range(3)), active_axes[0]),
+            "alignment_fallback": alignment_fallback,
+        })
+        output.append(updated)
+    return output
+
+
+def _interp(a: float, b: float, ratio: float) -> float:
+    return a + (b - a) * ratio
+
+
+def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle = STYLE) -> List[Dict[str, object]]:
+    if not samples:
+        return []
+    ordered = sorted(samples, key=lambda row: _sample_timestamp(row, 0.0))
+    start, end = _sample_timestamp(ordered[0], 0.0), _sample_timestamp(ordered[-1], 0.0)
+    span = max(1e-9, end - start)
+    times = [_sample_timestamp(row, start) for row in ordered]
+    result: List[Dict[str, object]] = []
+    cursor = 0
+    for tick in range(style.loop_ticks):
+        a_rel = tick / max(1, style.loop_ticks - 1)
+        target = start + span * a_rel
+        while cursor + 1 < len(ordered) and times[cursor + 1] < target:
+            cursor += 1
+        left = ordered[cursor]
+        right = ordered[min(cursor + 1, len(ordered) - 1)]
+        left_t, right_t = times[cursor], times[min(cursor + 1, len(ordered) - 1)]
+        ratio = 0.0 if right_t <= left_t else _clamp((target - left_t) / (right_t - left_t), 0.0, 1.0)
+        row: Dict[str, object] = {"tick": tick, "a_rel": a_rel, "timestamp_ms": target}
+        for field in ("b_abs", "c_abs", "q_x", "q_y", "q_z"):
+            left_value, right_value = left.get(field), right.get(field)
+            left_valid = bool(left.get("position_valid", True)) and left_value is not None
+            right_valid = bool(right.get("position_valid", True)) and right_value is not None
+            if left_valid and right_valid:
+                row[field] = _interp(float(left_value), float(right_value), ratio)
+            elif left_value is not None:
+                row[field] = float(left_value)
+            elif right_value is not None:
+                row[field] = float(right_value)
+            else:
+                row[field] = None
+        row["position_valid"] = bool(left.get("position_valid", True)) and bool(right.get("position_valid", True)) and row.get("b_abs") is not None
+        row["out_of_range"] = bool(left.get("out_of_range", False) or right.get("out_of_range", False))
+        result.append(row)
+    for i, row in enumerate(result):
+        previous, following = result[max(0, i - 1)], result[min(len(result) - 1, i + 1)]
+        if previous.get("b_abs") is None or following.get("b_abs") is None:
+            row["db"], row["dc"], row["speed"] = 0.0, 0.0, 0.0
+            row["curvature"], row["state"] = 0.0, "rest"
+            continue
+        db = float(following["b_abs"]) - float(previous["b_abs"])
+        dc = float(following["c_abs"]) - float(previous["c_abs"])
+        row["db"], row["dc"], row["speed"] = db, dc, math.hypot(db, dc)
+        row["curvature"] = 0.0
+        if not row["position_valid"]:
+            row["state"] = "rest"
+        elif row["speed"] < 0.002:
+            row["state"] = "hold"
+        else:
+            row["state"] = "move"
+    for i in range(1, len(result) - 1):
+        result[i]["curvature"] = float(result[i + 1]["db"]) - float(result[i - 1]["db"])
+    return result
+
+
+def extract_landmarks(projected_samples: Sequence[Mapping[str, object]], style: SynthwaveStyle = STYLE) -> List[Dict[str, object]]:
+    if not projected_samples:
+        return []
+    rows = sorted(projected_samples, key=lambda row: int(row.get("tick", 0)))
+    landmarks: List[Dict[str, object]] = []
+
+    def add(kind: str, row: Mapping[str, object], reason: str) -> None:
+        tick = int(row.get("tick", 0))
+        if any(int(item["tick"]) == tick and item["kind"] == kind for item in landmarks):
+            return
+        b_value = row.get("b_abs")
+        c_value = row.get("c_abs")
+        landmarks.append({
+            "id": f"lm{len(landmarks):03d}", "kind": kind, "tick": tick,
+            "a_rel": float(row.get("a_rel", tick / max(1, style.loop_ticks - 1))),
+            # Invalid/rest frames have no spatial coordinates. Keep the
+            # landmark schema numeric for the UI, while its kind/reason
+            # carries the semantic fact that this is an explicit rest.
+            "b_abs": float(b_value) if b_value is not None else 0.0,
+            "c_abs": float(c_value) if c_value is not None else 0.0,
+            "speed": float(row.get("speed", 0.0)),
+            "confidence": _clamp(1.0 - float(row.get("speed", 0.0)) * 4.0, 0.2, 1.0),
+            "reason": reason,
+        })
+
+    if rows[0].get("position_valid", True) and rows[0].get("b_abs") is not None:
+        add("move", rows[0], "capture_start")
+    i = 0
+    while i < len(rows):
+        state = str(rows[i].get("state", "move"))
+        j = i + 1
+        while j < len(rows) and str(rows[j].get("state", "move")) == state:
+            j += 1
+        if state == "rest":
+            add("rest", rows[i], "position_invalid")
+        elif state == "hold" and j - i >= 2:
+            add("hold", rows[(i + j - 1) // 2], "low_velocity")
+        i = j
+    for index in range(1, len(rows) - 1):
+        current, before, after = rows[index], rows[index - 1], rows[index + 1]
+        if (not current.get("position_valid", True) or current.get("b_abs") is None
+                or before.get("b_abs") is None or after.get("b_abs") is None):
+            continue
+        b = float(current.get("b_abs", 0.0))
+        bb, ba = float(before.get("b_abs", b)), float(after.get("b_abs", b))
+        if b >= bb and b >= ba and b - min(bb, ba) > 0.012:
+            add("apex", current, "local_maximum")
+        elif b <= bb and b <= ba and max(bb, ba) - b > 0.012:
+            add("valley", current, "local_minimum")
+        db_before, db_after = b - bb, ba - b
+        if abs(db_before) > 0.0015 and abs(db_after) > 0.0015 and db_before * db_after < 0:
+            add("turn", current, "direction_reversal")
+        if (str(current.get("state")) == "move" and str(before.get("state")) == "hold"
+                and db_after < -0.0002):
+            add("turn", current, "hold_to_downward_motion")
+    if rows[-1].get("position_valid", True) and rows[-1].get("state") != "rest" and int(rows[-1].get("tick", 0)) > int(rows[0].get("tick", 0)):
+        add("release", rows[-1], "capture_end")
+    landmarks.sort(key=lambda item: (int(item["tick"]), item["kind"]))
+    for index, item in enumerate(landmarks):
+        item["id"] = f"lm{index:03d}"
+    return landmarks
+
+
+def _nearest_scale(note: float, pitches: Sequence[int]) -> int:
+    return min(pitches, key=lambda n: (abs(n - note), n))
+
+
+def _quantize_hysteresis(raw: float, pitches: Sequence[int], previous: int | None, hysteresis: float) -> int:
+    target = _nearest_scale(raw, pitches)
+    return previous if previous in pitches and abs(raw - previous) <= hysteresis else target
+
+
+def _capture_hash(samples: Sequence[Mapping[str, object]]) -> str:
+    canonical = [{key: sample.get(key) for key in ("timestamp_ms", "timestamp", "x", "y", "z", "position_valid")}
+                 for sample in sorted(samples, key=lambda row: _sample_timestamp(row, 0.0))]
+    return _profile_hash(canonical)
+
+
+def _event(track: str, tick: int, *, note: int | None = None, duration: int = 1,
+           velocity: int = 80, event_type: str = "note_on", source: str = "touch_tap",
+           **fields: object) -> Dict[str, object]:
+    result: Dict[str, object] = {
+        "track": track, "type": event_type, "tick": int(_clamp(tick, 0, STYLE.loop_ticks - 1)),
+        "duration": max(0, int(duration)), "velocity": int(_clamp(velocity, 1, 127)), "source": source,
+    }
+    if note is not None:
+        result["note"] = int(_clamp(note, 0, 127))
+    result.update(fields)
+    return result
+
+
+def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle = STYLE,
+                 calibration: CalibrationProfile = DEFAULT_CALIBRATION,
+                 pitch_space: PitchSpace = DEFAULT_PITCH_SPACE,
+                 mode: str = "workspace",
+                 host_profile: HostCalibrationProfile | None = None) -> Dict[str, object]:
+    host_filter = filter_capture(samples, host_profile) if host_profile is not None else None
+    processed = preprocess_samples(samples, calibration, mode, host_profile, host_filter)
+    ticks = resample_to_ticks(processed, style) if processed else []
+    landmarks = extract_landmarks(ticks, style)
+    pitches = pitch_space.scale_pitches
+    chosen: List[Dict[str, object]] = []
+    for landmark in (item for item in landmarks if item["kind"] in {"move", "hold", "turn", "apex", "valley", "release"}):
+        if chosen and int(landmark["tick"]) - int(chosen[-1]["tick"]) < 4:
+            if landmark["kind"] in {"turn", "apex", "valley"}:
+                chosen[-1] = landmark
+            continue
+        chosen.append(landmark)
+    events: List[Dict[str, object]] = []
+    previous_note: int | None = None
+    for index, landmark in enumerate(chosen):
+        tick = int(landmark["tick"])
+        row = ticks[min(len(ticks) - 1, tick)] if ticks else {}
+        raw = pitch_space.min_midi + _clamp(float(row.get("b_abs", 0.5)), 0.0, 1.0) * (pitch_space.max_midi - pitch_space.min_midi)
+        note = _quantize_hysteresis(raw, pitches, previous_note, pitch_space.hysteresis)
+        previous_note = note
+        next_tick = int(chosen[index + 1]["tick"]) if index + 1 < len(chosen) else style.loop_ticks
+        duration = max(2, next_tick - tick)
+        color = int(_clamp(float(row.get("c_abs", 0.5)), 0.0, 1.0) * 2.999)
+        velocity = int(_clamp(68.0 + 35.0 * _clamp(float(row.get("speed", 0.0)) * 12.0, 0.0, 1.0), 48.0, 118.0))
+        articulation = "legato" if landmark["kind"] in {"hold", "move"} or duration >= 8 else "pluck"
+        events.append(_event("lead", tick, note=note, duration=duration, velocity=velocity, source="trajectory",
+                             source_landmarks=[landmark["id"]], raw_target_midi=round(raw, 4),
+                             target_scale_index=pitches.index(note), quantization_delta=round(note - raw, 4),
+                             register_id=0, color_layer=color, out_of_range=bool(row.get("out_of_range", False)),
+                             b_abs=round(float(row.get("b_abs", 0.0)), 6),
+                             b_norm=round(_clamp(float(row.get("b_abs", 0.0)), 0.0, 1.0), 6),
+                             confidence=round(float(landmark.get("confidence", 0.5)), 4),
+                             pitch_profile_hash=_profile_hash(asdict(pitch_space)),
+                             correction_reason="nearest_fixed_scale_with_hysteresis",
+                             articulation=articulation, gate_ratio=0.92 if articulation == "legato" else 0.72,
+                             legato=articulation == "legato", tie=False,
+                             glide_ms=DEFAULT_LEAD_PATCH.glide_ms if index else 0,
+                             accent=round(_clamp(velocity / 127.0, 0.0, 1.0), 4), release_tail=DEFAULT_LEAD_PATCH.release_ms,
+                             generated_reason=f"landmark:{landmark['kind']}"))
+    for landmark in landmarks:
+        if landmark["kind"] == "rest":
+            next_tick = next((int(future["tick"]) for future in landmarks if int(future["tick"]) > int(landmark["tick"])), style.loop_ticks)
+            events.append(_event("lead", int(landmark["tick"]), duration=max(1, next_tick - int(landmark["tick"])),
+                                 event_type="rest", source="trajectory", source_landmarks=[landmark["id"]], generated_reason="position_invalid"))
+    events.sort(key=lambda event: (int(event["tick"]), str(event["type"])) )
+    valid_count = sum(1 for row in processed if bool(row.get("position_valid", True)))
+    coverage = valid_count / len(processed) if processed else 0.0
+    status = "insufficient_capture" if len(processed) < 2 else ("weak_motif" if len(chosen) <= 1 else "ok")
+    diagnostics = {
+        "status": status, "coverage": round(coverage, 4),
+        "landmark_counts": {kind: sum(1 for item in landmarks if item["kind"] == kind) for kind in ("move", "hold", "turn", "apex", "valley", "rest", "release")},
+        "no_source_count": sum(1 for event in events if event.get("type") == "note_on" and not event.get("source_landmarks")),
+        "forced_tonic": False, "forced_high_point": False, "capture_hash": _capture_hash(samples),
+        "pitch_profile_hash": _profile_hash(asdict(pitch_space)), "calibration_profile_hash": _profile_hash(asdict(calibration)), "mode": mode,
+    }
+    if host_profile is not None and host_filter is not None:
+        diagnostics.update({
+            "host_profile_hash": host_profile.profile_hash,
+            "host_filter": host_filter.diagnostics,
+        })
+    else:
+        diagnostics.update({"host_profile_hash": None, "host_filter": None})
+    return {"version": 3, "style": style.name, "config": asdict(style), "events": events, "landmarks": landmarks,
+            "samples": ticks, "pitch_space": asdict(pitch_space), "calibration": asdict(calibration),
+            "lead_patch": asdict(DEFAULT_LEAD_PATCH), "diagnostics": diagnostics}
+
+
+def _chord(tick: int) -> tuple[int, tuple[int, ...]]:
+    roots = (57, 53, 48, 55)
+    index = (int(tick) // 16) % 4
+    root = roots[index]
+    intervals = (0, 3, 7) if index == 0 else (0, 4, 7)
+    return root, tuple(root + interval for interval in intervals)
+
+
+def _tick_for(timestamp: float, start: float, style: SynthwaveStyle) -> int:
+    return int(_clamp(round((timestamp - start) / style.loop_ms * style.loop_ticks), 0, style.loop_ticks - 1)) if style.loop_ms > 0 else 0
+
+
+def _record_track(track: str, records: Sequence[Mapping[str, object]], style: SynthwaveStyle) -> List[Dict[str, object]]:
+    if not records or track == "lead":
+        return []
+    ordered = sorted(records, key=lambda r: _sample_timestamp(r, 0.0))
+    start, previous_touch, previous_tap = _sample_timestamp(ordered[0], 0.0), 0, 0
+    result: List[Dict[str, object]] = []
+    for record in ordered:
+        touch, tap = _number(record.get("touch_flags")), _number(record.get("tap_flags"))
+        rising_touch, new_tap = touch & ~previous_touch, tap & ~previous_tap
+        trigger = new_tap or rising_touch
+        if trigger:
+            tick = _tick_for(_sample_timestamp(record, start), start, style)
+            y, z = _clamp(_number(record.get("y")) / 65535.0, 0.0, 1.0), _clamp(_number(record.get("z")) / 65535.0, 0.0, 1.0)
+            velocity = int(52 + 68 * z)
+            if track == "drums":
+                mapping = (36, 38, 42, 46, 49)
+                bit = (new_tap or rising_touch) & -(new_tap or rising_touch)
+                index = min(4, max(0, bit.bit_length() - 1))
+                result.append(_event(track, tick, note=mapping[index], duration=1, velocity=velocity, source="touch_tap", electrode=index))
+            elif track == "bass":
+                root, _ = _chord(tick)
+                degree = 0 if y < 0.45 else (7 if y < 0.75 else 12)
+                result.append(_event(track, tick, note=root - 12 + degree, duration=8, velocity=velocity, source="touch_tap"))
+            elif track == "pad":
+                _, chord = _chord(tick)
+                inversion = 0 if y < 0.5 else 1
+                for offset, note in enumerate(chord):
+                    result.append(_event(track, tick, note=note + 12 * inversion, duration=32, velocity=max(1, velocity - offset * 5), source="touch_tap", chord_voice=offset))
+            elif track == "arp":
+                _, chord = _chord(tick)
+                order = chord if y < 0.5 else tuple(reversed(chord))
+                for offset, note in enumerate(order):
+                    result.append(_event(track, min(127, tick + offset * 4), note=note + 12, duration=3, velocity=velocity, source="touch_tap", arp_step=offset))
+            elif track == "texture_fx":
+                result.append(_event(track, tick, duration=16, velocity=velocity, event_type="control_point", source="touch_tap", cutoff=int(300 + 6000 * y), reverb_send=int(40 + 80 * z), delay_send=int(30 + 90 * z)))
+        previous_touch, previous_tap = touch, tap
+    return result[:16]
+
+
+def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None) -> Dict[str, object]:
+    lead_result = compile_lead(lead_samples, style=style, mode=mode, host_profile=host_profile)
+    tracks: Dict[str, List[Dict[str, object]]] = {name: [] for name in TRACKS}
+    tracks["lead"] = list(lead_result["events"])
+    for track in TRACKS[1:]:
+        tracks[track] = _record_track(track, track_records.get(track, ()), style)
+    all_events = [event for values in tracks.values() for event in values]
+    diagnostics = dict(lead_result["diagnostics"])
+    diagnostics.update({"lead_events": len(tracks["lead"]), "recorded_events": {name: len(tracks[name]) for name in TRACKS[1:]}, "harmony": list(style.harmony), "high_point_ratio": None})
+    return {"version": 3, "style": style.name, "config": asdict(style), "tracks": tracks,
+            "events": sorted(all_events, key=lambda e: (int(e["tick"]), TRACKS.index(str(e["track"])) if e["track"] in TRACKS else 99)),
+            "landmarks": lead_result["landmarks"], "samples": lead_result["samples"], "pitch_space": lead_result["pitch_space"],
+            "calibration": lead_result["calibration"], "lead_patch": lead_result["lead_patch"], "diagnostics": diagnostics}
+
+
+def _role_wave(role: str, phase: float, note: int, age: float) -> float:
+    angle = 2.0 * math.pi * phase
+    if role == "lead":
+        return 0.54 * (2.0 * phase - 1.0) + 0.26 * (1.0 if phase < 0.47 else -1.0) + 0.20 * math.sin(angle)
+    if role == "bass":
+        return 0.75 if phase < 0.5 else -0.75
+    if role == "pad":
+        return 0.65 * math.sin(angle) + 0.20 * math.sin(2 * angle)
+    if role == "arp":
+        return 0.6 * (2.0 * abs(2.0 * (phase - math.floor(phase + 0.5))) - 1.0)
+    if role == "drums":
+        return math.sin(angle * (1.0 + 0.0005 * note)) * math.exp(-age * (20.0 if note in (36, 38) else 55.0))
+    if role == "texture_fx":
+        return 0.25 * math.sin(angle * 0.5) + 0.15 * math.sin(angle * 3.01)
+    return 0.6 * math.sin(angle)
+
+
+def _lead_envelope(age: float, remaining: float, patch: Mapping[str, object], accent: float) -> float:
+    attack = max(0.001, float(patch.get("attack_ms", 35)) / 1000.0)
+    decay = max(0.001, float(patch.get("decay_ms", 180)) / 1000.0)
+    release = max(0.001, float(patch.get("release_ms", 520)) / 1000.0)
+    sustain = float(patch.get("sustain", 0.72))
+    level = age / attack if age < attack else (1.0 - (1.0 - sustain) * (age - attack) / decay if age < attack + decay else sustain)
+    if remaining < 0.0:
+        level *= _clamp(1.0 + remaining / release, 0.0, 1.0)
+    return level * (0.82 + 0.18 * accent)
+
+
+def render_loop(result: Mapping[str, object], output: Path | str, *, sample_rate: int = 22050, loops: int = 1) -> Path:
+    config, patch = result.get("config", {}), result.get("lead_patch", asdict(DEFAULT_LEAD_PATCH))
+    bpm, loop_bars, ticks_per_bar = float(config.get("bpm", STYLE.bpm)), int(config.get("loop_bars", STYLE.loop_bars)), int(config.get("ticks_per_bar", STYLE.ticks_per_bar))
+    loop_ticks, loop_seconds = loop_bars * ticks_per_bar, 60.0 * 4.0 * loop_bars / bpm
+    total = int((loop_seconds * loops + 1.2) * sample_rate)
+    starts: List[Dict[str, object]] = []
+    for loop_index in range(loops):
+        for event in list(result.get("events", [])):
+            if event.get("type") != "note_on" or "note" not in event:
+                continue
+            starts.append({**event, "time": loop_index * loop_seconds + int(event["tick"]) / loop_ticks * loop_seconds, "end": loop_index * loop_seconds + (int(event["tick"]) + int(event.get("duration", 1))) / loop_ticks * loop_seconds})
+    starts.sort(key=lambda event: (float(event["time"]), str(event.get("track"))))
+    active: List[MutableMapping[str, object]] = []
+    audio: List[float] = []
+    cursor = 0
+    for index in range(total):
+        now = index / sample_rate
+        while cursor < len(starts) and float(starts[cursor]["time"]) <= now:
+            event = starts[cursor]
+            active.append({"event": event, "phase": 0.0, "on": float(event["time"]), "frequency": None})
+            cursor += 1
+        value, kept = 0.0, []
+        for voice in active:
+            event, on, end = voice["event"], float(voice["on"]), float(voice["event"]["end"])
+            age, remaining, role = now - on, end - now, str(event["track"])
+            if remaining < -0.7:
+                continue
+            target = 440.0 * 2.0 ** ((int(event["note"]) - 69) / 12.0)
+            current = target if voice["frequency"] is None else float(voice["frequency"])
+            glide = max(0.001, float(patch.get("glide_ms", 85)) / 1000.0) if role == "lead" else 0.001
+            current += (target - current) * _clamp(1.0 / (sample_rate * glide), 0.0, 1.0)
+            voice["frequency"] = current
+            voice["phase"] = (float(voice["phase"]) + current / sample_rate) % 1.0
+            accent = float(event.get("accent", int(event.get("velocity", 80)) / 127.0))
+            if role == "lead":
+                envelope = _lead_envelope(age, remaining, patch, accent)
+                vibrato = float(patch.get("vibrato_cents", 11.0)) * math.sin(2.0 * math.pi * float(patch.get("vibrato_hz", 4.2)) * age)
+                phase = (float(voice["phase"]) * 2.0 ** (vibrato / 1200.0)) % 1.0
+                wave_value = _role_wave(role, phase, int(event["note"]), age)
+            else:
+                attack = 0.025 if role in ("drums", "bass") else (0.25 if role == "pad" else 0.07)
+                release = 0.15 if role == "drums" else (0.8 if role in ("pad", "texture_fx") else 0.35)
+                envelope = min(1.0, age / attack)
+                if remaining < 0:
+                    envelope *= _clamp(1.0 + remaining / release, 0.0, 1.0)
+                envelope *= 0.65 if role == "bass" else (0.45 if role == "pad" else 0.72)
+                wave_value = _role_wave(role, float(voice["phase"]), int(event["note"]), age)
+            value += envelope * int(event.get("velocity", 80)) / 127.0 * wave_value
+            kept.append(voice)
+        active = kept
+        lfo = 0.92 + 0.08 * math.sin(2.0 * math.pi * float(patch.get("cutoff_lfo_hz", 0.08)) * now)
+        audio.append(value * 0.16 * lfo)
+    delay = int(sample_rate * float(patch.get("delay_ms", 620)) / 1000.0)
+    echo = list(audio)
+    for i in range(delay, len(echo)):
+        echo[i] += audio[i - delay] * float(patch.get("delay_feedback", 0.30))
+        if i >= 2 * delay:
+            echo[i] += audio[i - 2 * delay] * float(patch.get("delay_feedback", 0.30)) * 0.45
+        short = int(sample_rate * 0.037)
+        if i >= short:
+            echo[i] += audio[i - short] * float(patch.get("reverb_send", 0.28)) * 0.08
+    peak = max(1e-9, max((abs(value) for value in echo), default=1e-9))
+    scale = min(0.92 / peak, 1.0)
+    target = Path(output)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(target), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(b"".join(struct.pack("<h", int(_clamp(math.tanh(value * 1.4) * 32767 * scale, -32768, 32767))) for value in echo))
+    return target
+
+
+def write_event_table(result: Mapping[str, object], output: Path | str) -> Path:
+    path = Path(output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Compile MGC3130 JSONL into a six-track Synthwave loop")
+    parser.add_argument("input", type=Path)
+    parser.add_argument("--events", type=Path, default=Path("synthwave_events.json"))
+    parser.add_argument("--wav", type=Path, default=Path("synthwave_loop.wav"))
+    parser.add_argument("--sample-rate", type=int, default=22050)
+    args = parser.parse_args()
+    records = load_jsonl_records(args.input)
+    result = compile_loop(records, {track: records for track in TRACKS[1:]})
+    write_event_table(result, args.events)
+    render_loop(result, args.wav, sample_rate=args.sample_rate)
+    print(json.dumps(result["diagnostics"], ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

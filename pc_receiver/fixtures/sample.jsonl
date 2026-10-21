@@ -1,0 +1,2 @@
+{"type":"ready","source":"Microchip GestIC SDK","schema":1}
+{"type":"position","timestamp_ms":12,"logical_time_ms":12,"timestamp_raw":0,"sequence":0,"sequence_gap":0,"frame":0,"x":1234,"y":2345,"z":3456,"gesture":0,"gesture_flags":0,"touch_flags":16,"tap_flags":0,"position_valid":null,"xyz_valid":null,"report_error":null,"clipping":null,"environmental_noise":null,"calibration_reason":0,"quality_known":false}
