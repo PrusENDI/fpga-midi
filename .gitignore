@@ -21,3 +21,17 @@ bitstream/
 # Python cache
 __pycache__/
 *.pyc
+
+# MSVC / Visual Studio build outputs
+Static-Release/
+Static-Debug/
+*.exe
+*.pdb
+*.obj
+*.iobj
+*.ipdb
+*.ilk
+*.exp
+*.tlog
+*.recipe
+*.lastbuildstate

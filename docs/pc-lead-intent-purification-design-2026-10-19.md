@@ -2,7 +2,8 @@
 
 版本：2026-10-19  
 状态：PC 实验设计记录，优先于完整六轨产品化。  
-关联主规范：[MGC3130 Melodic Synthwave 交互合成器系统设计](mgc3130-melodic-synthwave-system-design-2026-10-19.md)
+关联主规范：[MGC3130 Melodic Synthwave 交互合成器系统设计](mgc3130-melodic-synthwave-system-design-2026-10-19.md)  
+实现现状：见 [Lead 实现状态基线](lead-implementation-status.md)，记录当前代码的真实行为、参数和与本文的偏差。
 
 ## 1. 这一阶段只验证什么
 
@@ -191,7 +192,15 @@ confidence, source_landmarks, generated_reason
 
 首版使用少量、可解释的演奏法：长音保持、短音 gate、相邻级进 legato、有限 portamento、高潮 accent 和释放尾音。低置信度只降低装饰、重复和滑音概率，不删除主旋律。跨 Loop 的音符必须显式选择 carry、split 或 fade；首版 Lead 只允许 cadence 的 carry。
 
-## 9. 两个编译候选和可听验收
+## 9. Lead 左侧起笔门控
+
+Lead 采用从左向右的开放轨迹语义。编译器保留原始采集帧，但在左侧起笔门控打开前，将帧标记为 `prestart` 并作为无效/休止处理；它们不会生成旋律地标或音符。
+
+左侧边缘区内的有效帧只作为候选点。候选点会随着边缘抖动更新；只有后续有效点相对最后一个候选点向右移动超过最小确认距离时，最后一个候选点才恢复为有效的 `accepted` 起点。向左离开、原地抖动、从右侧直接开始或没有确认右移的录音都不会启动 Lead。
+
+当前 PC 默认门限记录在 EventTable 诊断中：左边缘最大归一化 X 约为 `0.0625`（原始 X 约 4096），先离开边缘约 256 个原始坐标单位，再用下一帧继续增大的 X 确认右移。这样不会等待大幅移动才开始记录，也不会把边缘后的工作区长段误当成候选边缘点。每帧同时保留 `start_gate_state` 和 `start_gate_reason` 供 UI 与离线回放诊断。
+
+## 10. 两个编译候选和可听验收
 
 同一 CaptureSession 至少生成两个候选：
 

@@ -1,3 +1,4 @@
+import json
 import math
 import tempfile
 import unittest
@@ -7,6 +8,7 @@ from tools.synthwave_loop import (
     DEFAULT_CALIBRATION,
     DEFAULT_LEAD_PATCH,
     DEFAULT_PITCH_SPACE,
+    LeadStartGate,
     STYLE,
     TRACKS,
     compile_lead,
@@ -31,6 +33,25 @@ def _sample(i, *, x=None, y=32768, z=32768, timestamp=None, valid=True):
 
 
 class SynthwaveLoopTests(unittest.TestCase):
+    def test_streaming_lead_start_gate_releases_only_final_edge_candidate(self):
+        gate = LeadStartGate()
+        records = [_sample(i, x=x, y=30000) for i, x in enumerate((48000, 3000, 4200, 3600, 5200, 10500, 17000))]
+        accepted = [row for record in records for row in gate.push(record)]
+        self.assertEqual([row["timestamp_ms"] for row in accepted], [60, 80, 100, 120])
+        self.assertEqual(accepted[0]["start_gate_reason"], "left_edge_release_rightward")
+
+    def test_streaming_lead_start_gate_drops_capture_without_rightward_release(self):
+        gate = LeadStartGate()
+        accepted = [row for i, x in enumerate((48000, 3000, 4200, 3600, 2500)) for row in gate.push(_sample(i, x=x, y=32000))]
+        self.assertEqual(accepted, [])
+
+    def test_streaming_gate_accepts_real_left_edge_departure_without_waiting_for_large_delta(self):
+        gate = LeadStartGate()
+        records = [_sample(i, x=x, y=30000) for i, x in enumerate((0, 0, 3598, 4183, 5529))]
+        accepted = [row for record in records for row in gate.push(record)]
+        self.assertEqual([row["x"] for row in accepted[:2]], [3598, 4183])
+        self.assertEqual(accepted[0]["start_gate_reason"], "left_edge_release_rightward")
+
     def test_style_and_fixed_profiles_are_frozen(self):
         self.assertEqual(STYLE.name, "melodic_synthwave")
         self.assertEqual(STYLE.bpm, 100)
@@ -155,12 +176,98 @@ class SynthwaveLoopTests(unittest.TestCase):
         self.assertGreaterEqual(result["diagnostics"]["host_filter"]["invalid_count"], 2)
 
     def test_lead_compile_survives_invalid_capture_prefix(self):
-        samples = [_sample(i, x=1000 + i * 500, y=28000 + i * 500,
+        samples = [_sample(i, x=1000 + i * 1200, y=28000 + i * 500,
                            valid=(i not in (0, 1, 8, 9))) for i in range(20)]
         result = compile_lead(samples, host_profile=build_identity_profile())
         self.assertTrue(result["events"])
         self.assertTrue(any(event["type"] == "rest" for event in result["events"]))
         self.assertTrue(any(event["type"] == "note_on" for event in result["events"]))
+
+    def test_lead_start_gate_ignores_pre_roll_and_keeps_last_left_edge_point(self):
+        x_values = (48000, 52000, 3000, 4200, 3600, 5200, 10500, 17000, 24000, 30000)
+        samples = [_sample(i, x=x, y=30000 + i * 300) for i, x in enumerate(x_values)]
+        projected = preprocess_samples(samples)
+        accepted = [row for row in projected if row.get("start_gate_state") == "accepted"]
+        self.assertTrue(accepted)
+        self.assertEqual(accepted[0]["timestamp_ms"], 80)
+        self.assertEqual(accepted[0]["start_gate_reason"], "left_edge_release_rightward")
+        self.assertTrue(all(row.get("position_valid") for row in accepted))
+        self.assertTrue(all(row.get("start_gate_state") == "prestart" for row in projected[:2]))
+        self.assertEqual(projected[2]["start_gate_state"], "edge_candidate")
+
+    def test_lead_start_gate_rejects_capture_without_confirmed_rightward_motion(self):
+        x_values = (48000, 52000, 3000, 4200, 3600, 2500, 1800)
+        samples = [_sample(i, x=x, y=32000) for i, x in enumerate(x_values)]
+        projected = preprocess_samples(samples)
+        self.assertTrue(projected)
+        self.assertTrue(all(not row.get("position_valid", False) for row in projected))
+        self.assertTrue(all(row.get("start_gate_state") != "accepted" for row in projected))
+
+    def test_lead_gate_preserves_sequence_when_device_timestamp_wraps(self):
+        samples = [
+            _sample(0, x=0, y=30000, timestamp=4294967000),
+            _sample(1, x=0, y=30000, timestamp=100),
+            _sample(2, x=500, y=30000, timestamp=200),
+            _sample(3, x=5000, y=30000, timestamp=300),
+            _sample(4, x=7000, y=30000, timestamp=400),
+        ]
+        for index, row in enumerate(samples):
+            row["sequence"] = index
+        projected = preprocess_samples(samples)
+        accepted = [row for row in projected if row.get("start_gate_state") == "accepted"]
+        self.assertTrue(accepted)
+        self.assertEqual(accepted[0]["sequence"], 2)
+
+    def test_host_profile_pipeline_preserves_sequence_when_timestamp_wraps(self):
+        x_values = (0, 0, 3598, 4183, 5529, 9000)
+        timestamps = (4294967000, 100, 200, 300, 400, 500)
+        samples = []
+        for index, (x, timestamp) in enumerate(zip(x_values, timestamps)):
+            row = _sample(index, x=x, y=30000, timestamp=timestamp)
+            row["sequence"] = index
+            samples.append(row)
+        projected = preprocess_samples(samples, host_profile=build_identity_profile())
+        self.assertEqual([row["sequence"] for row in projected], [0, 1, 2, 3, 4, 5])
+        accepted = [row["sequence"] for row in projected if row.get("start_gate_state") == "accepted"]
+        self.assertEqual(accepted, [2, 3, 4, 5])
+
+    def test_jsonl_loader_prefers_sequence_over_wrapped_timestamps(self):
+        rows = [
+            {"type": "position", "sequence": 0, "timestamp_ms": 4294967000, "x": 0},
+            {"type": "position", "sequence": 1, "timestamp_ms": 100, "x": 4000},
+            {"type": "position", "sequence": 2, "timestamp_ms": 200, "x": 8000},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "capture.jsonl"
+            path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+            records = load_jsonl_records(path)
+        self.assertEqual([record["sequence"] for record in records], [0, 1, 2])
+
+    def test_live_receiver_null_validity_is_treated_as_valid(self):
+        # pc_receiver emits "position_valid": null until SDK quality flags are
+        # wired up; unknown validity must not discard the capture.
+        def live(index, x):
+            row = _sample(index, x=x, y=30000 + index * 300)
+            row.update({"position_valid": None, "xyz_valid": None, "report_error": None,
+                        "clipping": None, "environmental_noise": None, "quality_known": False})
+            return row
+        samples = [live(index, x) for index, x in enumerate((0, 0, 3598, 4183, 5529, 9000, 14000, 20000))]
+        gate = LeadStartGate()
+        accepted = [row for sample in samples for row in gate.push(sample)]
+        self.assertTrue(accepted)
+        self.assertTrue(all(row["start_gate_state"] == "accepted" for row in accepted))
+        for kwargs in ({}, {"host_profile": build_identity_profile()}):
+            result = compile_lead(samples, **kwargs)
+            self.assertEqual(result["diagnostics"]["status"], "ok")
+            self.assertTrue(any(event["type"] == "note_on" for event in result["events"]))
+            self.assertTrue(result["diagnostics"]["lead_start_gate"]["accepted"])
+            self.assertGreater(result["diagnostics"]["coverage"], 0.5)
+
+    def test_explicit_invalid_frames_stay_invalid(self):
+        for value in (False, "false", 0):
+            samples = [_sample(index, x=3000, valid=value) for index in range(4)]
+            projected = preprocess_samples(samples)
+            self.assertTrue(all(not row["position_valid"] for row in projected), value)
 
 
 if __name__ == "__main__":

@@ -169,6 +169,38 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
+def valid_flag(value: Any, default: bool = True) -> bool:
+    """Position validity where an explicit JSON null means "unknown".
+
+    The live SDK receiver emits ``"position_valid": null`` until hardware
+    quality reporting is wired up.  Treating that null as "invalid" silently
+    discards every frame, so unknown validity falls back to the caller's
+    default (valid for the Lead path, matching ``_quality``).
+    """
+    return _as_bool(value, default)
+
+
+def capture_order(samples: Sequence[Mapping[str, Any]], key=None) -> List[Dict[str, Any]]:
+    """Restore capture order, preferring frame sequence over wall-clock time.
+
+    The MGC3130 frame counter wraps, so a timestamp sort can move the first
+    frames of a phrase to the end.  Sequence numbers are monotonic within a
+    session and are authoritative when every row carries one.
+    """
+    rows = [dict(row) for row in samples]
+    sequences = [_sequence_number(row) for row in rows]
+    if rows and all(sequence is not None for sequence in sequences):
+        return sorted(rows, key=lambda row: _sequence_number(row))
+    return sorted(rows, key=key or (lambda row: _timestamp(row, 0.0)))
+
+
+def _sequence_number(row: Mapping[str, Any]) -> int | None:
+    try:
+        return int(str(row.get("sequence")), 0)
+    except (TypeError, ValueError):
+        return None
+
+
 def _raw_xyz(row: Mapping[str, Any]) -> Tuple[float, float, float]:
     return tuple(_number(row.get(axis, 0.0)) for axis in ("x", "y", "z"))  # type: ignore[return-value]
 
@@ -281,7 +313,7 @@ def _motion_state(row: Dict[str, Any], previous: Dict[str, Any] | None, duration
 
 def filter_capture(samples: Sequence[Mapping[str, Any]], profile: HostCalibrationProfile) -> FilteredCapture:
     """Filter a capture while preserving gaps and raw fields."""
-    ordered = sorted((dict(row) for row in samples), key=lambda row: _timestamp(row, 0.0, profile))
+    ordered = capture_order(samples, key=lambda row: _timestamp(row, 0.0, profile))
     frames: List[Dict[str, Any]] = []
     history: List[Tuple[float, Tuple[float, float, float]]] = []
     previous_time: float | None = None

@@ -19,8 +19,9 @@ TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, _clamp, compile_loop,
-                            load_jsonl_records, render_loop, write_event_table)  # noqa: E402
+from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate, _clamp,
+                            compile_loop, load_jsonl_records, render_loop,
+                            write_event_table)  # noqa: E402
 
 
 class SynthwaveUI(tk.Tk):
@@ -38,6 +39,8 @@ class SynthwaveUI(tk.Tk):
         self.records: Dict[str, List[dict]] = {track: [] for track in TRACKS}
         self.lead_samples: List[dict] = []
         self.current_capture: List[dict] = []
+        self.lead_preview_capture: List[dict] = []
+        self.lead_start_gate = LeadStartGate()
         self.event_table: dict | None = None
         self.receiver: subprocess.Popen[str] | None = None
         self.receiver_thread: threading.Thread | None = None
@@ -147,9 +150,13 @@ class SynthwaveUI(tk.Tk):
         if self.recording:
             return
         self.current_capture = []
+        self.lead_preview_capture = []
+        if self.selected_track.get() == "lead":
+            self.lead_start_gate = LeadStartGate()
         self.recording = True
         track = self.selected_track.get()
-        self.status.set(f"RECORDING — {track}; stop when the take is complete")
+        prompt = "move to the left edge, then move right" if track == "lead" else "stop when the take is complete"
+        self.status.set(f"RECORDING — {track}; {prompt}")
         self._log(f"recording {track}")
         self._start_receiver()
 
@@ -187,7 +194,11 @@ class SynthwaveUI(tk.Tk):
                 break
             if record.get("type") == "position":
                 self.current_capture.append(record)
-                self._draw_canvas()
+                if self.selected_track.get() == "lead":
+                    self.lead_preview_capture.extend(self.lead_start_gate.push(record))
+                    if not self.lead_preview_capture:
+                        self.status.set("WAITING — Lead must start at the left edge and move right")
+                self._draw_canvas(self.lead_preview_capture if self.selected_track.get() == "lead" else None)
                 self.progress["value"] = len(self.current_capture) % 128
         self.after(40, self._poll_inbox)
 
@@ -204,7 +215,11 @@ class SynthwaveUI(tk.Tk):
         else:
             self.records[track].extend(self.current_capture)
         self.status.set(f"CAPTURED — {track}: {len(self.current_capture)} reports")
-        self._log(f"captured {len(self.current_capture)} reports for {track}")
+        if track == "lead":
+            accepted = sum(1 for row in self.lead_preview_capture if row.get("start_gate_state") == "accepted")
+            self._log(f"captured {len(self.current_capture)} reports for {track}; {accepted} passed left-edge start gate")
+        else:
+            self._log(f"captured {len(self.current_capture)} reports for {track}")
 
     def compile(self) -> None:
         if self.recording:
@@ -253,11 +268,13 @@ class SynthwaveUI(tk.Tk):
         track = self.selected_track.get()
         if track == "lead":
             self.lead_samples.extend(records)
+            gate = LeadStartGate()
+            self.lead_preview_capture = [row for record in records for row in gate.push(record)]
         else:
             self.records[track].extend(records)
         self.status.set(f"IMPORTED — {len(records)} reports into {track}")
         self._log(f"imported {len(records)} reports into {track}")
-        self._draw_canvas(records)
+        self._draw_canvas(self.lead_preview_capture if track == "lead" else records)
 
     def export_events(self) -> None:
         if not self.event_table:
@@ -299,7 +316,8 @@ class SynthwaveUI(tk.Tk):
 
     def _draw_canvas(self, samples: List[dict] | None = None) -> None:
         if samples is None:
-            samples = self.current_capture or self.lead_samples
+            samples = (self.lead_preview_capture or self.current_capture or self.lead_samples
+                       if self.selected_track.get() == "lead" else self.current_capture)
         self.canvas.delete("all")
         width, height = max(10, self.canvas.winfo_width()), max(10, self.canvas.winfo_height())
         for x in range(0, width, 80):

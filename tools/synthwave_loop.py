@@ -19,9 +19,11 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, MutableMapping, Sequence
 
 try:
-    from .host_xyz_filter import FilteredCapture, HostCalibrationProfile, filter_capture
+    from .host_xyz_filter import (FilteredCapture, HostCalibrationProfile, capture_order,
+                                  filter_capture, valid_flag)
 except ImportError:  # direct script execution
-    from host_xyz_filter import FilteredCapture, HostCalibrationProfile, filter_capture
+    from host_xyz_filter import (FilteredCapture, HostCalibrationProfile, capture_order,
+                                 filter_capture, valid_flag)
 
 TRACKS = ("lead", "bass", "pad", "arp", "drums", "texture_fx")
 PENTATONIC = (0, 2, 4, 7, 9)
@@ -103,6 +105,12 @@ DEFAULT_CALIBRATION = CalibrationProfile()
 DEFAULT_PITCH_SPACE = PitchSpace()
 DEFAULT_LEAD_PATCH = LeadPatchProfile()
 
+# Lead phrases are deliberately left-to-right open paths.  The edge zone is
+# wide enough to absorb hand placement jitter, while the release distance
+# prevents a stationary or leftward edge gesture from starting a phrase.
+LEAD_LEFT_EDGE_MAX = 4096.0 / 65535.0
+LEAD_MIN_RIGHTWARD_DELTA = 256.0 / 65535.0
+
 
 def _number(value: object, default: int = 0) -> int:
     try:
@@ -131,8 +139,7 @@ def load_jsonl_records(path: Path | str) -> List[Dict[str, object]]:
             value["tap_flags"] = _number(value.get("tap_flags"))
             value["gesture"] = _number(value.get("gesture"))
             records.append(value)
-    records.sort(key=lambda row: float(row["timestamp_ms"]))
-    return records
+    return _capture_order(records)
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -162,6 +169,10 @@ def _sample_timestamp(sample: Mapping[str, object], fallback: float) -> float:
         return float(raw)
     except (TypeError, ValueError):
         return fallback
+
+
+def _capture_order(samples: Sequence[Mapping[str, object]]) -> List[Dict[str, object]]:
+    return capture_order(samples, key=lambda row: _sample_timestamp(row, 0.0))
 
 
 def _cross(a: Sequence[float], b: Sequence[float]) -> tuple[float, float, float]:
@@ -208,12 +219,153 @@ def project_sample(sample: Mapping[str, object], calibration: CalibrationProfile
         "timestamp_ms": _sample_timestamp(sample, 0.0),
         "x_raw": raw[0], "y_raw": raw[1], "z_raw": raw[2], "q_app": q,
         "q_x": q[0], "q_y": q[1], "q_z": q[2],
-        "position_valid": bool(sample.get("position_valid", sample.get("positionValid", True))),
+        "position_valid": valid_flag(sample.get("position_valid", sample.get("positionValid"))),
         "out_of_range": bool(outside), "calibration_mode": mode, "a_rel": 0.0,
         "b_abs": _dot(relative, calibration.pitch_axis),
         "c_abs": _dot(relative, calibration.color_axis),
     })
     return result
+
+
+def _apply_lead_start_gate(projected: Sequence[Mapping[str, object]], *,
+                           left_edge_max: float = LEAD_LEFT_EDGE_MAX,
+                           min_rightward_delta: float = LEAD_MIN_RIGHTWARD_DELTA) -> List[Dict[str, object]]:
+    """Accept only a left-edge point followed by confirmed rightward motion.
+
+    Before the gate opens, rows remain in the capture for diagnostics but are
+    marked invalid so resampling turns them into explicit rests.  The latest
+    edge candidate is retroactively marked as the phrase start when a later
+    valid point moves sufficiently to the right.
+    """
+    rows = [dict(row) for row in projected]
+    candidate_index: int | None = None
+    candidate_x: float | None = None
+    departure_index: int | None = None
+    departure_x: float | None = None
+    gate_open = False
+    for index, row in enumerate(rows):
+        valid = valid_flag(row.get("position_valid")) and row.get("q_app") is not None
+        q = row.get("q_app")
+        # Gate on the raw sensor X. Median/low-pass filtering can smear a
+        # genuine edge contact far into the workspace before this decision.
+        raw_x = row.get("x_raw", row.get("x"))
+        try:
+            x = float(raw_x) / 65535.0 if valid and raw_x is not None else None
+        except (TypeError, ValueError):
+            x = float(q[0]) if valid and isinstance(q, (tuple, list)) else None
+        row["start_gate_state"] = "accepted" if gate_open else "prestart"
+        row["start_gate_reason"] = "gate_already_open" if gate_open else "awaiting_left_edge"
+        if not valid:
+            row["position_valid"] = False
+            continue
+        if gate_open:
+            continue
+        if x is not None and x <= left_edge_max:
+            candidate_index = index
+            candidate_x = x
+            departure_index = None
+            departure_x = None
+            row["start_gate_state"] = "edge_candidate"
+            row["start_gate_reason"] = "left_edge_candidate"
+            row["position_valid"] = False
+            continue
+        if candidate_index is not None and candidate_x is not None and x is not None:
+            if departure_index is None:
+                if x - candidate_x >= min_rightward_delta:
+                    departure_index = index
+                    departure_x = x
+                    row["position_valid"] = False
+                    row["start_gate_state"] = "prestart"
+                    row["start_gate_reason"] = "rightward_confirmation_pending"
+                else:
+                    row["position_valid"] = False
+                    row["start_gate_state"] = "prestart"
+                    row["start_gate_reason"] = "waiting_rightward_confirmation"
+                continue
+            if departure_x is not None and x > departure_x:
+                gate_open = True
+                start = rows[candidate_index]
+                start["position_valid"] = True
+                start["start_gate_state"] = "accepted"
+                start["start_gate_reason"] = "left_edge_release_rightward"
+                for prior in rows[candidate_index + 1:index]:
+                    prior["position_valid"] = False
+                    prior["start_gate_state"] = "prestart"
+                    prior["start_gate_reason"] = "edge_release_confirmation"
+                rows[departure_index]["start_gate_state"] = "accepted"
+                rows[departure_index]["start_gate_reason"] = "rightward_confirmation"
+                rows[departure_index]["position_valid"] = True
+                row["start_gate_state"] = "accepted"
+                row["start_gate_reason"] = "rightward_confirmation"
+            else:
+                row["position_valid"] = False
+                row["start_gate_state"] = "prestart"
+                row["start_gate_reason"] = "rightward_confirmation_pending"
+        else:
+            row["position_valid"] = False
+            row["start_gate_state"] = "prestart"
+            row["start_gate_reason"] = "left_edge_required"
+    return rows
+
+
+class LeadStartGate:
+    """Streaming form of the left-edge Lead start rule used by the UI."""
+
+    def __init__(self, *, left_edge_max: float = LEAD_LEFT_EDGE_MAX,
+                 min_rightward_delta: float = LEAD_MIN_RIGHTWARD_DELTA) -> None:
+        self.left_edge_max = float(left_edge_max)
+        self.min_rightward_delta = float(min_rightward_delta)
+        self._candidate: Dict[str, object] | None = None
+        self._candidate_x: float | None = None
+        self._departure: Dict[str, object] | None = None
+        self._departure_x: float | None = None
+        self._open = False
+
+    def push(self, record: Mapping[str, object]) -> List[Dict[str, object]]:
+        row = dict(record)
+        try:
+            x = _number(row.get("x"), 0) / 65535.0
+        except (TypeError, ValueError):
+            x = 0.0
+        valid = valid_flag(row.get("position_valid", row.get("positionValid")))
+        if self._open:
+            row.update({"start_gate_state": "accepted", "start_gate_reason": "gate_already_open"})
+            return [row] if valid else []
+        if not valid:
+            row.update({"start_gate_state": "prestart", "start_gate_reason": "invalid_before_start"})
+            return []
+        if x <= self.left_edge_max:
+            self._candidate = row
+            self._candidate_x = x
+            self._departure = None
+            self._departure_x = None
+            row.update({"start_gate_state": "edge_candidate", "start_gate_reason": "left_edge_candidate"})
+            return []
+        if self._candidate is None or self._candidate_x is None:
+            row.update({"start_gate_state": "prestart", "start_gate_reason": "left_edge_required"})
+            return []
+        if self._departure is None:
+            if x - self._candidate_x < self.min_rightward_delta:
+                row.update({"start_gate_state": "prestart", "start_gate_reason": "waiting_rightward_confirmation"})
+                return []
+            self._departure = row
+            self._departure_x = x
+            row.update({"start_gate_state": "prestart", "start_gate_reason": "waiting_rightward_confirmation"})
+            return []
+        if self._departure_x is not None and x <= self._departure_x:
+            row.update({"start_gate_state": "prestart", "start_gate_reason": "rightward_confirmation_pending"})
+            return []
+        start = dict(self._candidate)
+        start.update({"start_gate_state": "accepted", "start_gate_reason": "left_edge_release_rightward"})
+        departure = dict(self._departure)
+        departure.update({"start_gate_state": "accepted", "start_gate_reason": "rightward_confirmation"})
+        row.update({"start_gate_state": "accepted", "start_gate_reason": "rightward_confirmation"})
+        self._open = True
+        self._candidate = None
+        self._candidate_x = None
+        self._departure = None
+        self._departure_x = None
+        return [start, departure, row]
 
 
 def preprocess_samples(samples: Sequence[Mapping[str, object]],
@@ -245,7 +397,8 @@ def preprocess_samples(samples: Sequence[Mapping[str, object]],
                 "out_of_range": any(q_tuple[i] < host_profile.workspace_min[i] or q_tuple[i] > host_profile.workspace_max[i] for i in range(3)),
             })
             projected.append(row)
-        projected.sort(key=lambda row: float(row.get("timestamp_ms", 0.0)))
+        projected = _capture_order(projected)
+        projected = _apply_lead_start_gate(projected)
         if not projected:
             return []
         start = float(projected[0].get("timestamp_ms", 0.0))
@@ -254,8 +407,7 @@ def preprocess_samples(samples: Sequence[Mapping[str, object]],
         for row in projected:
             row["a_rel"] = _clamp((float(row.get("timestamp_ms", start)) - start) / span, 0.0, 1.0)
         return projected
-    projected = [project_sample(sample, calibration, mode) for sample in samples]
-    projected.sort(key=lambda row: float(row["timestamp_ms"]))
+    projected = [project_sample(sample, calibration, mode) for sample in _capture_order(samples)]
     if not projected:
         return []
     coords = [[float(row["q_app"][axis]) for row in projected] for axis in range(3)]
@@ -295,7 +447,7 @@ def preprocess_samples(samples: Sequence[Mapping[str, object]],
             "alignment_fallback": alignment_fallback,
         })
         output.append(updated)
-    return output
+    return _apply_lead_start_gate(output)
 
 
 def _interp(a: float, b: float, ratio: float) -> float:
@@ -305,7 +457,7 @@ def _interp(a: float, b: float, ratio: float) -> float:
 def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle = STYLE) -> List[Dict[str, object]]:
     if not samples:
         return []
-    ordered = sorted(samples, key=lambda row: _sample_timestamp(row, 0.0))
+    ordered = _capture_order(samples)
     start, end = _sample_timestamp(ordered[0], 0.0), _sample_timestamp(ordered[-1], 0.0)
     span = max(1e-9, end - start)
     times = [_sample_timestamp(row, start) for row in ordered]
@@ -323,8 +475,8 @@ def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveS
         row: Dict[str, object] = {"tick": tick, "a_rel": a_rel, "timestamp_ms": target}
         for field in ("b_abs", "c_abs", "q_x", "q_y", "q_z"):
             left_value, right_value = left.get(field), right.get(field)
-            left_valid = bool(left.get("position_valid", True)) and left_value is not None
-            right_valid = bool(right.get("position_valid", True)) and right_value is not None
+            left_valid = valid_flag(left.get("position_valid")) and left_value is not None
+            right_valid = valid_flag(right.get("position_valid")) and right_value is not None
             if left_valid and right_valid:
                 row[field] = _interp(float(left_value), float(right_value), ratio)
             elif left_value is not None:
@@ -333,7 +485,7 @@ def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveS
                 row[field] = float(right_value)
             else:
                 row[field] = None
-        row["position_valid"] = bool(left.get("position_valid", True)) and bool(right.get("position_valid", True)) and row.get("b_abs") is not None
+        row["position_valid"] = valid_flag(left.get("position_valid")) and valid_flag(right.get("position_valid")) and row.get("b_abs") is not None
         row["out_of_range"] = bool(left.get("out_of_range", False) or right.get("out_of_range", False))
         result.append(row)
     for i, row in enumerate(result):
@@ -382,7 +534,7 @@ def extract_landmarks(projected_samples: Sequence[Mapping[str, object]], style: 
             "reason": reason,
         })
 
-    if rows[0].get("position_valid", True) and rows[0].get("b_abs") is not None:
+    if valid_flag(rows[0].get("position_valid")) and rows[0].get("b_abs") is not None:
         add("move", rows[0], "capture_start")
     i = 0
     while i < len(rows):
@@ -397,7 +549,7 @@ def extract_landmarks(projected_samples: Sequence[Mapping[str, object]], style: 
         i = j
     for index in range(1, len(rows) - 1):
         current, before, after = rows[index], rows[index - 1], rows[index + 1]
-        if (not current.get("position_valid", True) or current.get("b_abs") is None
+        if (not valid_flag(current.get("position_valid")) or current.get("b_abs") is None
                 or before.get("b_abs") is None or after.get("b_abs") is None):
             continue
         b = float(current.get("b_abs", 0.0))
@@ -412,7 +564,7 @@ def extract_landmarks(projected_samples: Sequence[Mapping[str, object]], style: 
         if (str(current.get("state")) == "move" and str(before.get("state")) == "hold"
                 and db_after < -0.0002):
             add("turn", current, "hold_to_downward_motion")
-    if rows[-1].get("position_valid", True) and rows[-1].get("state") != "rest" and int(rows[-1].get("tick", 0)) > int(rows[0].get("tick", 0)):
+    if valid_flag(rows[-1].get("position_valid")) and rows[-1].get("state") != "rest" and int(rows[-1].get("tick", 0)) > int(rows[0].get("tick", 0)):
         add("release", rows[-1], "capture_end")
     landmarks.sort(key=lambda item: (int(item["tick"]), item["kind"]))
     for index, item in enumerate(landmarks):
@@ -498,11 +650,17 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
             events.append(_event("lead", int(landmark["tick"]), duration=max(1, next_tick - int(landmark["tick"])),
                                  event_type="rest", source="trajectory", source_landmarks=[landmark["id"]], generated_reason="position_invalid"))
     events.sort(key=lambda event: (int(event["tick"]), str(event["type"])) )
-    valid_count = sum(1 for row in processed if bool(row.get("position_valid", True)))
+    valid_count = sum(1 for row in processed if valid_flag(row.get("position_valid")))
     coverage = valid_count / len(processed) if processed else 0.0
     status = "insufficient_capture" if len(processed) < 2 else ("weak_motif" if len(chosen) <= 1 else "ok")
     diagnostics = {
         "status": status, "coverage": round(coverage, 4),
+        "lead_start_gate": {
+            "left_edge_max": LEAD_LEFT_EDGE_MAX,
+            "min_rightward_delta": LEAD_MIN_RIGHTWARD_DELTA,
+            "accepted": any(row.get("start_gate_state") == "accepted" for row in processed),
+            "accepted_count": sum(1 for row in processed if row.get("start_gate_state") == "accepted"),
+        },
         "landmark_counts": {kind: sum(1 for item in landmarks if item["kind"] == kind) for kind in ("move", "hold", "turn", "apex", "valley", "rest", "release")},
         "no_source_count": sum(1 for event in events if event.get("type") == "note_on" and not event.get("source_landmarks")),
         "forced_tonic": False, "forced_high_point": False, "capture_hash": _capture_hash(samples),
