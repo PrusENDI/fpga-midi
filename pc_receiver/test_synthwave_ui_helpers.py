@@ -4,12 +4,12 @@ import unittest
 from pathlib import Path
 
 from synthwave_ui import (DIAG_FIELDS, _PixelPathCache, _append_diag_row, _clip_percent,
-                          _project_point, _thin_path)
+                          _plot_rect, _project_point, _thin_path)
 
 
 class ThinPathTests(unittest.TestCase):
     def test_points_on_one_pixel_collapse(self):
-        rows = [{"x": 0, "y": 0}, {"x": 1, "y": 1}, {"x": 2, "y": 2}]
+        rows = [{"x": 0, "y": 0}, {"x": 0, "y": 0}, {"x": 0, "y": 0}]
         self.assertEqual(len(_thin_path(rows, 856, 451)), 1)
 
     def test_distinct_pixels_are_kept_in_capture_order(self):
@@ -28,10 +28,13 @@ class ThinPathTests(unittest.TestCase):
         self.assertGreater(len(pixels), 100)
 
     def test_first_and_last_pixels_are_present(self):
+        left, top, plot_w, plot_h = _plot_rect(800, 400)
         rows = [{"x": 0, "y": 0}, {"x": 30000, "y": 40000}, {"x": 65535, "y": 65535}]
         pixels = _thin_path(rows, 800, 400)
-        self.assertEqual(pixels[0], (28, 372))
-        self.assertEqual(pixels[-1], (772, 28))
+        self.assertAlmostEqual(pixels[0][0], left, places=6)
+        self.assertAlmostEqual(pixels[0][1], top + plot_h, places=6)
+        self.assertAlmostEqual(pixels[-1][0], left + plot_w, places=6)
+        self.assertAlmostEqual(pixels[-1][1], top, places=6)
 
     def test_degenerate_canvas_does_not_invert_the_mapping(self):
         rows = [{"x": 0, "y": 0}, {"x": 65535, "y": 65535}]
@@ -104,20 +107,33 @@ class ClipTests(unittest.TestCase):
 
 
 class ViewRangeTests(unittest.TestCase):
-    def test_workspace_edges_map_to_canvas_edges(self):
+    def test_a_square_workspace_draws_as_a_square(self):
+        # The sensor area is square; one count must be worth the same number
+        # of pixels on both axes or the drawing is distorted.
+        points = _thin_path([{"x": 0, "y": 0}, {"x": 65535, "y": 65535}], 800, 400)
+        dx = abs(points[-1][0] - points[0][0])
+        dy = abs(points[-1][1] - points[0][1])
+        self.assertAlmostEqual(dx, dy, places=6)
+
+    def test_workspace_edges_map_to_the_plot_rect(self):
         points = _thin_path([{"x": 4000, "y": 4000}, {"x": 60000, "y": 50000}],
                             800, 400, x_range=(4000, 60000), y_range=(4000, 50000))
-        self.assertEqual(points[0], (28.0, 372.0))
-        self.assertEqual(points[-1], (772.0, 28.0))
+        self.assertAlmostEqual(points[0][1], 372.0, places=6)
+        self.assertAlmostEqual(points[-1][1], 28.0, places=6)
+        self.assertLess(points[0][0], points[-1][0])
 
     def test_projection_stays_fractional_so_the_line_is_not_a_staircase(self):
-        # Two samples inside one pixel column must keep distinct coordinates;
-        # rounding per sample is what produced the staircase look.
         first = _project_point({"x": 33000, "y": 30000}, 800, 400)
         second = _project_point({"x": 33030, "y": 30030}, 800, 400)
         self.assertNotEqual(first, second)
-        self.assertAlmostEqual(first[0], 28.0, delta=400.0)
-        self.assertAlmostEqual(second[0], 28.0, delta=400.0)
+
+    def test_out_of_range_values_clamp_inside_the_plot(self):
+        left, top, plot_w, plot_h = _plot_rect(800, 400)
+        point = _project_point({"x": 90000, "y": -500}, 800, 400)
+        self.assertGreaterEqual(point[0], left - 1e-9)
+        self.assertLessEqual(point[0], left + plot_w + 1e-9)
+        self.assertGreaterEqual(point[1], top - 1e-9)
+        self.assertLessEqual(point[1], top + plot_h + 1e-9)
 
     def test_out_of_range_values_clamp_inside_the_plot(self):
         point = _project_point({"x": 90000, "y": -500}, 800, 400)

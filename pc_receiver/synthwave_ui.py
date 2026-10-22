@@ -32,12 +32,12 @@ VIEW_X_RANGE = (0.0, 65535.0)
 VIEW_Y_RANGE = (0.0, 65535.0)
 
 
-def _y_to_canvas(value: float, height: int) -> float:
-    top, bottom = 28.0, max(29.0, height - 28.0)
+def _y_to_canvas(value: float, width: int, height: int) -> float:
+    _, top, _, plot_h = _plot_rect(width, height, VIEW_X_RANGE, VIEW_Y_RANGE)
     y_lo, y_hi = VIEW_Y_RANGE
     fy = (float(value) - y_lo) / max(1e-9, y_hi - y_lo)
     fy = 0.0 if fy < 0.0 else (1.0 if fy > 1.0 else fy)
-    return bottom - fy * (bottom - top)
+    return top + (1.0 - fy) * plot_h
 
 
 def _clip_percent(samples: List[dict]) -> float:
@@ -58,6 +58,27 @@ def _clip_percent(samples: List[dict]) -> float:
     return 100.0 * hits / len(samples)
 
 
+def _plot_rect(width: int, height: int,
+               x_range: tuple = (0.0, 65535.0),
+               y_range: tuple = (0.0, 65535.0)) -> tuple:
+    """Return (left, top, width, height) using one scale for both axes.
+
+    The sensor's active area is square, but the canvas is much wider than it
+    is tall. Stretching each axis to fill the canvas made one count worth
+    ~82 px horizontally and ~185 px vertically, so a square drew as a flat
+    rectangle and vertical jitter was amplified into visible steps. Fit the
+    range into the canvas at a single scale and centre it instead.
+    """
+    span_x = max(1e-9, x_range[1] - x_range[0])
+    span_y = max(1e-9, y_range[1] - y_range[0])
+    usable_w = max(1.0, width - 56.0)
+    usable_h = max(1.0, height - 56.0)
+    scale = min(usable_w / span_x, usable_h / span_y)
+    plot_w = span_x * scale
+    plot_h = span_y * scale
+    return ((width - plot_w) / 2.0, (height - plot_h) / 2.0, plot_w, plot_h)
+
+
 def _project_point(row: dict, width: int, height: int,
                    x_range: tuple = (0.0, 65535.0),
                    y_range: tuple = (0.0, 65535.0)) -> tuple:
@@ -68,15 +89,14 @@ def _project_point(row: dict, width: int, height: int,
     jumps. The cache dedupes on rounded pixels, but the drawn coordinate
     stays fractional so the canvas line is smooth.
     """
-    left, right = 28.0, max(29.0, width - 28.0)
-    top, bottom = 28.0, max(29.0, height - 28.0)
+    left, top, plot_w, plot_h = _plot_rect(width, height, x_range, y_range)
     x_lo, x_hi = x_range
     y_lo, y_hi = y_range
     fx = (float(row.get("x", 0)) - x_lo) / max(1e-9, x_hi - x_lo)
     fy = (float(row.get("y", 0)) - y_lo) / max(1e-9, y_hi - y_lo)
     fx = 0.0 if fx < 0.0 else (1.0 if fx > 1.0 else fx)
     fy = 0.0 if fy < 0.0 else (1.0 if fy > 1.0 else fy)
-    return (left + fx * (right - left), bottom - fy * (bottom - top))
+    return (left + fx * plot_w, top + (1.0 - fy) * plot_h)
 
 
 def _thin_path(samples: List[dict], width: int, height: int,
@@ -554,13 +574,18 @@ class SynthwaveUI(tk.Tk):
         for y in range(0, height, 60):
             self.canvas.create_line(0, y, width, y, fill="#182235")
         self.canvas.create_text(16, 14, anchor="nw", text="XYZ trajectory / current capture", fill="#8490a8")
+        plot_left, plot_top, plot_w, plot_h = _plot_rect(width, height, VIEW_X_RANGE, VIEW_Y_RANGE)
+        # The sensor's active area is square. Showing that square explicitly
+        # stops the empty side margins from reading as "lost" range.
+        self.canvas.create_rectangle(plot_left, plot_top, plot_left + plot_w, plot_top + plot_h,
+                                     outline="#1d2740")
         # Fixed G3–C5 PitchSpace guides. The labels are intentionally tied to
         # the calibrated workspace rather than to the current capture extent.
         for midi in DEFAULT_PITCH_SPACE.scale_pitches:
             ratio = (midi - DEFAULT_PITCH_SPACE.min_midi) / max(1, DEFAULT_PITCH_SPACE.max_midi - DEFAULT_PITCH_SPACE.min_midi)
-            py = _y_to_canvas(ratio * 65535.0, height)
-            self.canvas.create_line(28, py, width - 28, py, fill="#27344d")
-            self.canvas.create_text(width - 34, py - 2, anchor="e", text=str(midi), fill="#536078", font=("Segoe UI", 8))
+            py = _y_to_canvas(ratio * 65535.0, width, height)
+            self.canvas.create_line(plot_left, py, plot_left + plot_w, py, fill="#27344d")
+            self.canvas.create_text(plot_left + plot_w - 6, py - 2, anchor="e", text=str(midi), fill="#536078", font=("Segoe UI", 8))
         if len(samples) < 2:
             self.canvas.create_text(width / 2, height / 2, text="Record Lead or import a JSONL capture", fill="#536078")
             return
