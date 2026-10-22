@@ -16,7 +16,7 @@ import struct
 import wave
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, MutableMapping, Sequence
+from typing import Dict, Iterable, List, Mapping, MutableMapping, Sequence, Tuple
 
 try:
     from .host_xyz_filter import (FilteredCapture, HostCalibrationProfile, capture_order,
@@ -452,6 +452,55 @@ def preprocess_samples(samples: Sequence[Mapping[str, object]],
 
 def _interp(a: float, b: float, ratio: float) -> float:
     return a + (b - a) * ratio
+
+
+class StreamingLeadFilter:
+    """Causal mirror of the batch filter inside preprocess_samples.
+
+    The batch pass replaces an isolated spike using a window centred on the
+    frame (i-2 .. i+2) and then runs a single-pole IIR over the axis. Emitting
+    the value for frame ``i-2`` reproduces that sequence exactly with two
+    frames (~10 ms at 200 Hz) of display latency, so the curve the UI draws is
+    the curve the compiler consumes. Without this the operator watches raw
+    sensor noise while the compiler sees a smoothed path, and cannot predict
+    the result from the drawing.
+    """
+
+    WINDOW = 5
+    ALPHA = 0.35
+    SPIKE_FLOOR = 0.035
+    SPIKE_MAD = 6.0
+
+    def __init__(self) -> None:
+        self._q: List[Tuple[float, float, float]] = []
+        self._published = 0
+        self._iir: List[float] | None = None
+
+    def reset(self) -> None:
+        self._q = []
+        self._published = 0
+        self._iir = None
+
+    def push(self, q: Sequence[float]) -> Tuple[float, float, float] | None:
+        self._q.append((float(q[0]), float(q[1]), float(q[2])))
+        index = self._published
+        if len(self._q) < index + 3:
+            return None
+        lo = max(0, index - 2)
+        hi = min(len(self._q), index + 3)
+        smoothed: List[float] = []
+        for axis in range(3):
+            window = [self._q[k][axis] for k in range(lo, hi)]
+            median = _median(window)
+            mad = _median([abs(value - median) for value in window])
+            value = self._q[index][axis]
+            smoothed.append(median if abs(value - median) > max(self.SPIKE_FLOOR, self.SPIKE_MAD * mad) else value)
+        if self._iir is None:
+            self._iir = list(smoothed)
+        else:
+            self._iir = [self._iir[axis] + self.ALPHA * (smoothed[axis] - self._iir[axis]) for axis in range(3)]
+        self._published += 1
+        return (self._iir[0], self._iir[1], self._iir[2])
 
 
 def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle = STYLE) -> List[Dict[str, object]]:

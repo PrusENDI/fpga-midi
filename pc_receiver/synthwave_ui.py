@@ -20,8 +20,9 @@ TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate, _clamp,
-                            compile_loop, load_jsonl_records, render_loop,
+from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate,
+                            StreamingLeadFilter, _clamp, compile_loop,
+                            load_jsonl_records, project_sample, render_loop,
                             write_event_table)  # noqa: E402
 
 # Canvas view range in raw sensor counts. The path and the pitch guides share
@@ -208,6 +209,7 @@ class SynthwaveUI(tk.Tk):
         self.current_capture: List[dict] = []
         self.lead_preview_capture: List[dict] = []
         self.lead_start_gate = LeadStartGate()
+        self.lead_filter = StreamingLeadFilter()
         self.event_table: dict | None = None
         self.receiver: subprocess.Popen[str] | None = None
         self.receiver_thread: threading.Thread | None = None
@@ -340,6 +342,7 @@ class SynthwaveUI(tk.Tk):
         self._diag_window = (time.monotonic(), 0)
         if self.selected_track.get() == "lead":
             self.lead_start_gate = LeadStartGate()
+            self.lead_filter = StreamingLeadFilter()
         self.recording = True
         track = self.selected_track.get()
         prompt = "move to the left edge, then move right" if track == "lead" else "stop when the take is complete"
@@ -394,6 +397,26 @@ class SynthwaveUI(tk.Tk):
         self.receiver_thread = threading.Thread(target=pump, daemon=True)
         self.receiver_thread.start()
 
+    def _push_lead_preview(self, record: dict) -> None:
+        """Run the compiler's own filter so the drawn curve is its input.
+
+        The operator has to judge the take from the canvas, so the canvas must
+        show the coordinates that will be compiled, not the raw sensor noise
+        the filter is about to remove.
+        """
+        for accepted in self.lead_start_gate.push(record):
+            projected = project_sample(accepted)
+            value = self.lead_filter.push(projected["q_app"])
+            if value is None:
+                continue
+            self.lead_preview_capture.append({
+                "x": value[0] * 65535.0,
+                "y": value[1] * 65535.0,
+                "z": value[2] * 65535.0,
+                "sequence": accepted.get("sequence"),
+                "start_gate_state": accepted.get("start_gate_state"),
+            })
+
     def _poll_inbox(self) -> None:
         latest: dict | None = None
         while True:
@@ -406,7 +429,7 @@ class SynthwaveUI(tk.Tk):
             self.current_capture.append(record)
             latest = record
             if self.selected_track.get() == "lead":
-                self.lead_preview_capture.extend(self.lead_start_gate.push(record))
+                self._push_lead_preview(record)
         now = time.monotonic()
         if latest is not None:
             if self.selected_track.get() == "lead" and not self.lead_preview_capture:
@@ -517,8 +540,11 @@ class SynthwaveUI(tk.Tk):
         track = self.selected_track.get()
         if track == "lead":
             self.lead_samples.extend(records)
-            gate = LeadStartGate()
-            self.lead_preview_capture = [row for record in records for row in gate.push(record)]
+            self.lead_start_gate = LeadStartGate()
+            self.lead_filter = StreamingLeadFilter()
+            self.lead_preview_capture = []
+            for record in records:
+                self._push_lead_preview(record)
         else:
             self.records[track].extend(records)
         self.status.set(f"IMPORTED — {len(records)} reports into {track}")

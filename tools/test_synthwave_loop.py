@@ -10,12 +10,14 @@ from tools.synthwave_loop import (
     DEFAULT_PITCH_SPACE,
     LeadStartGate,
     STYLE,
+    StreamingLeadFilter,
     TRACKS,
     compile_lead,
     compile_loop,
     extract_landmarks,
     load_jsonl_records,
     preprocess_samples,
+    project_sample,
     render_loop,
     resample_to_ticks,
 )
@@ -268,6 +270,26 @@ class SynthwaveLoopTests(unittest.TestCase):
             samples = [_sample(index, x=3000, valid=value) for index in range(4)]
             projected = preprocess_samples(samples)
             self.assertTrue(all(not row["position_valid"] for row in projected), value)
+
+
+    def test_streaming_filter_matches_the_batch_preprocessor(self):
+        # The UI draws the streaming output, so it must equal what the
+        # compiler sees, otherwise the operator draws noise.
+        samples = [_sample(index, x=1000 + (index * 137) % 3000, y=30000 + (index * 211) % 5000)
+                   for index in range(200)]
+        projected = [project_sample(sample) for sample in samples]
+        batch = preprocess_samples(samples)
+        streaming = StreamingLeadFilter()
+        emitted = []
+        for row in projected:
+            value = streaming.push(row["q_app"])
+            if value is not None:
+                emitted.append(value)
+        self.assertEqual(len(emitted), len(batch) - 2)
+        for index, value in enumerate(emitted):
+            self.assertAlmostEqual(value[0], batch[index]["q_x"], places=9)
+            self.assertAlmostEqual(value[1], batch[index]["q_y"], places=9)
+            self.assertAlmostEqual(value[2], batch[index]["q_z"], places=9)
 
 
 if __name__ == "__main__":
