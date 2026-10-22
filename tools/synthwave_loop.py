@@ -495,6 +495,63 @@ def _interp(a: float, b: float, ratio: float) -> float:
     return a + (b - a) * ratio
 
 
+class RelativeCursor:
+    """Mouse-like cursor: integrate deltas, with height controlling the gain.
+
+    The hand never has to reach an absolute position, so the usable area and
+    the centre offset stop mattering. Raising the hand slows the cursor rather
+    than causing drift: at ``z_high`` the same movement moves a quarter as far,
+    which is the "fine control" gear and gives Z an expressive role. Lifting
+    (``engaged=False``) discards deltas instead of accumulating them, exactly
+    like picking a mouse up and putting it down elsewhere.
+
+    The gain is a pure function of z and the whole thing is deterministic, so
+    the same capture replays to the same cursor path.
+    """
+
+    def __init__(self, *, g_max: float = 1.0, g_min: float = 0.25,
+                 z_low: float = 4000.0, z_high: float = 24000.0,
+                 deadzone: float = 0.0004,
+                 start: Tuple[float, float] = (0.5, 0.5)) -> None:
+        self.g_max = float(g_max)
+        self.g_min = float(g_min)
+        self.z_low = float(z_low)
+        self.z_high = float(z_high)
+        self.deadzone = float(deadzone)
+        self.cursor: Tuple[float, float] = (float(start[0]), float(start[1]))
+        self._prev: Tuple[float, float] | None = None
+
+    def gain_at(self, z: float) -> float:
+        span = max(1e-9, self.z_high - self.z_low)
+        z_norm = (float(z) - self.z_low) / span
+        z_norm = 0.0 if z_norm < 0.0 else (1.0 if z_norm > 1.0 else z_norm)
+        return self.g_max - (self.g_max - self.g_min) * z_norm
+
+    def _deadzone(self, value: float) -> float:
+        if abs(value) <= self.deadzone:
+            return 0.0
+        return value - self.deadzone * (1.0 if value > 0.0 else -1.0)
+
+    def push(self, q: Sequence[float], z: float, engaged: bool = True) -> Tuple[Tuple[float, float], float]:
+        point = (float(q[0]), float(q[1]))
+        gain = self.gain_at(z)
+        if self._prev is None:
+            self._prev = point
+            return self.cursor, gain
+        dx = point[0] - self._prev[0]
+        dy = point[1] - self._prev[1]
+        self._prev = point
+        if engaged:
+            x = _clamp(self.cursor[0] + gain * self._deadzone(dx), 0.0, 1.0)
+            y = _clamp(self.cursor[1] + gain * self._deadzone(dy), 0.0, 1.0)
+            self.cursor = (x, y)
+        return self.cursor, gain
+
+    def reset(self, start: Tuple[float, float] = (0.5, 0.5)) -> None:
+        self.cursor = (float(start[0]), float(start[1]))
+        self._prev = None
+
+
 class StreamingLeadFilter:
     """Causal mirror of the batch filter inside preprocess_samples.
 
@@ -718,7 +775,12 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
         next_tick = int(chosen[index + 1]["tick"]) if index + 1 < len(chosen) else style.loop_ticks
         duration = max(2, next_tick - tick)
         color = int(_clamp(float(row.get("c_abs", 0.5)), 0.0, 1.0) * 2.999)
-        velocity = int(_clamp(68.0 + 35.0 * _clamp(float(row.get("speed", 0.0)) * 12.0, 0.0, 1.0), 48.0, 118.0))
+        # Height carries the dynamics: close to the sensor reads as force, far
+        # as softness. Speed still contributes, so a fast gesture at any height
+        # stays articulate.
+        z_norm = _clamp((float(row.get("q_z", 0.0)) * 65535.0 - 4000.0) / 20000.0, 0.0, 1.0)
+        proximity = 1.0 - z_norm
+        velocity = int(_clamp(40.0 + 55.0 * proximity + 22.0 * _clamp(float(row.get("speed", 0.0)) * 12.0, 0.0, 1.0), 32.0, 122.0))
         articulation = "legato" if landmark["kind"] in {"hold", "move"} or duration >= 8 else "pluck"
         events.append(_event("lead", tick, note=note, duration=duration, velocity=velocity, source="trajectory",
                              source_landmarks=[landmark["id"]], raw_target_midi=round(raw, 4),
@@ -726,6 +788,7 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
                              register_id=0, color_layer=color, out_of_range=bool(row.get("out_of_range", False)),
                              b_abs=round(float(row.get("b_abs", 0.0)), 6),
                              b_norm=round(_clamp(float(row.get("b_abs", 0.0)), 0.0, 1.0), 6),
+                             z_norm=round(z_norm, 4), proximity=round(proximity, 4),
                              confidence=round(float(landmark.get("confidence", 0.5)), 4),
                              pitch_profile_hash=_profile_hash(asdict(pitch_space)),
                              correction_reason="nearest_fixed_scale_with_hysteresis",

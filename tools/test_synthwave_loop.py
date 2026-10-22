@@ -10,6 +10,7 @@ from tools.synthwave_loop import (
     DEFAULT_PITCH_SPACE,
     LeadStartGate,
     STYLE,
+    RelativeCursor,
     StreamingLeadFilter,
     TRACKS,
     compile_lead,
@@ -318,6 +319,54 @@ class SynthwaveLoopTests(unittest.TestCase):
         projected = preprocess_samples(samples)
         self.assertTrue(all(not row["position_valid"] for row in projected[:3]))
         self.assertTrue(any(row["position_valid"] for row in projected[3:]))
+
+
+class RelativeCursorTests(unittest.TestCase):
+    def test_gain_falls_as_the_hand_rises(self):
+        cursor = RelativeCursor()
+        self.assertAlmostEqual(cursor.gain_at(4000), 1.0)
+        self.assertAlmostEqual(cursor.gain_at(24000), 0.25)
+        self.assertLess(cursor.gain_at(15000), cursor.gain_at(6000))
+
+    def test_movement_is_scaled_by_the_current_gain(self):
+        cursor = RelativeCursor()
+        cursor.push((0.5, 0.5), 4000)
+        moved, _ = cursor.push((0.51, 0.5), 4000)
+        self.assertAlmostEqual(moved[0], 0.5 + 0.01 - 0.0004, places=6)
+
+    def test_raising_the_hand_slows_the_same_movement(self):
+        low, high = RelativeCursor(), RelativeCursor()
+        low.push((0.5, 0.5), 4000)
+        high.push((0.5, 0.5), 24000)
+        low_moved, _ = low.push((0.51, 0.5), 4000)
+        high_moved, _ = high.push((0.51, 0.5), 24000)
+        self.assertAlmostEqual(high_moved[0] - 0.5, (low_moved[0] - 0.5) * 0.25, places=6)
+
+    def test_lifting_discards_motion_and_reengages_without_a_jump(self):
+        cursor = RelativeCursor()
+        cursor.push((0.5, 0.5), 6000)
+        moved = (0.5, 0.5)
+        for step in range(1, 10):
+            moved, _ = cursor.push((0.5 + step * 0.02, 0.5), 6000, engaged=False)
+        self.assertAlmostEqual(moved[0], 0.5)
+        after, _ = cursor.push((0.5 + 10 * 0.02, 0.5), 6000, engaged=True)
+        expected = 0.5 + cursor.gain_at(6000) * (0.02 - cursor.deadzone)
+        self.assertAlmostEqual(after[0], expected, places=6)
+
+    def test_deadzone_ignores_sensor_jitter(self):
+        cursor = RelativeCursor()
+        cursor.push((0.5, 0.5), 4000)
+        moved, _ = cursor.push((0.5002, 0.5), 4000)
+        self.assertAlmostEqual(moved[0], 0.5)
+
+    def test_cursor_clamps_at_the_pitch_limits(self):
+        cursor = RelativeCursor()
+        cursor.push((0.5, 0.5), 4000)
+        for _ in range(200):
+            cursor.push((0.5 + 0.05, 0.5), 4000)
+            cursor._prev = (0.5, 0.5)
+        self.assertLessEqual(cursor.cursor[0], 1.0)
+        self.assertGreater(cursor.cursor[0], 0.9)
 
 
 if __name__ == "__main__":
