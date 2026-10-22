@@ -151,6 +151,12 @@ note = 若 |raw − prev| ≤ 0.10 且 prev 在音阶内则保持，否则取最
 
 22050 Hz 单声道加法合成 + 全局 `tanh` 限幅。Lead 有 ADSR（35/180/520 ms，sustain 0.72）、85 ms glide、4.2 Hz / 11 cents vibrato、0.08 Hz cutoff LFO；波形为手写三音混合；延迟 620 ms 两抽头（feedback 0.30），37 ms 短混响。**没有滤波器、chorus 或 sidechain**，`cutoff_hz` 参数未使用。
 
+### 4.9 结构参数化
+
+音阶、和声、拍号与 Loop 长度从"写死的常量"提升为 `PitchSpace` 与 `SynthwaveStyle` 的字段，由调用方显式传入：`PitchSpace(scale_pitch_classes=..., min_midi=..., max_midi=..., center_midi=...)`，`SynthwaveStyle(harmony=..., bpm=..., loop_bars=..., ticks_per_bar=...)`。和弦从 `style.harmony` 的名称解析，不再硬编码 `Am–F–C–G` 的根音表。
+
+这样换音阶、换和声、换长度只改配置，不改算法；输出格式仍是 EventTable / WAV。
+
 ## 5. 参数速查
 
 | 量 | 当前值 | 位置 |

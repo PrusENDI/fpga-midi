@@ -10,9 +10,11 @@ from tools.synthwave_loop import (
     DEFAULT_PITCH_SPACE,
     AbsoluteCursor,
     LeadStartGate,
+    PitchSpace,
     STYLE,
     RelativeCursor,
     StreamingLeadFilter,
+    SynthwaveStyle,
     TRACKS,
     compile_lead,
     compile_loop,
@@ -462,6 +464,41 @@ class AbsoluteCursorTests(unittest.TestCase):
                 continue
             following = int(events[index + 1]["tick"]) if index + 1 < len(events) else STYLE.loop_ticks
             self.assertLessEqual(int(event["tick"]) + int(event["duration"]), following)
+
+
+class StructureParameterTests(unittest.TestCase):
+    def test_harmony_progression_comes_from_the_style(self):
+        samples = []
+        for index in range(64):
+            row = _sample(index, x=3000 + index * 30, y=20000, z=6000)
+            row["touch_flags"] = 1 if index in (0, 16) else 0
+            samples.append(row)
+        default = compile_loop(samples, {"bass": samples}, pitch_source="cursor")
+        other = compile_loop(samples, {"bass": samples}, pitch_source="cursor",
+                             style=SynthwaveStyle(harmony=("Dm", "Bb", "F", "C")))
+        default_notes = [event["note"] for event in default["tracks"]["bass"]]
+        other_notes = [event["note"] for event in other["tracks"]["bass"]]
+        self.assertTrue(default_notes and other_notes)
+        self.assertNotEqual(default_notes, other_notes)
+        self.assertEqual(other_notes[0], 38)  # D2, from parse_chord("Dm")
+
+    def test_scale_pitch_classes_drive_the_lead_scale(self):
+        space = PitchSpace(scale_pitch_classes=(0, 4, 7))
+        self.assertEqual(space.scale_pitches, (55, 60, 64, 67, 72))
+        samples = [_sample(index, x=3000 + index * 40, y=20000 + index * 40, z=6000) for index in range(400)]
+        result = compile_lead(samples, pitch_source="cursor", pitch_space=space)
+        notes = [event["note"] for event in result["events"] if event["type"] == "note_on"]
+        self.assertTrue(notes)
+        for note in notes:
+            self.assertIn(note, space.scale_pitches)
+
+    def test_loop_length_and_tempo_are_parameterised(self):
+        style = SynthwaveStyle(loop_bars=4, bpm=120)
+        self.assertEqual(style.loop_ticks, 64)
+        samples = [_sample(index, x=3000 + index * 40, y=20000 + index * 40, z=6000) for index in range(400)]
+        result = compile_loop(samples, {}, style=style, pitch_source="cursor")
+        for event in result["events"]:
+            self.assertLess(int(event["tick"]), 64)
 
 
 if __name__ == "__main__":

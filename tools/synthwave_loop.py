@@ -75,10 +75,15 @@ class PitchSpace:
     register_lock: bool = True
     pitch_axis: tuple = (0.0, 1.0, 0.0)
     hysteresis: float = 0.10
+    # Pitch classes of the scale, semitones above C. Everything downstream reads
+    # this field, so changing the scale is a configuration change, not a code
+    # change.
+    scale_pitch_classes: tuple = PENTATONIC
 
     @property
     def scale_pitches(self) -> tuple[int, ...]:
-        return tuple(n for n in range(self.min_midi, self.max_midi + 1) if n % 12 in PENTATONIC)
+        return tuple(n for n in range(self.min_midi, self.max_midi + 1)
+                     if n % 12 in self.scale_pitch_classes)
 
 
 @dataclass(frozen=True)
@@ -1010,12 +1015,41 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
             "lead_patch": asdict(DEFAULT_LEAD_PATCH), "diagnostics": diagnostics}
 
 
-def _chord(tick: int) -> tuple[int, tuple[int, ...]]:
-    roots = (57, 53, 48, 55)
-    index = (int(tick) // 16) % 4
-    root = roots[index]
-    intervals = (0, 3, 7) if index == 0 else (0, 4, 7)
+NOTE_PITCH_CLASSES = {
+    "C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4,
+    "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11,
+}
+CHORD_QUALITIES = {
+    "": (0, 4, 7), "maj": (0, 4, 7), "M": (0, 4, 7), "m": (0, 3, 7), "min": (0, 3, 7),
+    "dim": (0, 3, 6), "aug": (0, 4, 8), "sus2": (0, 2, 7), "sus4": (0, 5, 7),
+}
+CHORD_BASE_MIDI = 48  # C3; keeps the default progression on the same roots
+
+
+def parse_chord(name: str) -> Tuple[int, Tuple[int, ...]]:
+    """Turn a chord name such as ``Am`` or ``Cmaj`` into root and intervals.
+
+    The progression is configuration, not code: any list of names written the
+    usual way works, and the default ``Am F C G`` resolves to the same roots
+    the hardcoded table used (57, 53, 48, 55).
+    """
+    text = str(name).strip()
+    if not text:
+        text = "C"
+    root_name = text[:2] if len(text) > 1 and text[1] in "#b" else text[:1]
+    quality = text[len(root_name):]
+    pitch_class = NOTE_PITCH_CLASSES.get(root_name)
+    if pitch_class is None:
+        raise ValueError(f"unknown chord root: {name!r}")
+    intervals = CHORD_QUALITIES.get(quality, CHORD_QUALITIES["maj"])
+    root = CHORD_BASE_MIDI + pitch_class
     return root, tuple(root + interval for interval in intervals)
+
+
+def _chord(tick: int, style: SynthwaveStyle = STYLE) -> Tuple[int, Tuple[int, ...]]:
+    harmony = tuple(style.harmony) or ("Am",)
+    bar = max(1, int(style.ticks_per_bar))
+    return parse_chord(harmony[(int(tick) // bar) % len(harmony)])
 
 
 def _tick_for(timestamp: float, start: float, style: SynthwaveStyle) -> int:
@@ -1042,16 +1076,16 @@ def _record_track(track: str, records: Sequence[Mapping[str, object]], style: Sy
                 index = min(4, max(0, bit.bit_length() - 1))
                 result.append(_event(track, tick, note=mapping[index], duration=1, velocity=velocity, source="touch_tap", electrode=index))
             elif track == "bass":
-                root, _ = _chord(tick)
+                root, _ = _chord(tick, style)
                 degree = 0 if y < 0.45 else (7 if y < 0.75 else 12)
                 result.append(_event(track, tick, note=root - 12 + degree, duration=8, velocity=velocity, source="touch_tap"))
             elif track == "pad":
-                _, chord = _chord(tick)
+                _, chord = _chord(tick, style)
                 inversion = 0 if y < 0.5 else 1
                 for offset, note in enumerate(chord):
                     result.append(_event(track, tick, note=note + 12 * inversion, duration=32, velocity=max(1, velocity - offset * 5), source="touch_tap", chord_voice=offset))
             elif track == "arp":
-                _, chord = _chord(tick)
+                _, chord = _chord(tick, style)
                 order = chord if y < 0.5 else tuple(reversed(chord))
                 for offset, note in enumerate(order):
                     result.append(_event(track, min(127, tick + offset * 4), note=note + 12, duration=3, velocity=velocity, source="touch_tap", arp_step=offset))
@@ -1061,8 +1095,8 @@ def _record_track(track: str, records: Sequence[Mapping[str, object]], style: Sy
     return result[:16]
 
 
-def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor") -> Dict[str, object]:
-    lead_result = compile_lead(lead_samples, style=style, mode=mode, host_profile=host_profile, pitch_source=pitch_source)
+def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE) -> Dict[str, object]:
+    lead_result = compile_lead(lead_samples, style=style, calibration=DEFAULT_CALIBRATION, pitch_space=pitch_space, mode=mode, host_profile=host_profile, pitch_source=pitch_source)
     tracks: Dict[str, List[Dict[str, object]]] = {name: [] for name in TRACKS}
     tracks["lead"] = list(lead_result["events"])
     for track in TRACKS[1:]:
