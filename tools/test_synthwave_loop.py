@@ -337,10 +337,12 @@ class RelativeCursorTests(unittest.TestCase):
     def test_raising_the_hand_slows_the_same_movement(self):
         low, high = RelativeCursor(), RelativeCursor()
         low.push((0.5, 0.5), 4000)
-        high.push((0.5, 0.5), 24000)
+        high.push((0.5, 0.5), 12000)
         low_moved, _ = low.push((0.51, 0.5), 4000)
-        high_moved, _ = high.push((0.51, 0.5), 24000)
-        self.assertAlmostEqual(high_moved[0] - 0.5, (low_moved[0] - 0.5) * 0.25, places=6)
+        high_moved, _ = high.push((0.51, 0.5), 12000)
+        ratio = (high_moved[0] - 0.5) / (low_moved[0] - 0.5)
+        self.assertAlmostEqual(ratio, high.gain_at(12000) / low.gain_at(4000), places=6)
+        self.assertLess(ratio, 1.0)
 
     def test_lifting_discards_motion_and_reengages_without_a_jump(self):
         cursor = RelativeCursor()
@@ -367,6 +369,21 @@ class RelativeCursorTests(unittest.TestCase):
             cursor._prev = (0.5, 0.5)
         self.assertLessEqual(cursor.cursor[0], 1.0)
         self.assertGreater(cursor.cursor[0], 0.9)
+
+
+    def test_engagement_uses_hysteresis(self):
+        cursor = RelativeCursor()
+        self.assertTrue(cursor.update_engagement(8000))
+        self.assertFalse(cursor.update_engagement(21000))
+        self.assertFalse(cursor.update_engagement(17000))
+        self.assertTrue(cursor.update_engagement(15000))
+
+    def test_raising_the_hand_above_release_stops_the_cursor(self):
+        cursor = RelativeCursor()
+        cursor.push((0.5, 0.5), 8000)
+        cursor.push((0.52, 0.5), 21000)
+        self.assertAlmostEqual(cursor.cursor[0], 0.5)
+        self.assertFalse(cursor.engaged)
 
 
 if __name__ == "__main__":

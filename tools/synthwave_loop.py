@@ -511,15 +511,32 @@ class RelativeCursor:
 
     def __init__(self, *, g_max: float = 1.0, g_min: float = 0.25,
                  z_low: float = 4000.0, z_high: float = 24000.0,
+                 z_engage: float = 16000.0, z_release: float = 20000.0,
                  deadzone: float = 0.0004,
                  start: Tuple[float, float] = (0.5, 0.5)) -> None:
         self.g_max = float(g_max)
         self.g_min = float(g_min)
         self.z_low = float(z_low)
         self.z_high = float(z_high)
+        self.z_engage = float(z_engage)
+        self.z_release = float(z_release)
         self.deadzone = float(deadzone)
         self.cursor: Tuple[float, float] = (float(start[0]), float(start[1]))
+        self.engaged = True
         self._prev: Tuple[float, float] | None = None
+
+    def update_engagement(self, z: float) -> bool:
+        """Hysteresis: engage below z_engage, release above z_release.
+
+        A single threshold would chatter while the hand idles at the boundary,
+        and every chatter would either drop or inject a delta.
+        """
+        if self.engaged:
+            if float(z) > self.z_release:
+                self.engaged = False
+        elif float(z) < self.z_engage:
+            self.engaged = True
+        return self.engaged
 
     def gain_at(self, z: float) -> float:
         span = max(1e-9, self.z_high - self.z_low)
@@ -532,16 +549,17 @@ class RelativeCursor:
             return 0.0
         return value - self.deadzone * (1.0 if value > 0.0 else -1.0)
 
-    def push(self, q: Sequence[float], z: float, engaged: bool = True) -> Tuple[Tuple[float, float], float]:
+    def push(self, q: Sequence[float], z: float, engaged: bool | None = None) -> Tuple[Tuple[float, float], float]:
         point = (float(q[0]), float(q[1]))
         gain = self.gain_at(z)
+        active = self.update_engagement(z) if engaged is None else bool(engaged)
         if self._prev is None:
             self._prev = point
             return self.cursor, gain
         dx = point[0] - self._prev[0]
         dy = point[1] - self._prev[1]
         self._prev = point
-        if engaged:
+        if active:
             x = _clamp(self.cursor[0] + gain * self._deadzone(dx), 0.0, 1.0)
             y = _clamp(self.cursor[1] + gain * self._deadzone(dy), 0.0, 1.0)
             self.cursor = (x, y)
