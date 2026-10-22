@@ -79,6 +79,8 @@ python tools\loop_control_uart.py --port COM9 diag
 
 ### 1.7 实验结果（2026-10-22，第一轮）
 
+> **勘误（同日）**：下面 COM9/COM10 的测量来自 FPGA 板链路，而当前实际使用的是 **MGC3130 SDK 直连 USB**，不经过 FPGA。该组数据与本文问题无关，仅保留为旁证。真正的归因见 §1.9。
+
 **实验 A（单独运行接收器）**：设备在线（`gestic_open` 成功），但 20 秒内 **0 条 position 记录**。原因是无手在场时 SDK 几乎不发帧；偶发空闲帧的签名是 `x=y=32767, z=65535`。结论：
 
 - 该流是**存在感应门控**的，空闲帧率不能当作基线，实验 A 必须在有人做手势时进行。
@@ -125,6 +127,56 @@ python tools\analyze_frame_timing.py "$env:TEMP\solo_hand.jsonl"
 | `SDK skipped > 0` | 帧在 SDK 内部被丢弃，需检查 USB 缓冲与 `Sleep(5)` 主循环 |
 
 若要在同一轮里对比 UI，再运行一次带 UI 的录制，比较两次的帧间隔分布。
+
+
+### 1.9 勘误：真实链路与两个新发现
+
+**链路更正**：当前是 `MGC3130 → USB HID → gestic_api.dll → mgc3130_receiver.exe → stdout 管道 → Python UI`。全程没有 UART，因此 §1.7 的 FPGA/COM 测量不适用；"链路带宽不是瓶颈"这一结论在 USB HID 上仍需重新验证，但至少 UART 那部分可以排除。
+
+**发现 1：仓库里的 exe 是旧二进制。** `pc_receiver/Static-Release/mgc3130_receiver.exe` 构建于 2026-10-19 17:25，而 `mgc3130_receiver.cpp` 最后修改于 2026-10-21 21:25。旧 exe 输出的是旧 schema（`frame`，没有 `sequence_gap` / `position_valid`），与源码不一致。已于 2026-10-22 用 MSBuild `Static-Release / Win32` 重建，新输出包含：
+
+```json
+{"type":"position","timestamp_ms":...,"sequence":...,"sequence_gap":...,
+ "x":...,"y":...,"z":...,"position_valid":null,...}
+```
+
+影响：`sequence_gap` 就是 `gestic_data_stream_update()` 返回的 `skipped`，即 **SDK 内部丢帧计数**，是本次归因最关键的指标，而旧二进制根本不输出它。
+
+**发现 2：接收器主循环的节奏与背压。** `mgc3130_receiver.cpp` 的实现是：
+
+```cpp
+do { result = gestic_data_stream_update(&gestic, &skipped); ... } while (result == GESTIC_NO_ERROR);
+Sleep(5);
+```
+
+每轮先排空 SDK 队列，再固定睡 5 ms。单看这不丢帧，但它把"排出速度"交给了 stdout 写入：每行 `std::cout << line; flush;` 是**同步阻塞写**。UI 以子进程管道读取，一旦 UI 变慢、管道缓冲填满，接收器就阻塞在 `write()` 上，期间不再调用 `gestic_data_stream_update()`，SDK 环形缓冲溢出 → `skipped` 增长 → 表现为"越画越卡、掉帧越多"。
+
+这条机制与"随绘制时间增加而卡顿"高度吻合，也是当前最值得验证的假设。
+
+### 1.10 修正后的归因实验（SDK 直连）
+
+准备：已重建 exe（含 `sequence_gap`）。
+
+```powershell
+cd "C:\weizijian\documents\gowin fpga\mgc3130_uart"
+
+# A. 只有接收器，无 UI。出现 ready 后立刻把手放在传感器上方持续移动 20 秒
+pc_receiver\Static-Release\mgc3130_receiver.exe --seconds 20 --output "$env:TEMP\sdk_solo.jsonl"
+python tools\analyze_frame_timing.py "$env:TEMP\sdk_solo.jsonl"
+
+# B. 打开 UI 录制同样的手势，然后对 UI 的录制做同样统计
+#    （UI 在录制期间把 receiver 的输出也写进 current_capture，可直接导出比较）
+```
+
+判读：
+
+| A 的结果 | B 的结果 | 结论 |
+| --- | --- | --- |
+| 干净（p50≈5–10 ms，无长停顿，skipped=0） | 出现长停顿/skipped>0 | UI 消费端背压，问题在软件 |
+| 已经不干净 | 与 A 相同 | SDK/USB/传感器侧，与 UI 无关 |
+| 两者都不干净但 B 更差 | — | UI 放大了一个上游问题 |
+
+若确认是 UI 背压，修复顺序固定为：重绘移出逐条循环 → 固定 30 Hz 节流 → 画布点数降采样 → 接收线程改为"入有界队列、丢最旧"而不是阻塞管道。
 
 
 ## 问题 2：Z 方向移动伴随 XY 漂移，且随 Z 升高而增大
@@ -213,3 +265,7 @@ z_norm > hold_threshold → 显式 HOLD 状态
 
 - 建立本文，记录三个问题、已有证据与实验计划。
 - 新增 [tools/analyze_frame_timing.py](../tools/analyze_frame_timing.py)，用于统计帧率、帧间隔分布、长停顿与 SDK 丢帧。
+- 第一轮实验：单独运行接收器 20 秒得到 0 条 position 记录，确认位置流受"手在场"门控，空闲帧为 `x=y=32767, z=65535`。
+- 勘误：实际链路为 SDK 直连 USB，不经过 FPGA；COM9/COM10 的测量不适用于当前问题。
+- 发现接收器 exe 早于源码（10-19 vs 10-21），输出旧 schema 且缺少 `sequence_gap`；已重建并确认新 schema。
+- 补充 SDK 直连下的背压机制（stdout 阻塞写使接收器停止排空 SDK 队列）与修正后的归因实验（§1.9、§1.10）。
