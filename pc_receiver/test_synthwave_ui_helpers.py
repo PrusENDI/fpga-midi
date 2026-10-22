@@ -1,6 +1,9 @@
+import csv
+import tempfile
 import unittest
+from pathlib import Path
 
-from synthwave_ui import _PixelPathCache, _thin_path
+from synthwave_ui import DIAG_FIELDS, _PixelPathCache, _append_diag_row, _thin_path
 
 
 class ThinPathTests(unittest.TestCase):
@@ -58,6 +61,26 @@ class PixelPathCacheTests(unittest.TestCase):
         cache.points(rows, 800, 400)
         smaller = rows[:3]
         self.assertEqual(list(cache.points(smaller, 800, 400)), _thin_path(smaller, 800, 400))
+
+
+class DiagLogTests(unittest.TestCase):
+    def test_header_is_written_once_and_rows_append(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "nested" / "ui.csv"
+            _append_diag_row(path, {"rate_hz": 200.0, "queue": 0, "state": "recording"})
+            _append_diag_row(path, {"rate_hz": 199.5, "queue": 3, "state": "recording"})
+            with path.open(encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(list(rows[0].keys()), list(DIAG_FIELDS))
+        self.assertEqual(rows[0]["rate_hz"], "200.0")
+        self.assertEqual(rows[1]["queue"], "3")
+
+    def test_unknown_fields_do_not_raise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ui.csv"
+            _append_diag_row(path, {"rate_hz": 1.0, "surprise": "ignored"})
+            self.assertTrue(path.exists())
 
 
 if __name__ == "__main__":

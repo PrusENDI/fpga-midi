@@ -38,3 +38,7 @@ Static-Debug/
 
 # local commit message scratch file
 .dsh-commit-msg.txt
+
+# runtime diagnostics and raw captures written by the PC receiver
+pc_receiver/diagnostics/
+pc_receiver/captures/

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import queue
 import subprocess
@@ -90,6 +91,25 @@ class _PixelPathCache:
         return self._pixels
 
 
+DIAG_FIELDS = ("wall_ms", "elapsed_s", "state", "rate_hz", "queue", "draw_ms",
+               "frames", "preview_points", "drawn_points", "canvas_w", "canvas_h")
+
+
+def _append_diag_row(path: Path, row: dict) -> None:
+    """Append one diagnostics row, writing the header on first use.
+
+    Opening per row keeps the file valid even if the UI is killed, and one
+    write per second costs nothing next to a canvas redraw.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    new_file = not path.exists()
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=DIAG_FIELDS, extrasaction="ignore")
+        if new_file:
+            writer.writeheader()
+        writer.writerow(row)
+
+
 class SynthwaveUI(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -122,6 +142,13 @@ class SynthwaveUI(tk.Tk):
         self.diag = tk.StringVar(value="idle")
         self._diag_window = (time.monotonic(), 0)
         self._path_cache = _PixelPathCache()
+        # Persist the once-per-second readout so a slow take can be analysed
+        # offline instead of being read off the screen.
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        self.session_started = time.monotonic()
+        self.diag_path = ROOT / "pc_receiver" / "diagnostics" / f"ui_{stamp}.csv"
+        self.capture_path: Path | None = None
+        self._drawn_points = 0
         self._build_style()
         self._build_ui()
         self.after(16, self._poll_inbox)
@@ -236,6 +263,21 @@ class SynthwaveUI(tk.Tk):
         self._log(f"recording {track}")
         self._start_receiver()
 
+    def _prepare_capture_path(self) -> Path | None:
+        """Return a raw-capture path the receiver can create, or None.
+
+        The receiver exits if it cannot open --output, so probe first and
+        fall back to stdout-only rather than losing the take.
+        """
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = ROOT / "pc_receiver" / "captures" / f"{self.selected_track.get()}_{stamp}.jsonl"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch(exist_ok=True)
+        except OSError:
+            return None
+        return path
+
     def _start_receiver(self) -> None:
         if self.receiver is not None:
             return
@@ -244,8 +286,14 @@ class SynthwaveUI(tk.Tk):
             self.status.set("RECORDING — receiver executable not found; import JSONL instead")
             self._log(f"missing receiver: {receiver}")
             return
+        command = [str(receiver), "--format", "jsonl"]
+        self.capture_path = self._prepare_capture_path()
+        if self.capture_path is not None:
+            command += ["--output", str(self.capture_path)]
+        self._log(f"capture → {self.capture_path}" if self.capture_path else "capture → stdout only")
+        self._log(f"diagnostics → {self.diag_path}")
         try:
-            self.receiver = subprocess.Popen([str(receiver), "--format", "jsonl"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
+            self.receiver = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
         except OSError as error:
             self._log(f"receiver failed: {error}")
             self.receiver = None
@@ -275,17 +323,19 @@ class SynthwaveUI(tk.Tk):
             latest = record
             if self.selected_track.get() == "lead":
                 self.lead_preview_capture.extend(self.lead_start_gate.push(record))
+        now = time.monotonic()
         if latest is not None:
             if self.selected_track.get() == "lead" and not self.lead_preview_capture:
                 self.status.set("WAITING — Lead must start at the left edge and move right")
             self.progress["value"] = len(self.current_capture) % 128
-            now = time.monotonic()
             if now - self._last_draw >= self.draw_interval_s:
                 self._last_draw = now
                 started = time.perf_counter()
                 self._draw_canvas(self.lead_preview_capture if self.selected_track.get() == "lead" else None)
                 self._draw_cost_ms = (time.perf_counter() - started) * 1000.0
-            self._update_diag(now)
+        # Logged even when nothing arrives: "0 Hz" is the answer when the
+        # device or the session is silent.
+        self._update_diag(now)
         self.after(16, self._poll_inbox)
 
     def _update_diag(self, now: float) -> None:
@@ -293,8 +343,25 @@ class SynthwaveUI(tk.Tk):
         if now - since < 1.0:
             return
         rate = (len(self.current_capture) - frames) / (now - since)
-        self.diag.set(f"{rate:5.1f} Hz  ·  queue {self.inbox.qsize():3d}  ·  "
+        queue_depth = self.inbox.qsize()
+        self.diag.set(f"{rate:5.1f} Hz  ·  queue {queue_depth:3d}  ·  "
                       f"draw {self._draw_cost_ms:4.2f} ms  ·  {len(self.current_capture)} frames")
+        try:
+            _append_diag_row(self.diag_path, {
+                "wall_ms": int(time.time() * 1000),
+                "elapsed_s": round(now - self.session_started, 3),
+                "state": "recording" if self.recording else "idle",
+                "rate_hz": round(rate, 2),
+                "queue": queue_depth,
+                "draw_ms": round(self._draw_cost_ms, 3),
+                "frames": len(self.current_capture),
+                "preview_points": len(self.lead_preview_capture),
+                "drawn_points": self._drawn_points,
+                "canvas_w": self.canvas.winfo_width(),
+                "canvas_h": self.canvas.winfo_height(),
+            })
+        except OSError:
+            pass
         self._diag_window = (now, len(self.current_capture))
 
     def stop_record(self) -> None:
@@ -434,6 +501,7 @@ class SynthwaveUI(tk.Tk):
         # remains visibly comparable between takes; it is never stretched to
         # its own min/max range.
         pixels = self._path_cache.points(samples, width, height)
+        self._drawn_points = len(pixels)
         points = []
         for px, py in pixels:
             points.extend((px, py))

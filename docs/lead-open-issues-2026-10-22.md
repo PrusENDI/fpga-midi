@@ -230,6 +230,15 @@ python tools\analyze_frame_timing.py "$env:TEMP\sdk_solo.jsonl"
 
 测试：[pc_receiver/test_synthwave_ui_helpers.py](../pc_receiver/test_synthwave_ui_helpers.py) 8 项，覆盖像素去重、顺序、面积上界、退化画布，以及增量缓存与一次性抽稀的等价性。
 
+**诊断落盘（同一轮）**：为了避免靠人读屏幕判断，UI 现在把两样东西写进文件：
+
+| 文件 | 内容 |
+| --- | --- |
+| `pc_receiver/diagnostics/ui_<时间戳>.csv` | 每秒一行：`wall_ms, elapsed_s, state, rate_hz, queue, draw_ms, frames, preview_points, drawn_points, canvas_w, canvas_h`；空闲时也写，所以"设备没出数据"会直接表现为 `rate_hz=0` |
+| `pc_receiver/captures/<track>_<时间戳>.jsonl` | 接收器的原始帧（通过 `--output`），与 UI 的显示路径无关，可用于事后回放 |
+
+两个目录都写进 `.gitignore`。若 `--output` 路径不可写，`_prepare_capture_path()` 返回 `None`，接收器退回只写 stdout，不会因为保存失败而丢掉整次录制。诊断写入也包在 `try/except OSError` 里，绝不影响界面。测试增至 10 项（新增表头只写一次、未知字段不报错）。
+
 未修复（需要决策）：结论 3 的时间基。建议改为 `QueryPerformanceCounter` / `std::chrono::steady_clock` 打到达时间，并用 `timestamp_raw`（5 ms/帧，已验证严格递增）生成均匀的 `logical_time_ms` 供编译器使用。这会改变喂给 Lead 的时间轴，属于设计变更，不能顺手做。
 
 ## 问题 2：Z 方向移动伴随 XY 漂移，且随 Z 升高而增大
