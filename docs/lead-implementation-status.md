@@ -189,6 +189,7 @@ Lead `note_on` 事件：`tick, duration, note, velocity, source="trajectory", so
 
 ## 8. 已知限制
 
+- 跟踪中的缺陷与未决设计问题单独记录在 [Lead 开放问题记录（2026-10-22）](lead-open-issues-2026-10-22.md)，包括掉帧归因、传感器中心偏移、Z→XY 漂移与状态估计可行性。
 - GUI 的 `BPM` 与 `Swing %` 控件**未接线**，编译始终使用 `STYLE` 默认值（100 BPM / 0.50）。界面上显示的数值不代表实际编译参数。
 - CLI 主程序把所有输入记录同时喂给五个非 Lead 轨，等于用同一份数据反复触发 Touch/Tap，只适合快速冒烟。
 - 被门控拒绝的录音报 `weak_motif` + 单个 rest，没有区分"未从左侧起笔"与"画得太平"，与设计文档 §11 要求的可解释失败不符。

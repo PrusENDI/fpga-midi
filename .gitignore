@@ -35,3 +35,6 @@ Static-Debug/
 *.tlog
 *.recipe
 *.lastbuildstate
+
+# local commit message scratch file
+.dsh-commit-msg.txt
