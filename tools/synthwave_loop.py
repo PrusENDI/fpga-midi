@@ -225,6 +225,22 @@ def _gesture_axes(rows: Sequence[Mapping[str, object]], calibration: Calibration
     return e, p, d, None
 
 
+def _looks_absent(sample: Mapping[str, object]) -> bool:
+    """Detect the MGC3130 "no hand" report.
+
+    Without a hand the device reports x=65535, y=0, z=65535. Those frames are
+    indistinguishable from a real position once the envelope is dropped, so
+    they used to be drawn as a jump into the top-right corner and could seed a
+    landmark. The signature is specific enough not to collide with a real pose.
+    """
+    try:
+        x = float(sample.get("x", 0))
+        y = float(sample.get("y", 0))
+    except (TypeError, ValueError):
+        return False
+    return x >= 65530.0 and y <= 5.0
+
+
 def project_sample(sample: Mapping[str, object], calibration: CalibrationProfile = DEFAULT_CALIBRATION,
                    mode: str = "workspace") -> Dict[str, object]:
     raw = tuple(float(_number(sample.get(axis), 0)) for axis in ("x", "y", "z"))
@@ -238,7 +254,8 @@ def project_sample(sample: Mapping[str, object], calibration: CalibrationProfile
         "timestamp_ms": _sample_timestamp(sample, 0.0),
         "x_raw": raw[0], "y_raw": raw[1], "z_raw": raw[2], "q_app": q,
         "q_x": q[0], "q_y": q[1], "q_z": q[2],
-        "position_valid": valid_flag(sample.get("position_valid", sample.get("positionValid"))),
+        "position_valid": valid_flag(sample.get("position_valid", sample.get("positionValid")))
+                          and not _looks_absent(sample),
         "out_of_range": bool(outside), "calibration_mode": mode, "a_rel": 0.0,
         "b_abs": _dot(relative, calibration.pitch_axis),
         "c_abs": _dot(relative, calibration.color_axis),

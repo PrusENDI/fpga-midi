@@ -72,6 +72,7 @@ JSONL / live receiver
 不传 `host_profile` 时（GUI/CLI 主路径）：
 
 1. `project_sample`：`q_app = (raw − offset) · R · S`，默认 `S = 1/65535`、`offset = 0`、`R = I`，所以 `q_app`、`b_abs`、`c_abs` 都是 0–1。`b_abs` 投影到 `pitch_axis`（默认 +Y），`c_abs` 投影到 `color_axis`（默认 +Z）。
+   无手在场时设备报 `x=65535, y=0, z=65535`，该签名被识别为无效帧（`_looks_absent`），不再作为坐标参与绘制或成音。
 2. 三轴滤波：5 点滑动中值，仅当 `|value − median| > max(0.035, 6·MAD)` 时用中值替换（只压孤立尖峰）；随后一阶 IIR，固定 `α = 0.35`（按帧数，不按时间）。
 3. `a_rel = (t − t_start) / (t_end − t_start)`。
 4. 批量 `_apply_lead_start_gate` 复核：未通过门控的帧保留在数据里但 `position_valid = False`。

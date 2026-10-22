@@ -309,6 +309,17 @@ class SynthwaveLoopTests(unittest.TestCase):
         self.assertGreaterEqual(max(valid_ticks), 120)
 
 
+    def test_hand_absent_frames_are_invalid(self):
+        # Without a hand the device reports x=65535, y=0, z=65535. Treating
+        # that as a position drew a spike into the top-right corner.
+        idle = [{"timestamp_ms": 20 * index, "x": 65535, "y": 0, "z": 65535} for index in range(3)]
+        samples = idle + [_sample(index + 3, x=3000 + index * 400, y=30000, timestamp=(index + 3) * 20)
+                          for index in range(20)]
+        projected = preprocess_samples(samples)
+        self.assertTrue(all(not row["position_valid"] for row in projected[:3]))
+        self.assertTrue(any(row["position_valid"] for row in projected[3:]))
+
+
 if __name__ == "__main__":
     unittest.main()
 
