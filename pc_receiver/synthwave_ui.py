@@ -24,19 +24,70 @@ from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate, _
                             write_event_table)  # noqa: E402
 
 
-def _downsample(samples: List[dict], limit: int = 1500) -> List[dict]:
-    """Evenly thin the drawn trajectory while keeping both endpoints.
+def _project_point(row: dict, width: int, height: int,
+                   x_span: float = 65535.0, y_span: float = 65535.0) -> tuple:
+    left, right = 28.0, max(29.0, width - 28.0)
+    top, bottom = 28.0, max(29.0, height - 28.0)
+    px = int(round(left + float(row.get("x", 0)) / x_span * (right - left)))
+    py = int(round(bottom - float(row.get("y", 0)) / y_span * (bottom - top)))
+    return (px, py)
 
-    The capture list itself is never thinned; only the canvas path is.
-    Drawing every point of a long take was the dominant redraw cost.
+
+def _thin_path(samples: List[dict], width: int, height: int,
+               x_span: float = 65535.0, y_span: float = 65535.0) -> List[tuple]:
+    """Project the trajectory to canvas pixels and drop repeated pixels.
+
+    Drawing every sample makes the redraw cost grow with the capture
+    length; stride sampling instead aliases the shape, which is what makes
+    fine drawing impossible late in a take. Mapping to integer pixels and
+    dropping points that land on the same pixel keeps the drawn shape exact
+    at display resolution and bounds the polyline by the canvas area, not by
+    the number of captured frames.
     """
-    if len(samples) <= limit or limit < 2:
-        return samples
-    stride = (len(samples) + limit - 1) // limit
-    thinned = samples[::stride]
-    if thinned[-1] is not samples[-1]:
-        thinned.append(samples[-1])
-    return thinned
+    pixels: List[tuple] = []
+    previous: tuple | None = None
+    for row in samples:
+        point = _project_point(row, width, height, x_span, y_span)
+        if point != previous:
+            pixels.append(point)
+            previous = point
+    return pixels
+
+
+class _PixelPathCache:
+    """Incremental front end for :func:`_thin_path`.
+
+    The capture list only ever grows during a take, so re-projecting all of
+    it on every redraw is wasted work: at 200 Hz a 60 s take is 12000 points
+    and the scan alone dominates the frame budget. Cache the projected pixels
+    and append only the samples added since the previous draw.
+    """
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self._source: List[dict] | None = None
+        self._count = 0
+        self._size: tuple | None = None
+        self._pixels: List[tuple] = []
+
+    def points(self, samples: List[dict], width: int, height: int,
+               x_span: float = 65535.0, y_span: float = 65535.0) -> List[tuple]:
+        size = (width, height)
+        if (self._source is not samples or self._size != size
+                or len(samples) < self._count):
+            self._source = samples
+            self._count = 0
+            self._size = size
+            self._pixels = []
+        pending = samples[self._count:]
+        for row in pending:
+            point = _project_point(row, width, height, x_span, y_span)
+            if not self._pixels or point != self._pixels[-1]:
+                self._pixels.append(point)
+        self._count = len(samples)
+        return self._pixels
 
 
 class SynthwaveUI(tk.Tk):
@@ -62,14 +113,18 @@ class SynthwaveUI(tk.Tk):
         self.inbox: queue.Queue[dict] = queue.Queue()
         self.recording = False
         self.playing = False
-        # Redraw budget. The sensor streams at 200 Hz, but a trajectory view
-        # does not need more than ~30 fps, and redrawing once per queued record
-        # made the draw cost grow with both backlog and captured length.
-        self.draw_interval_s = 0.033
+        # Redraw budget. The sensor streams at 200 Hz, but the trajectory view
+        # runs at ~60 fps; drawing more often than that only adds latency to
+        # the pointer.
+        self.draw_interval_s = 0.016
         self._last_draw = 0.0
+        self._draw_cost_ms = 0.0
+        self.diag = tk.StringVar(value="idle")
+        self._diag_window = (time.monotonic(), 0)
+        self._path_cache = _PixelPathCache()
         self._build_style()
         self._build_ui()
-        self.after(40, self._poll_inbox)
+        self.after(16, self._poll_inbox)
 
     def _build_style(self) -> None:
         style = ttk.Style(self)
@@ -120,6 +175,7 @@ class SynthwaveUI(tk.Tk):
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda _event: self._draw_canvas())
         ttk.Label(center, textvariable=self.status, anchor="w").pack(fill="x", pady=(8, 2))
+        ttk.Label(center, textvariable=self.diag, style="Muted.TLabel", anchor="w").pack(fill="x")
         self.progress = ttk.Progressbar(center, mode="determinate", maximum=128)
         self.progress.pack(fill="x")
         columns = ("track", "tick", "note", "duration", "velocity", "source", "landmarks", "delta", "color")
@@ -226,8 +282,20 @@ class SynthwaveUI(tk.Tk):
             now = time.monotonic()
             if now - self._last_draw >= self.draw_interval_s:
                 self._last_draw = now
+                started = time.perf_counter()
                 self._draw_canvas(self.lead_preview_capture if self.selected_track.get() == "lead" else None)
-        self.after(40, self._poll_inbox)
+                self._draw_cost_ms = (time.perf_counter() - started) * 1000.0
+            self._update_diag(now)
+        self.after(16, self._poll_inbox)
+
+    def _update_diag(self, now: float) -> None:
+        since, frames = self._diag_window
+        if now - since < 1.0:
+            return
+        rate = (len(self.current_capture) - frames) / (now - since)
+        self.diag.set(f"{rate:5.1f} Hz  ·  queue {self.inbox.qsize():3d}  ·  "
+                      f"draw {self._draw_cost_ms:4.2f} ms  ·  {len(self.current_capture)} frames")
+        self._diag_window = (now, len(self.current_capture))
 
     def stop_record(self) -> None:
         if not self.recording:
@@ -362,20 +430,19 @@ class SynthwaveUI(tk.Tk):
         if len(samples) < 2:
             self.canvas.create_text(width / 2, height / 2, text="Record Lead or import a JSONL capture", fill="#536078")
             return
-        samples = _downsample(samples)
         # The grid is a fixed workspace. A short or wide gesture therefore
         # remains visibly comparable between takes; it is never stretched to
         # its own min/max range.
-        xs = [float(row.get("x", 0)) for row in samples]
-        ys = [float(row.get("y", 0)) for row in samples]
-        xlo, xhi = 0.0, 65535.0
-        ylo, yhi = 0.0, 65535.0
+        pixels = self._path_cache.points(samples, width, height)
         points = []
-        for x, y in zip(xs, ys):
-            px = 28 + (x - xlo) / max(1.0, xhi - xlo) * (width - 56)
-            py = height - 28 - (y - ylo) / max(1.0, yhi - ylo) * (height - 56)
+        for px, py in pixels:
             points.extend((px, py))
-        self.canvas.create_line(*points, fill="#f3c969", width=2, smooth=True)
+        if len(points) < 4:
+            self.canvas.create_text(width / 2, height / 2, text="Capture is shorter than one pixel", fill="#536078")
+            return
+        # No spline: the path is already thinned at display resolution, and
+        # smoothing would round exactly the corners the user draws on purpose.
+        self.canvas.create_line(*points, fill="#f3c969", width=2)
         self.canvas.create_oval(points[0] - 4, points[1] - 4, points[0] + 4, points[1] + 4, fill="#6ce5b1", outline="")
         self.canvas.create_oval(points[-2] - 4, points[-1] - 4, points[-2] + 4, points[-1] + 4, fill="#ef7896", outline="")
         if self.event_table and self.event_table.get("landmarks"):
