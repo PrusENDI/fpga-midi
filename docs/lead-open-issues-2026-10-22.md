@@ -179,6 +179,37 @@ python tools\analyze_frame_timing.py "$env:TEMP\sdk_solo.jsonl"
 若确认是 UI 背压，修复顺序固定为：重绘移出逐条循环 → 固定 30 Hz 节流 → 画布点数降采样 → 接收线程改为"入有界队列、丢最旧"而不是阻塞管道。
 
 
+### 1.11 结论（2026-10-22，第二轮：SDK 直连实测）
+
+用户以重建后的接收器单独录制 20 秒（手持续移动），得到 3701 条 position 记录。核算结果：
+
+| 指标 | 数值 |
+| --- | --- |
+| 记录数 / 跨度 | 3701 / 18.50 s |
+| 有效帧率 | **200.0 Hz** |
+| `timestamp_raw` 相邻差值 | 全部为 1（3700 次），无跳号 |
+| `sequence_gap` 非零 | **仅第 1 条**（`sequence_gap=133`） |
+| `timestamp_ms` 唯一值 | 1179 个 / 3701 帧（平均 3.14 帧共用一个时间戳） |
+| `timestamp_ms` 差值分布 | 0 ms × 2522、15 ms × 439、16 ms × 733、31 ms × 5、32 ms × 1 |
+| 最大间隔 | 32 ms，无 >250 ms 停顿 |
+
+四条结论：
+
+1. **数据源是健康的。** 200.0 Hz、帧计数严格递增、启动之后零丢帧。之前 CSV 里的 32 Hz 和 1.1–1.7 s 停顿属于 FPGA 链路（§1.7），与当前问题无关。
+2. **启动瞬态丢 133 帧**（约 0.66 s）：发生在第一条 `gestic_data_stream_update()` 之前，是打开设备到开始排空之间的积压，之后不再发生。对音乐无实际影响，但会表现为录音开头的 133 个 prestart 帧。
+3. **真正的缺陷在时间基**：接收器用 `GetTickCount64()` 打时间戳，分辨率约 15.6 ms，所以 68% 的帧与前一条共用时间戳。100 BPM 下一个 16 分是 150 ms，15.6 ms 相当于 10%；而 Lead 的 128 tick 重采样、`a_rel` 归一化和锚点 tick 全部建立在这个 `timestamp_ms` 上。**这不是精度瑕疵，是时间轴本身被量化成了台阶。**
+4. **"掉帧"是渲染现象，不是数据丢失。** UI 的接收线程与无界队列始终在排空，接收器不会因 UI 变慢而阻塞（`stdout` 由独立线程持续读取）。真正的问题是主线程每条记录重绘一次、且重绘成本随历史长度增长，于是"看到的更新"越来越稀疏——观感是掉帧。
+
+### 1.12 已实施的修复（2026-10-22）
+
+针对结论 4，[synthwave_ui.py](../pc_receiver/synthwave_ui.py) 已改：
+
+- `_poll_inbox` 先把队列取空，**每轮只重绘一次**，并按 33 ms 节流（约 30 fps）。
+- 新增 `_downsample()`：画布最多绘制约 1500 点，保留首尾；**采集数据本身不抽稀**，编译输入仍是全量。
+- 新增 [pc_receiver/test_synthwave_ui_helpers.py](../pc_receiver/test_synthwave_ui_helpers.py) 覆盖抽稀的边界、顺序与端点保持。
+
+未修复（需要决策）：结论 3 的时间基。建议改为 `QueryPerformanceCounter` / `std::chrono::steady_clock` 打到达时间，并用 `timestamp_raw`（5 ms/帧，已验证严格递增）生成均匀的 `logical_time_ms` 供编译器使用。这会改变喂给 Lead 的时间轴，属于设计变更，不能顺手做。
+
 ## 问题 2：Z 方向移动伴随 XY 漂移，且随 Z 升高而增大
 
 ### 2.1 现象
@@ -253,11 +284,12 @@ z_norm > hold_threshold → 显式 HOLD 状态
 
 ## 下一步顺序
 
-1. 实验 A（绕过 UI）与实验 B（report_count）→ 关闭问题 1 的归因。
-2. 修 UI 重绘缺陷（纯软件，不改变音乐结果）。
-3. neutral capture → 量化中心偏移 → 门控阈值改为相对 workspace。
-4. 等 2.4 的决策后实现 Z 增益调度。
-5. 卡尔曼平滑作为 4 之后的精修。
+1. ~~实验 A（绕过 UI）关闭问题 1 的归因~~ → 已完成（§1.11）：数据源 200 Hz 零丢帧。
+2. ~~修 UI 重绘缺陷~~ → 已完成（§1.12）：每轮一次重绘、30 fps 节流、画布抽稀。
+3. **待决策**：接收器时间基改为高精度时钟 + `timestamp_raw` 驱动的均匀 `logical_time_ms`。
+4. neutral capture → 量化中心偏移 → 门控阈值改为相对 workspace。
+5. 等 2.4 的决策后实现 Z 增益调度。
+6. 卡尔曼平滑作为 5 之后的精修。
 
 ## 变更记录
 
@@ -269,3 +301,6 @@ z_norm > hold_threshold → 显式 HOLD 状态
 - 勘误：实际链路为 SDK 直连 USB，不经过 FPGA；COM9/COM10 的测量不适用于当前问题。
 - 发现接收器 exe 早于源码（10-19 vs 10-21），输出旧 schema 且缺少 `sequence_gap`；已重建并确认新 schema。
 - 补充 SDK 直连下的背压机制（stdout 阻塞写使接收器停止排空 SDK 队列）与修正后的归因实验（§1.9、§1.10）。
+- 第二轮实验（SDK 直连、手在场）：200.0 Hz、帧计数严格递增、启动后零丢帧；确认"掉帧"是渲染现象而非数据丢失（§1.11）。
+- 修复 UI 重绘：每轮一次、30 fps 节流、画布抽稀到约 1500 点，并加 [pc_receiver/test_synthwave_ui_helpers.py](../pc_receiver/test_synthwave_ui_helpers.py)（§1.12）。
+- 新发现并记录：`timestamp_ms` 受 `GetTickCount64()` 的 15.6 ms 量化，68% 的帧共用时间戳，需改时间基（待决策）。

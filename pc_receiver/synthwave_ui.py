@@ -24,6 +24,21 @@ from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate, _
                             write_event_table)  # noqa: E402
 
 
+def _downsample(samples: List[dict], limit: int = 1500) -> List[dict]:
+    """Evenly thin the drawn trajectory while keeping both endpoints.
+
+    The capture list itself is never thinned; only the canvas path is.
+    Drawing every point of a long take was the dominant redraw cost.
+    """
+    if len(samples) <= limit or limit < 2:
+        return samples
+    stride = (len(samples) + limit - 1) // limit
+    thinned = samples[::stride]
+    if thinned[-1] is not samples[-1]:
+        thinned.append(samples[-1])
+    return thinned
+
+
 class SynthwaveUI(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -47,6 +62,11 @@ class SynthwaveUI(tk.Tk):
         self.inbox: queue.Queue[dict] = queue.Queue()
         self.recording = False
         self.playing = False
+        # Redraw budget. The sensor streams at 200 Hz, but a trajectory view
+        # does not need more than ~30 fps, and redrawing once per queued record
+        # made the draw cost grow with both backlog and captured length.
+        self.draw_interval_s = 0.033
+        self._last_draw = 0.0
         self._build_style()
         self._build_ui()
         self.after(40, self._poll_inbox)
@@ -187,19 +207,26 @@ class SynthwaveUI(tk.Tk):
         self.receiver_thread.start()
 
     def _poll_inbox(self) -> None:
+        latest: dict | None = None
         while True:
             try:
                 record = self.inbox.get_nowait()
             except queue.Empty:
                 break
-            if record.get("type") == "position":
-                self.current_capture.append(record)
-                if self.selected_track.get() == "lead":
-                    self.lead_preview_capture.extend(self.lead_start_gate.push(record))
-                    if not self.lead_preview_capture:
-                        self.status.set("WAITING — Lead must start at the left edge and move right")
+            if record.get("type") != "position":
+                continue
+            self.current_capture.append(record)
+            latest = record
+            if self.selected_track.get() == "lead":
+                self.lead_preview_capture.extend(self.lead_start_gate.push(record))
+        if latest is not None:
+            if self.selected_track.get() == "lead" and not self.lead_preview_capture:
+                self.status.set("WAITING — Lead must start at the left edge and move right")
+            self.progress["value"] = len(self.current_capture) % 128
+            now = time.monotonic()
+            if now - self._last_draw >= self.draw_interval_s:
+                self._last_draw = now
                 self._draw_canvas(self.lead_preview_capture if self.selected_track.get() == "lead" else None)
-                self.progress["value"] = len(self.current_capture) % 128
         self.after(40, self._poll_inbox)
 
     def stop_record(self) -> None:
@@ -335,6 +362,7 @@ class SynthwaveUI(tk.Tk):
         if len(samples) < 2:
             self.canvas.create_text(width / 2, height / 2, text="Record Lead or import a JSONL capture", fill="#536078")
             return
+        samples = _downsample(samples)
         # The grid is a fixed workspace. A short or wide gesture therefore
         # remains visibly comparable between takes; it is never stretched to
         # its own min/max range.
