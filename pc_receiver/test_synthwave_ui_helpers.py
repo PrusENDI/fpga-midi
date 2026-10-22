@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from synthwave_ui import DIAG_FIELDS, _PixelPathCache, _append_diag_row, _thin_path
+from synthwave_ui import (DIAG_FIELDS, _PixelPathCache, _append_diag_row, _clip_percent,
+                          _project_point, _thin_path)
 
 
 class ThinPathTests(unittest.TestCase):
@@ -90,6 +91,40 @@ class DiagLogTests(unittest.TestCase):
             path = Path(tmp) / "ui.csv"
             _append_diag_row(path, {"rate_hz": 1.0, "surprise": "ignored"})
             self.assertTrue(path.exists())
+
+
+class ClipTests(unittest.TestCase):
+    def test_rail_frames_are_counted(self):
+        rows = [{"x": 0, "y": 100}, {"x": 65535, "y": 100},
+                {"x": 30000, "y": 30000}, {"x": 30000, "y": 30000}]
+        self.assertEqual(_clip_percent(rows), 50.0)
+
+    def test_empty_capture_reports_zero(self):
+        self.assertEqual(_clip_percent([]), 0.0)
+
+
+class ViewRangeTests(unittest.TestCase):
+    def test_workspace_edges_map_to_canvas_edges(self):
+        points = _thin_path([{"x": 4000, "y": 4000}, {"x": 60000, "y": 50000}],
+                            800, 400, x_range=(4000, 60000), y_range=(4000, 50000))
+        self.assertEqual(points[0], (28.0, 372.0))
+        self.assertEqual(points[-1], (772.0, 28.0))
+
+    def test_projection_stays_fractional_so_the_line_is_not_a_staircase(self):
+        # Two samples inside one pixel column must keep distinct coordinates;
+        # rounding per sample is what produced the staircase look.
+        first = _project_point({"x": 33000, "y": 30000}, 800, 400)
+        second = _project_point({"x": 33030, "y": 30030}, 800, 400)
+        self.assertNotEqual(first, second)
+        self.assertAlmostEqual(first[0], 28.0, delta=400.0)
+        self.assertAlmostEqual(second[0], 28.0, delta=400.0)
+
+    def test_out_of_range_values_clamp_inside_the_plot(self):
+        point = _project_point({"x": 90000, "y": -500}, 800, 400)
+        self.assertGreaterEqual(point[0], 28.0)
+        self.assertLessEqual(point[0], 772.0)
+        self.assertGreaterEqual(point[1], 28.0)
+        self.assertLessEqual(point[1], 372.0)
 
 
 if __name__ == "__main__":

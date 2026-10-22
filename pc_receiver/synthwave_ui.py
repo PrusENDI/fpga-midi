@@ -24,18 +24,64 @@ from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate, _
                             compile_loop, load_jsonl_records, render_loop,
                             write_event_table)  # noqa: E402
 
+# Canvas view range in raw sensor counts. The path and the pitch guides share
+# it, so the drawn trajectory stays 1:1 with the note grid. Full scale for now:
+# replacing it with the measured linear band (from a workspace capture) will
+# widen the drawn path without moving it relative to the guides.
+VIEW_X_RANGE = (0.0, 65535.0)
+VIEW_Y_RANGE = (0.0, 65535.0)
+
+
+def _y_to_canvas(value: float, height: int) -> float:
+    top, bottom = 28.0, max(29.0, height - 28.0)
+    y_lo, y_hi = VIEW_Y_RANGE
+    fy = (float(value) - y_lo) / max(1e-9, y_hi - y_lo)
+    fy = 0.0 if fy < 0.0 else (1.0 if fy > 1.0 else fy)
+    return bottom - fy * (bottom - top)
+
+
+def _clip_percent(samples: List[dict]) -> float:
+    """Share of frames pinned at a sensor rail.
+
+    Near the rails the reading stops moving while the hand keeps going, which
+    reads as dropped frames or aliasing on the canvas. Counting them makes
+    saturation visible instead of mysterious.
+    """
+    if not samples:
+        return 0.0
+    hits = 0
+    for row in samples:
+        x = float(row.get("x", 0))
+        y = float(row.get("y", 0))
+        if x <= 0.0 or x >= 65535.0 or y <= 0.0 or y >= 65535.0:
+            hits += 1
+    return 100.0 * hits / len(samples)
+
 
 def _project_point(row: dict, width: int, height: int,
-                   x_span: float = 65535.0, y_span: float = 65535.0) -> tuple:
+                   x_range: tuple = (0.0, 65535.0),
+                   y_range: tuple = (0.0, 65535.0)) -> tuple:
+    """Map a raw report to canvas coordinates without integer rounding.
+
+    Rounding every point to whole pixels is what turned a hand-drawn curve
+    into a staircase: a smooth 1 px/step path becomes alternating runs and
+    jumps. The cache dedupes on rounded pixels, but the drawn coordinate
+    stays fractional so the canvas line is smooth.
+    """
     left, right = 28.0, max(29.0, width - 28.0)
     top, bottom = 28.0, max(29.0, height - 28.0)
-    px = int(round(left + float(row.get("x", 0)) / x_span * (right - left)))
-    py = int(round(bottom - float(row.get("y", 0)) / y_span * (bottom - top)))
-    return (px, py)
+    x_lo, x_hi = x_range
+    y_lo, y_hi = y_range
+    fx = (float(row.get("x", 0)) - x_lo) / max(1e-9, x_hi - x_lo)
+    fy = (float(row.get("y", 0)) - y_lo) / max(1e-9, y_hi - y_lo)
+    fx = 0.0 if fx < 0.0 else (1.0 if fx > 1.0 else fx)
+    fy = 0.0 if fy < 0.0 else (1.0 if fy > 1.0 else fy)
+    return (left + fx * (right - left), bottom - fy * (bottom - top))
 
 
 def _thin_path(samples: List[dict], width: int, height: int,
-               x_span: float = 65535.0, y_span: float = 65535.0) -> List[tuple]:
+               x_range: tuple = (0.0, 65535.0),
+               y_range: tuple = (0.0, 65535.0)) -> List[tuple]:
     """Project the trajectory to canvas pixels and drop repeated pixels.
 
     Drawing every sample makes the redraw cost grow with the capture
@@ -48,10 +94,11 @@ def _thin_path(samples: List[dict], width: int, height: int,
     pixels: List[tuple] = []
     previous: tuple | None = None
     for row in samples:
-        point = _project_point(row, width, height, x_span, y_span)
-        if point != previous:
+        point = _project_point(row, width, height, x_range, y_range)
+        key = (round(point[0]), round(point[1]))
+        if key != previous:
             pixels.append(point)
-            previous = point
+            previous = key
     return pixels
 
 
@@ -78,21 +125,26 @@ class _PixelPathCache:
         self._count = 0
         self._size: tuple | None = None
         self._pixels: List[tuple] = []
+        self._last_key: tuple | None = None
 
     def points(self, samples: List[dict], width: int, height: int,
-               x_span: float = 65535.0, y_span: float = 65535.0) -> List[tuple]:
-        size = (width, height)
+               x_range: tuple = (0.0, 65535.0),
+               y_range: tuple = (0.0, 65535.0)) -> List[tuple]:
+        size = (width, height, x_range, y_range)
         if (self._source is not samples or self._size != size
                 or len(samples) < self._count):
             self._source = samples
             self._count = 0
             self._size = size
             self._pixels = []
+            self._last_key = None
         pending = samples[self._count:]
         for row in pending:
-            point = _project_point(row, width, height, x_span, y_span)
-            if not self._pixels or point != self._pixels[-1]:
+            point = _project_point(row, width, height, x_range, y_range)
+            key = (round(point[0]), round(point[1]))
+            if key != self._last_key:
                 self._pixels.append(point)
+                self._last_key = key
         self._count = len(samples)
         while len(self._pixels) > self.limit:
             self._pixels = self._pixels[::2]
@@ -100,7 +152,8 @@ class _PixelPathCache:
 
 
 DIAG_FIELDS = ("wall_ms", "elapsed_s", "state", "rate_hz", "queue", "draw_ms",
-               "frames", "preview_points", "drawn_points", "canvas_w", "canvas_h")
+               "frames", "preview_points", "drawn_points", "clipped_pct",
+               "canvas_w", "canvas_h")
 
 
 def _append_diag_row(path: Path, row: dict) -> None:
@@ -355,8 +408,10 @@ class SynthwaveUI(tk.Tk):
             return
         rate = (len(self.current_capture) - frames) / (now - since)
         queue_depth = self.inbox.qsize()
+        clipped = _clip_percent(self.current_capture)
         self.diag.set(f"{rate:5.1f} Hz  ·  queue {queue_depth:3d}  ·  "
-                      f"draw {self._draw_cost_ms:4.2f} ms  ·  {len(self.current_capture)} frames")
+                      f"draw {self._draw_cost_ms:4.2f} ms  ·  clip {clipped:4.1f}%  ·  "
+                      f"{len(self.current_capture)} frames")
         try:
             _append_diag_row(self.diag_path, {
                 "wall_ms": int(time.time() * 1000),
@@ -368,6 +423,7 @@ class SynthwaveUI(tk.Tk):
                 "frames": len(self.current_capture),
                 "preview_points": len(self.lead_preview_capture),
                 "drawn_points": self._drawn_points,
+                "clipped_pct": round(clipped, 2),
                 "canvas_w": self.canvas.winfo_width(),
                 "canvas_h": self.canvas.winfo_height(),
             })
@@ -502,7 +558,7 @@ class SynthwaveUI(tk.Tk):
         # the calibrated workspace rather than to the current capture extent.
         for midi in DEFAULT_PITCH_SPACE.scale_pitches:
             ratio = (midi - DEFAULT_PITCH_SPACE.min_midi) / max(1, DEFAULT_PITCH_SPACE.max_midi - DEFAULT_PITCH_SPACE.min_midi)
-            py = height - 28 - ratio * (height - 56)
+            py = _y_to_canvas(ratio * 65535.0, height)
             self.canvas.create_line(28, py, width - 28, py, fill="#27344d")
             self.canvas.create_text(width - 34, py - 2, anchor="e", text=str(midi), fill="#536078", font=("Segoe UI", 8))
         if len(samples) < 2:
@@ -511,7 +567,7 @@ class SynthwaveUI(tk.Tk):
         # The grid is a fixed workspace. A short or wide gesture therefore
         # remains visibly comparable between takes; it is never stretched to
         # its own min/max range.
-        pixels = self._path_cache.points(samples, width, height)
+        pixels = self._path_cache.points(samples, width, height, VIEW_X_RANGE, VIEW_Y_RANGE)
         self._drawn_points = len(pixels)
         points = []
         for px, py in pixels:
