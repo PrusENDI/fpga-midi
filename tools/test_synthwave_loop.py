@@ -436,6 +436,34 @@ class AbsoluteCursorTests(unittest.TestCase):
         self.assertAlmostEqual(moved[0], cursor.target((60000.0, 40000.0))[0], places=6)
 
 
+    def test_a_lift_is_silence_not_a_rest(self):
+        # Lifting the hand must not write a rest: that turned a 0.5 s lift
+        # into a 70 tick hole in the melody.
+        def row(index, y, z):
+            return {"timestamp_ms": index * 5, "x": 32768, "y": y, "z": z, "position_valid": True}
+        samples = [row(index, 20000 + index * 25, 6000) for index in range(400)]
+        samples += [row(index, 30000 + (index - 400) * 20, 42000) for index in range(400, 500)]
+        samples += [row(index, 32000 + (index - 500) * 25, 6000) for index in range(500, 900)]
+        result = compile_lead(samples, pitch_source="cursor")
+        self.assertFalse([event for event in result["events"] if event["type"] == "rest"])
+        self.assertTrue([event for event in result["events"] if event["type"] == "note_on"])
+
+    def test_note_durations_do_not_cross_the_next_event(self):
+        # A 126 tick note used to overlap the rest that followed it.
+        def row(index, y, z):
+            return {"timestamp_ms": index * 5, "x": 32768, "y": y, "z": z, "position_valid": True}
+        samples = [row(index, 20000 + index * 30, 6000) for index in range(300)]
+        samples += [{"timestamp_ms": index * 5, "x": 65535, "y": 0, "z": 65535} for index in range(300, 600)]
+        samples += [row(index, 29000 + (index - 600) * 20, 6000) for index in range(600, 900)]
+        result = compile_lead(samples, pitch_source="cursor")
+        events = [event for event in result["events"] if event["type"] in {"note_on", "rest"}]
+        for index, event in enumerate(events):
+            if event["type"] != "note_on":
+                continue
+            following = int(events[index + 1]["tick"]) if index + 1 < len(events) else STYLE.loop_ticks
+            self.assertLessEqual(int(event["tick"]) + int(event["duration"]), following)
+
+
 if __name__ == "__main__":
     unittest.main()
 

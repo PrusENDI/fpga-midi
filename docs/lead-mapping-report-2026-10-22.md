@@ -138,6 +138,27 @@ while state == MOVE:
 
 前两项做完，抬手后的音频就是连续的；第三项做完，"画什么形状出什么旋律"才会稳定可预期。
 
+## 6.1 实施结果（2026-10-22，第 1、2 项已完成）
+
+改动：`_apply_cursor_layer` 为每帧增加 `cursor_lift` 标记，`resample_to_ticks` 把它传递到 tick，`extract_landmarks` 只在**非抬手**的无效段生成 rest；`compile_lead` 在事件排序后把每个音的时长截到下一个事件之前。
+
+同一段合成采集（上升 → 抬手 0.5 s → 继续上升）的前后对比：
+
+```text
+改前：note_on tick 1 dur 126 | rest tick 57 dur 70 | note_on tick 127
+改后：note_on tick 1 dur 126 | note_on tick 127
+```
+
+70 tick 的 rest 消失，音频在抬手期间由前一个音持续，不再出现空洞。
+
+真实的丢帧（非抬手）仍会生成 rest，且音被截断，不再与其重叠：
+
+```text
+note_on tick 1 dur 41 | note_on tick 42 dur 1 | rest tick 43 dur 43 | note_on tick 86 …
+```
+
+**遗留的听感问题**：抬手期间没有新事件，所以前一个音会一直持续到下一个锚点——在当前只有"转折/极值"出音的规则下，这会表现为一个很长的长音（上例 126 tick）。这不是断点，但也不是旋律。真正的解决要靠第 3 项轮廓采样，把长音拆成随高度变化的音符。
+
 ## 7. 验收方式
 
 用同一段采集回放，检查：

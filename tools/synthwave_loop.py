@@ -446,6 +446,7 @@ def _apply_cursor_layer(rows: List[Dict[str, object]], pitch_source: str = "curs
             row["cursor_x"] = row.get("cursor_x")
             row["cursor_y"] = row.get("cursor_y")
             row["cursor_engaged"] = cursor.engaged
+            row["cursor_lift"] = started and not cursor.engaged
             continue
         point, gain = cursor.push((float(q[0]) * 65535.0, float(q[1]) * 65535.0),
                                   float(q[2]) * 65535.0)
@@ -454,6 +455,9 @@ def _apply_cursor_layer(rows: List[Dict[str, object]], pitch_source: str = "curs
         row["cursor_gain"] = gain
         row["cursor_engaged"] = cursor.engaged
         row["cursor_rebased"] = rebased
+        # A lift is the operator letting go; a rebase is the hand returning to
+        # a new place. Both are silent frames, but neither is a musical rest.
+        row["cursor_lift"] = started and (not cursor.engaged or rebased)
         if cursor.engaged and not started:
             started = True
         row["start_gate_state"] = "accepted" if started else "prestart"
@@ -796,6 +800,9 @@ def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveS
                 row[field] = None
         row["position_valid"] = valid_flag(left.get("position_valid")) and valid_flag(right.get("position_valid")) and row.get("b_abs") is not None
         row["out_of_range"] = bool(left.get("out_of_range", False) or right.get("out_of_range", False))
+        # A lifted hand is silent but is not a musical rest: keep the flag so
+        # landmark extraction can tell "let go" from "bad data".
+        row["lift"] = bool(left.get("cursor_lift", False) or right.get("cursor_lift", False))
         result.append(row)
     for i, row in enumerate(result):
         previous, following = result[max(0, i - 1)], result[min(len(result) - 1, i + 1)]
@@ -852,7 +859,8 @@ def extract_landmarks(projected_samples: Sequence[Mapping[str, object]], style: 
         while j < len(rows) and str(rows[j].get("state", "move")) == state:
             j += 1
         if state == "rest":
-            add("rest", rows[i], "position_invalid")
+            if not rows[i].get("lift"):
+                add("rest", rows[i], "position_invalid")
         elif state == "hold" and j - i >= 2:
             add("hold", rows[(i + j - 1) // 2], "low_velocity")
         i = j
@@ -966,6 +974,14 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
             events.append(_event("lead", int(landmark["tick"]), duration=max(1, next_tick - int(landmark["tick"])),
                                  event_type="rest", source="trajectory", source_landmarks=[landmark["id"]], generated_reason="position_invalid"))
     events.sort(key=lambda event: (int(event["tick"]), str(event["type"])) )
+    # A note may not outlast the next event. Before this, a 126 tick note
+    # overlapped the 70 tick rest that followed it, so any player that honours
+    # rests cut the note off mid-flight.
+    for index, event in enumerate(events):
+        if event["type"] != "note_on":
+            continue
+        following = int(events[index + 1]["tick"]) if index + 1 < len(events) else style.loop_ticks
+        event["duration"] = max(1, min(int(event["duration"]), following - int(event["tick"])))
     valid_count = sum(1 for row in processed if valid_flag(row.get("position_valid")))
     coverage = valid_count / len(processed) if processed else 0.0
     status = "insufficient_capture" if len(processed) < 2 else ("weak_motif" if len(chosen) <= 1 else "ok")
