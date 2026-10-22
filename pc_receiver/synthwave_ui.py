@@ -177,6 +177,13 @@ DIAG_FIELDS = ("wall_ms", "elapsed_s", "state", "rate_hz", "queue", "draw_ms",
                "canvas_w", "canvas_h")
 
 
+def _capture_filename(label: str, track: str, stamp: str) -> str:
+    """Name a raw capture after the protocol step it belongs to."""
+    safe = "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in str(label or "").strip())
+    safe = safe.strip("_") or track
+    return f"{safe}_{stamp}.jsonl"
+
+
 def _append_diag_row(path: Path, row: dict) -> None:
     """Append one diagnostics row, writing the header on first use.
 
@@ -200,6 +207,7 @@ class SynthwaveUI(tk.Tk):
         self.minsize(980, 640)
         self.configure(bg="#10131b")
         self.selected_track = tk.StringVar(value="lead")
+        self.take_label = tk.StringVar(value="lead")
         self.status = tk.StringVar(value="IDLE — choose a track, then Record")
         self.bpm = tk.IntVar(value=STYLE.bpm)
         self.swing = tk.DoubleVar(value=STYLE.swing * 100.0)
@@ -265,6 +273,9 @@ class SynthwaveUI(tk.Tk):
         for track in TRACKS:
             label = {"lead": "LEAD  ·  3D curve", "bass": "BASS  ·  touch", "pad": "PAD  ·  touch", "arp": "ARP  ·  touch", "drums": "DRUMS  ·  tap", "texture_fx": "TEXTURE / FX"}[track]
             ttk.Radiobutton(left, text=label, value=track, variable=self.selected_track, command=self._track_changed).pack(fill="x", pady=2)
+        ttk.Separator(left).pack(fill="x", pady=12)
+        ttk.Label(left, text="TAKE LABEL", style="Muted.TLabel").pack(anchor="w")
+        ttk.Entry(left, textvariable=self.take_label).pack(fill="x", pady=(2, 0))
         ttk.Separator(left).pack(fill="x", pady=12)
         ttk.Button(left, text="●  RECORD", style="Track.TButton", command=self.start_record).pack(fill="x", pady=3)
         ttk.Button(left, text="■  STOP", command=self.stop_record).pack(fill="x", pady=3)
@@ -357,7 +368,7 @@ class SynthwaveUI(tk.Tk):
         fall back to stdout-only rather than losing the take.
         """
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        path = ROOT / "pc_receiver" / "captures" / f"{self.selected_track.get()}_{stamp}.jsonl"
+        path = ROOT / "pc_receiver" / "captures" / _capture_filename(self.take_label.get(), self.selected_track.get(), stamp)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch(exist_ok=True)

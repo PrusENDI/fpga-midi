@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from synthwave_ui import (DIAG_FIELDS, _PixelPathCache, _append_diag_row, _clip_percent,
-                          _plot_rect, _project_point, _thin_path)
+from synthwave_ui import (DIAG_FIELDS, _PixelPathCache, _append_diag_row, _capture_filename,
+                          _clip_percent, _plot_rect, _project_point, _thin_path)
 
 
 class ThinPathTests(unittest.TestCase):
@@ -141,6 +141,19 @@ class ViewRangeTests(unittest.TestCase):
         self.assertLessEqual(point[0], 772.0)
         self.assertGreaterEqual(point[1], 28.0)
         self.assertLessEqual(point[1], 372.0)
+
+
+class CaptureFilenameTests(unittest.TestCase):
+    def test_label_prefixes_the_capture(self):
+        self.assertEqual(_capture_filename("z_sweep", "lead", "20261022-213000"),
+                         "z_sweep_20261022-213000.jsonl")
+
+    def test_spaces_and_symbols_become_underscores(self):
+        self.assertEqual(_capture_filename("clutch cross/2", "lead", "T"),
+                         "clutch_cross_2_T.jsonl")
+
+    def test_empty_label_falls_back_to_the_track(self):
+        self.assertEqual(_capture_filename("   ", "lead", "T"), "lead_T.jsonl")
 
 
 if __name__ == "__main__":
