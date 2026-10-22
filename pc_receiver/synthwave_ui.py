@@ -62,9 +62,15 @@ class _PixelPathCache:
     it on every redraw is wasted work: at 200 Hz a 60 s take is 12000 points
     and the scan alone dominates the frame budget. Cache the projected pixels
     and append only the samples added since the previous draw.
+
+    Pixel dedup alone is not a bound: the hand revisits the same pixels, so a
+    120 s take still produced 7000 distinct points and a 7 ms redraw. Halving
+    the list whenever it exceeds ``limit`` keeps the polyline under a fixed
+    budget while roughly preserving the drawn shape.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, limit: int = 2500) -> None:
+        self.limit = max(64, int(limit))
         self.reset()
 
     def reset(self) -> None:
@@ -88,6 +94,8 @@ class _PixelPathCache:
             if not self._pixels or point != self._pixels[-1]:
                 self._pixels.append(point)
         self._count = len(samples)
+        while len(self._pixels) > self.limit:
+            self._pixels = self._pixels[::2]
         return self._pixels
 
 
@@ -254,6 +262,9 @@ class SynthwaveUI(tk.Tk):
             return
         self.current_capture = []
         self.lead_preview_capture = []
+        # Reset the rate window with the capture, otherwise the first row of a
+        # new take reports a large negative rate against the previous take.
+        self._diag_window = (time.monotonic(), 0)
         if self.selected_track.get() == "lead":
             self.lead_start_gate = LeadStartGate()
         self.recording = True

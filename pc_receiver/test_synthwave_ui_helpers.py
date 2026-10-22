@@ -62,6 +62,15 @@ class PixelPathCacheTests(unittest.TestCase):
         smaller = rows[:3]
         self.assertEqual(list(cache.points(smaller, 800, 400)), _thin_path(smaller, 800, 400))
 
+    def test_long_path_is_capped_to_the_point_budget(self):
+        # Revisiting pixels must not grow the polyline without bound: a 120 s
+        # take reached 7000 distinct points and a 7 ms redraw.
+        rows = [{"x": (index * 997) % 65535, "y": (index * 1013) % 65535} for index in range(40000)]
+        cache = _PixelPathCache(limit=2500)
+        points = cache.points(rows, 856, 410)
+        self.assertLessEqual(len(points), 2500)
+        self.assertGreater(len(points), 500)
+
 
 class DiagLogTests(unittest.TestCase):
     def test_header_is_written_once_and_rows_append(self):
