@@ -158,6 +158,22 @@ def _median(values: Sequence[float]) -> float:
     return ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2.0
 
 
+# Cursor calibration shared by the UI preview and the compiler, so the drawn
+# curve and the compiled pitch can never disagree.
+#
+# Axis scale: a square traced on the sensor gave sum|dx| = 207761 against
+# sum|dy| = 134631, so the Y axis reports 0.648 counts per X count for the same
+# physical distance. Dividing dy by that ratio makes a square hand movement
+# draw a square (tablet-like and isotropic). Re-measure before changing it.
+CURSOR_AXIS_SCALE = (1.0, 1.0 / 0.648)
+#
+# Lift thresholds. 24 percent of the captured frames sit above 20000, so the
+# old release point fired during normal playing; 30000/36000 leaves ordinary
+# gesture below the band and keeps the lift deliberate.
+CURSOR_Z_ENGAGE = 30000.0
+CURSOR_Z_RELEASE = 36000.0
+
+
 def _profile_hash(value: object) -> str:
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=list).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:16]
@@ -548,7 +564,8 @@ class RelativeCursor:
 
     def __init__(self, *, g_max: float = 1.0, g_min: float = 0.25,
                  z_low: float = 4000.0, z_high: float = 24000.0,
-                 z_engage: float = 16000.0, z_release: float = 20000.0,
+                 z_engage: float = CURSOR_Z_ENGAGE, z_release: float = CURSOR_Z_RELEASE,
+                 axis_scale: Tuple[float, float] = CURSOR_AXIS_SCALE,
                  deadzone: float = 0.0004,
                  start: Tuple[float, float] = (0.5, 0.5)) -> None:
         self.g_max = float(g_max)
@@ -557,6 +574,7 @@ class RelativeCursor:
         self.z_high = float(z_high)
         self.z_engage = float(z_engage)
         self.z_release = float(z_release)
+        self.axis_scale = (float(axis_scale[0]), float(axis_scale[1]))
         self.deadzone = float(deadzone)
         self.cursor: Tuple[float, float] = (float(start[0]), float(start[1]))
         self.engaged = True
@@ -593,8 +611,8 @@ class RelativeCursor:
         if self._prev is None:
             self._prev = point
             return self.cursor, gain
-        dx = point[0] - self._prev[0]
-        dy = point[1] - self._prev[1]
+        dx = (point[0] - self._prev[0]) * self.axis_scale[0]
+        dy = (point[1] - self._prev[1]) * self.axis_scale[1]
         self._prev = point
         if active:
             x = _clamp(self.cursor[0] + gain * self._deadzone(dx), 0.0, 1.0)

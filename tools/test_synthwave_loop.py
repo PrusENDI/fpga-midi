@@ -372,14 +372,26 @@ class RelativeCursorTests(unittest.TestCase):
 
 
     def test_engagement_uses_hysteresis(self):
-        cursor = RelativeCursor()
+        cursor = RelativeCursor(z_engage=16000, z_release=20000)
         self.assertTrue(cursor.update_engagement(8000))
         self.assertFalse(cursor.update_engagement(21000))
         self.assertFalse(cursor.update_engagement(17000))
         self.assertTrue(cursor.update_engagement(15000))
 
-    def test_raising_the_hand_above_release_stops_the_cursor(self):
+    def test_default_release_sits_above_normal_play(self):
         cursor = RelativeCursor()
+        self.assertTrue(cursor.update_engagement(24000))
+        self.assertFalse(cursor.update_engagement(37000))
+
+    def test_axis_scale_makes_a_square_hand_move_draw_a_square(self):
+        cursor = RelativeCursor()
+        cursor.push((0.5, 0.5), 6000)
+        # Same physical distance: the Y axis reports fewer counts.
+        moved, _ = cursor.push((0.51, 0.5 + 0.01 * 0.648), 6000)
+        self.assertAlmostEqual(moved[0] - 0.5, moved[1] - 0.5, places=6)
+
+    def test_raising_the_hand_above_release_stops_the_cursor(self):
+        cursor = RelativeCursor(z_engage=16000, z_release=20000)
         cursor.push((0.5, 0.5), 8000)
         cursor.push((0.52, 0.5), 21000)
         self.assertAlmostEqual(cursor.cursor[0], 0.5)
