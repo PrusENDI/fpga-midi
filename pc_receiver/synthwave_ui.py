@@ -21,7 +21,7 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate,
-                            RelativeCursor, StreamingLeadFilter, _clamp, compile_loop,
+                            StreamingLeadFilter, _clamp, compile_loop, make_cursor,
                             load_jsonl_records, project_sample, render_loop,
                             write_event_table)  # noqa: E402
 
@@ -31,6 +31,7 @@ from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate,
 # widen the drawn path without moving it relative to the guides.
 VIEW_X_RANGE = (0.0, 65535.0)
 VIEW_Y_RANGE = (0.0, 65535.0)
+PLOT_MARGIN = 16.0
 
 
 def _iso_point(x: float, y: float, z: float, width: int, height: int) -> tuple:
@@ -55,6 +56,126 @@ def _project_3d(row: dict, width: int, height: int,
     z = row.get("z_norm")
     return _iso_point(0.5 if x is None else x, 0.5 if y is None else y, 0.5 if z is None else z,
                       width, height)
+
+
+def _unit_value(value: object, default: float = 0.5) -> float:
+    """Normalize either a unit coordinate or a raw MGC3130 count."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if abs(number) > 1.5:
+        number /= 65535.0
+    return _clamp(number, 0.0, 1.0)
+
+
+def _preview_xy_z(row: dict) -> tuple[float, float, float]:
+    """Return the XY position and depth used by the 2D preview.
+
+    Lead cursor coordinates are preferred because they are the values the
+    compiler consumes in cursor mode.  Compiled/other-track rows fall back to
+    normalized application coordinates and finally raw sensor counts.
+    """
+    x = row.get("cursor_x")
+    y = row.get("cursor_y")
+    z = row.get("z_norm")
+    if x is None:
+        x = row.get("q_x", row.get("x"))
+    if y is None:
+        y = row.get("q_y", row.get("y"))
+    if z is None:
+        z = row.get("q_z", row.get("z"))
+    return _unit_value(x), _unit_value(y), _unit_value(z)
+
+
+def _z_color(z: float) -> str:
+    """Map low Z to blue and high Z to orange for a readable depth cue."""
+    ratio = _clamp(float(z), 0.0, 1.0)
+    low = (79, 124, 255)
+    high = (255, 159, 104)
+    rgb = tuple(round(low[i] + (high[i] - low[i]) * ratio) for i in range(3))
+    return "#%02x%02x%02x" % rgb
+
+
+def _project_xy_unit(x: float, y: float, width: int, height: int) -> tuple[float, float]:
+    left, top, plot_w, plot_h = _plot_rect(width, height, (0.0, 1.0), (0.0, 1.0))
+    return left + _clamp(x, 0.0, 1.0) * plot_w, top + (1.0 - _clamp(y, 0.0, 1.0)) * plot_h
+
+
+def _thin_xy_z(samples: List[dict], width: int, height: int,
+               limit: int | None = None) -> List[tuple[float, float, float, int]]:
+    """Project a capture to XY pixels while retaining depth and stroke breaks.
+
+    A lifted hand or invalid frame starts a new stroke.  Z is kept in the
+    result even when XY is unchanged, so a pure depth movement remains visible
+    through its color change instead of disappearing as a zero-length line.
+    """
+    points: List[tuple[float, float, float, int]] = []
+    previous_key: tuple[int, int, int] | None = None
+    stroke = 0
+    for row in samples:
+        x, y, z = _preview_xy_z(row)
+        engaged = row.get("cursor_engaged", True)
+        valid = bool(row.get("position_valid", True)) and engaged is not False
+        if not valid:
+            stroke += 1
+            previous_key = None
+            continue
+        px, py = _project_xy_unit(x, y, width, height)
+        key = (round(px), round(py), round(z * 255.0))
+        if key != previous_key:
+            points.append((px, py, z, stroke))
+            previous_key = key
+    if limit is not None and len(points) > limit:
+        stride = max(1, (len(points) - 1 + limit - 2) // max(1, limit - 1))
+        reduced = points[::stride]
+        if reduced[-1] != points[-1]:
+            reduced.append(points[-1])
+        points = reduced[:limit - 1] + [points[-1]] if len(reduced) > limit else reduced
+    return points
+
+
+class _DepthPathCache:
+    """Incremental pixel cache for the depth-encoded XY canvas."""
+
+    def __init__(self, limit: int = 2500) -> None:
+        self.limit = max(64, int(limit))
+        self.reset()
+
+    def reset(self) -> None:
+        self._source: List[dict] | None = None
+        self._count = 0
+        self._size: tuple | None = None
+        self._points: List[tuple[float, float, float, int]] = []
+        self._last_key: tuple[int, int, int] | None = None
+        self._stroke = 0
+
+    def points(self, samples: List[dict], width: int, height: int) -> List[tuple[float, float, float, int]]:
+        size = (width, height)
+        if self._source is not samples or self._size != size or len(samples) < self._count:
+            self.reset()
+            self._source = samples
+            self._size = size
+        for row in samples[self._count:]:
+            x, y, z = _preview_xy_z(row)
+            if bool(row.get("position_valid", True)) is False or row.get("cursor_engaged", True) is False:
+                self._stroke += 1
+                self._last_key = None
+                continue
+            px, py = _project_xy_unit(x, y, width, height)
+            key = (round(px), round(py), round(z * 255.0))
+            if key != self._last_key:
+                self._points.append((px, py, z, self._stroke))
+                self._last_key = key
+        self._count = len(samples)
+        while len(self._points) > self.limit:
+            old = self._points
+            stride = max(2, (len(old) + self.limit - 2) // max(1, self.limit - 1))
+            reduced = old[::stride]
+            if reduced[-1] != old[-1]:
+                reduced.append(old[-1])
+            self._points = reduced[:self.limit - 1] + [old[-1]] if len(reduced) > self.limit else reduced
+        return self._points
 
 
 def _y_to_canvas(value: float, width: int, height: int) -> float:
@@ -88,16 +209,15 @@ def _plot_rect(width: int, height: int,
                y_range: tuple = (0.0, 65535.0)) -> tuple:
     """Return (left, top, width, height) using one scale for both axes.
 
-    The sensor's active area is square, but the canvas is much wider than it
-    is tall. Stretching each axis to fill the canvas made one count worth
-    ~82 px horizontally and ~185 px vertically, so a square drew as a flat
-    rectangle and vertical jitter was amplified into visible steps. Fit the
-    range into the canvas at a single scale and centre it instead.
+    The sensor's active area is square, but the canvas is usually wider than it
+    is tall. Stretching each axis to fill the canvas makes one count worth a
+    different number of pixels on each axis. Fit the range into the canvas at
+    one scale, with a compact margin, and centre it instead.
     """
     span_x = max(1e-9, x_range[1] - x_range[0])
     span_y = max(1e-9, y_range[1] - y_range[0])
-    usable_w = max(1.0, width - 56.0)
-    usable_h = max(1.0, height - 56.0)
+    usable_w = max(1.0, width - 2.0 * PLOT_MARGIN)
+    usable_h = max(1.0, height - 2.0 * PLOT_MARGIN)
     scale = min(usable_w / span_x, usable_h / span_y)
     plot_w = span_x * scale
     plot_h = span_y * scale
@@ -244,7 +364,7 @@ class SynthwaveUI(tk.Tk):
         self.lead_preview_capture: List[dict] = []
         self.lead_start_gate = LeadStartGate()
         self.lead_filter = StreamingLeadFilter()
-        self.lead_cursor = RelativeCursor()
+        self.lead_cursor = make_cursor()
         self.event_table: dict | None = None
         self.receiver: subprocess.Popen[str] | None = None
         self.receiver_thread: threading.Thread | None = None
@@ -259,7 +379,7 @@ class SynthwaveUI(tk.Tk):
         self._draw_cost_ms = 0.0
         self.diag = tk.StringVar(value="idle")
         self._diag_window = (time.monotonic(), 0)
-        self._path_cache = _PixelPathCache()
+        self._path_cache = _DepthPathCache()
         # Persist the once-per-second readout so a slow take can be analysed
         # offline instead of being read off the screen.
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -298,7 +418,7 @@ class SynthwaveUI(tk.Tk):
 
         ttk.Label(left, text="TRACKS", style="Muted.TLabel").pack(anchor="w", pady=(0, 6))
         for track in TRACKS:
-            label = {"lead": "LEAD  ·  3D curve", "bass": "BASS  ·  touch", "pad": "PAD  ·  touch", "arp": "ARP  ·  touch", "drums": "DRUMS  ·  tap", "texture_fx": "TEXTURE / FX"}[track]
+            label = {"lead": "LEAD  ·  XY + Z depth", "bass": "BASS  ·  touch", "pad": "PAD  ·  touch", "arp": "ARP  ·  touch", "drums": "DRUMS  ·  tap", "texture_fx": "TEXTURE / FX"}[track]
             ttk.Radiobutton(left, text=label, value=track, variable=self.selected_track, command=self._track_changed).pack(fill="x", pady=2)
         ttk.Separator(left).pack(fill="x", pady=12)
         ttk.Label(left, text="TAKE LABEL", style="Muted.TLabel").pack(anchor="w")
@@ -319,7 +439,10 @@ class SynthwaveUI(tk.Tk):
         ttk.Radiobutton(left, text="Workspace (fixed)", value="workspace", variable=self.mapping_mode).pack(anchor="w")
         ttk.Radiobutton(left, text="Gesture-Aligned", value="gesture_aligned", variable=self.mapping_mode).pack(anchor="w")
 
-        self.canvas = tk.Canvas(center, bg="#0c1018", highlightthickness=1, highlightbackground="#2d3548")
+        # The surrounding center pane stays the panel color.  The square plot
+        # gets its own dark fill below, so the old wide dark canvas no longer
+        # reads as an empty rectangle containing a smaller plot.
+        self.canvas = tk.Canvas(center, bg="#171b26", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda _event: self._draw_canvas())
         ttk.Label(center, textvariable=self.status, anchor="w").pack(fill="x", pady=(8, 2))
@@ -327,7 +450,10 @@ class SynthwaveUI(tk.Tk):
         self.progress = ttk.Progressbar(center, mode="determinate", maximum=128)
         self.progress.pack(fill="x")
         columns = ("track", "tick", "note", "duration", "velocity", "source", "landmarks", "delta", "color")
-        self.tree = ttk.Treeview(center, columns=columns, show="headings", height=8)
+        # The spatial preview is the primary instrument.  Keep a compact
+        # event summary below it so the central square gets the available
+        # vertical space without hiding the event table entirely.
+        self.tree = ttk.Treeview(center, columns=columns, show="headings", height=6)
         for column in columns:
             self.tree.heading(column, text=column.upper())
             self.tree.column(column, width=88 if column not in ("landmarks", "delta") else 118, anchor="center")
@@ -381,7 +507,7 @@ class SynthwaveUI(tk.Tk):
         if self.selected_track.get() == "lead":
             self.lead_start_gate = LeadStartGate()
             self.lead_filter = StreamingLeadFilter()
-            self.lead_cursor = RelativeCursor()
+            self.lead_cursor = make_cursor()
         self.recording = True
         track = self.selected_track.get()
         prompt = "move to the left edge, then move right" if track == "lead" else "stop when the take is complete"
@@ -447,7 +573,7 @@ class SynthwaveUI(tk.Tk):
         if value is None:
             return
         z_raw = value[2] * 65535.0
-        point, gain = self.lead_cursor.push((value[0], value[1]), z_raw)
+        point, gain = self.lead_cursor.push((value[0] * 65535.0, value[1] * 65535.0), z_raw)
         z_norm = _clamp((z_raw - 4000.0) / 20000.0, 0.0, 1.0)
         self.lead_preview_capture.append({
             "cursor_x": point[0],
@@ -584,7 +710,7 @@ class SynthwaveUI(tk.Tk):
             self.lead_samples.extend(records)
             self.lead_start_gate = LeadStartGate()
             self.lead_filter = StreamingLeadFilter()
-            self.lead_cursor = RelativeCursor()
+            self.lead_cursor = make_cursor()
             self.lead_preview_capture = []
             for record in records:
                 self._push_lead_preview(record)
@@ -638,56 +764,121 @@ class SynthwaveUI(tk.Tk):
                        if self.selected_track.get() == "lead" else self.current_capture)
         self.canvas.delete("all")
         width, height = max(10, self.canvas.winfo_width()), max(10, self.canvas.winfo_height())
-        for x in range(0, width, 80):
-            self.canvas.create_line(x, 0, x, height, fill="#182235")
-        for y in range(0, height, 60):
-            self.canvas.create_line(0, y, width, y, fill="#182235")
-        self.canvas.create_text(16, 14, anchor="nw", text="XYZ trajectory / current capture", fill="#8490a8")
-        plot_left, plot_top, plot_w, plot_h = _plot_rect(width, height, VIEW_X_RANGE, VIEW_Y_RANGE)
-        # The sensor's active area is square. Showing that square explicitly
-        # stops the empty side margins from reading as "lost" range.
+        plot_left, plot_top, plot_w, plot_h = _plot_rect(width, height, (0.0, 1.0), (0.0, 1.0))
         self.canvas.create_rectangle(plot_left, plot_top, plot_left + plot_w, plot_top + plot_h,
-                                     outline="#1d2740")
-        # Three equal-length axes: a unit step on X, Y or Z draws the same
-        # distance, so the box reads square and depth is comparable to width.
-        origin = _iso_point(0.0, 0.0, 0.0, width, height)
-        for corner, colour, label in (((1.0, 0.0, 0.0), "#c96a6a", "X"),
-                                      ((0.0, 1.0, 0.0), "#6ac97a", "Y"),
-                                      ((0.0, 0.0, 1.0), "#6a9ac9", "Z")):
-            end = _iso_point(*corner, width, height)
-            self.canvas.create_line(origin[0], origin[1], end[0], end[1], fill=colour)
-            self.canvas.create_text(end[0] + 8, end[1] - 8, text=label, fill=colour, font=("Segoe UI", 9, "bold"))
-        # Fixed G3–C5 PitchSpace guides, projected along the Y axis.
+                                     fill="#0c1018", outline="#1d2740")
+        self.canvas.create_text(plot_left + 12, plot_top + 10, anchor="nw",
+                                text="XY path  ·  color = Z depth", fill="#8490a8",
+                                font=("Segoe UI", 10, "bold"))
+        # A square XY grid keeps the cursor's spatial meaning stable.  The
+        # depth channel is deliberately encoded by color instead of moving a
+        # point out of the XY plane, so pure Z motion cannot look like XY drift.
+        for fraction in (0.0, 0.25, 0.5, 0.75, 1.0):
+            x = plot_left + fraction * plot_w
+            y = plot_top + (1.0 - fraction) * plot_h
+            self.canvas.create_line(x, plot_top, x, plot_top + plot_h, fill="#182235")
+            self.canvas.create_line(plot_left, y, plot_left + plot_w, y, fill="#182235")
+            self.canvas.create_text(x, plot_top + plot_h - 7, text=f"{fraction:.2f}", fill="#536078",
+                                    anchor="s", font=("Segoe UI", 8))
+            self.canvas.create_text(plot_left + 7, y, text=f"{fraction:.2f}", fill="#536078",
+                                    anchor="w", font=("Segoe UI", 8))
+        self.canvas.create_text(plot_left + plot_w / 2, plot_top + plot_h - 23,
+                                text="X / horizontal", fill="#9da7bb", anchor="s")
+        self.canvas.create_text(plot_left + 23, plot_top + plot_h / 2,
+                                text="Y / pitch", fill="#9da7bb", angle=90, anchor="center")
+        # Fixed G3–C5 PitchSpace guides, drawn in the same XY coordinates as
+        # the trajectory.  They are guides, not a second time-vs-pitch plot.
         for midi in DEFAULT_PITCH_SPACE.scale_pitches:
             ratio = (midi - DEFAULT_PITCH_SPACE.min_midi) / max(1, DEFAULT_PITCH_SPACE.max_midi - DEFAULT_PITCH_SPACE.min_midi)
-            a = _iso_point(0.0, ratio, 0.0, width, height)
-            b = _iso_point(1.0, ratio, 0.0, width, height)
-            self.canvas.create_line(a[0], a[1], b[0], b[1], fill="#27344d")
-            self.canvas.create_text(a[0] - 6, a[1], anchor="e", text=str(midi), fill="#536078", font=("Segoe UI", 8))
+            y = plot_top + (1.0 - ratio) * plot_h
+            self.canvas.create_line(plot_left, y, plot_left + plot_w, y, fill="#27344d", dash=(2, 4))
+            self.canvas.create_text(plot_left + 5, y - 2, anchor="sw", text=str(midi), fill="#536078", font=("Segoe UI", 8))
+        # Compact depth legend.  It stays inside the plot so the meaning is
+        # visible next to the path on narrow windows too.
+        legend_x = plot_left + plot_w - 20
+        legend_y = plot_top + 18
+        for index in range(12):
+            z = index / 11.0
+            y = legend_y + (1.0 - z) * 84.0
+            self.canvas.create_line(legend_x, y, legend_x + 12, y, fill=_z_color(z), width=4)
+        self.canvas.create_text(legend_x - 5, legend_y - 9, text="Z high", fill="#ff9f68", anchor="e", font=("Segoe UI", 8))
+        self.canvas.create_text(legend_x - 5, legend_y + 93, text="Z low", fill="#4f7cff", anchor="e", font=("Segoe UI", 8))
         if len(samples) < 2:
             self.canvas.create_text(width / 2, height / 2, text="Record Lead or import a JSONL capture", fill="#536078")
             return
-        pixels = self._path_cache.points(samples, width, height, (0.0, 1.0), (0.0, 1.0),
-                                         projector=_project_3d)
+        pixels = self._path_cache.points(samples, width, height)
         self._drawn_points = len(pixels)
-        points = []
-        for px, py in pixels:
-            points.extend((px, py))
-        if len(points) < 4:
+        if not pixels:
             self.canvas.create_text(width / 2, height / 2, text="Capture is shorter than one pixel", fill="#536078")
             return
-        # No spline: the path is already thinned at display resolution, and
-        # smoothing would round exactly the corners the user draws on purpose.
-        self.canvas.create_line(*points, fill="#f3c969", width=2)
-        self.canvas.create_oval(points[0] - 4, points[1] - 4, points[0] + 4, points[1] + 4, fill="#6ce5b1", outline="")
-        self.canvas.create_oval(points[-2] - 4, points[-1] - 4, points[-2] + 4, points[-1] + 4, fill="#ef7896", outline="")
+        # No spline: corners are intentional.  Depth colour is quantised into
+        # ten bands and consecutive segments inside a band are merged into one
+        # polyline: drawing a line per segment cost 27 ms at 2000 points, which
+        # cannot hold 60 fps, and the bands are indistinguishable at this size.
+        runs: list[tuple[int, list[float]]] = []
+        dots: dict[tuple[int, int, int], float] = {}
+        current: int | None = None
+        coords: list[float] = []
+
+        def flush() -> None:
+            if len(coords) >= 4 and current is not None:
+                runs.append((current, coords[:]))
+
+        for before, after in zip(pixels, pixels[1:]):
+            if before[3] != after[3]:
+                flush()
+                coords = []
+                current = None
+                continue
+            bucket = int(round((before[2] + after[2]) * 0.5 * 9))
+            if abs(before[0] - after[0]) < 0.01 and abs(before[1] - after[1]) < 0.01:
+                # Stationary points show pure depth motion; cap them, otherwise
+                # a slow take builds hundreds of ovals and the redraw stalls.
+                if len(dots) < 200:
+                    dots[(bucket, round(after[0]), round(after[1]))] = after[2]
+            if bucket != current:
+                flush()
+                coords = [before[0], before[1], after[0], after[1]]
+                current = bucket
+            else:
+                coords.extend((after[0], after[1]))
+        flush()
+        for bucket, points in runs:
+            self.canvas.create_line(*points, fill=_z_color(bucket / 9.0), width=2)
+        for (_bucket, px, py), z in dots.items():
+            radius = 2.0
+            self.canvas.create_oval(px - radius, py - radius, px + radius, py + radius,
+                                    fill=_z_color(z), outline="")
+        self.canvas.create_oval(pixels[0][0] - 4, pixels[0][1] - 4, pixels[0][0] + 4, pixels[0][1] + 4,
+                                fill="#6ce5b1", outline="")
+        self.canvas.create_oval(pixels[-1][0] - 4, pixels[-1][1] - 4, pixels[-1][0] + 4, pixels[-1][1] + 4,
+                                fill="#ef7896", outline="")
+        latest = next((row for row in reversed(samples)
+                       if row.get("cursor_x") is not None or row.get("q_x") is not None
+                       or row.get("x") is not None), None)
+        if latest is not None:
+            x, y, z = _preview_xy_z(latest)
+            gain = latest.get("cursor_gain")
+            engaged = latest.get("cursor_engaged", True)
+            mode = "TRACK" if engaged is not False else "LIFT / CLUTCH"
+            gate = str(latest.get("start_gate_state", ""))
+            gain_text = f"  GAIN {float(gain):.2f}×" if gain is not None else ""
+            self.canvas.create_text(plot_left + 12, plot_top + 34,
+                                    text=f"X {x:.3f}  Y {y:.3f}  Z {z:.3f}   {mode}{gain_text}",
+                                    fill="#e9edf5", anchor="nw", font=("Segoe UI", 9))
+            if gate and gate not in {"accepted", ""}:
+                self.canvas.create_text(plot_left + 12, plot_top + 52,
+                                        text=f"Lead start: {gate}", fill="#f3c969", anchor="nw",
+                                        font=("Segoe UI", 8))
         if self.event_table and self.event_table.get("landmarks"):
             colors = {"move": "#6ce5b1", "hold": "#f3c969", "turn": "#ef7896", "apex": "#ff9f68", "valley": "#8aa7ff", "rest": "#667085", "release": "#d58cff"}
+            event_samples = self.event_table.get("samples", [])
             for landmark in self.event_table["landmarks"]:
-                tick_ratio = float(landmark.get("tick", 0)) / max(1, STYLE.loop_ticks - 1)
-                pitch_ratio = _clamp(float(landmark.get("b_abs", 0.5)), 0.0, 1.0)
-                px = 28 + tick_ratio * (width - 56)
-                py = height - 28 - pitch_ratio * (height - 56)
+                tick = int(landmark.get("tick", 0))
+                if not event_samples or tick >= len(event_samples):
+                    continue
+                x, y, _ = _preview_xy_z(event_samples[tick])
+                px, py = _project_xy_unit(x, y, width, height)
                 color = colors.get(str(landmark.get("kind")), "#d9e2f2")
                 self.canvas.create_oval(px - 5, py - 5, px + 5, py + 5, fill=color, outline="#10131b", width=1)
                 self.canvas.create_text(px + 7, py - 7, anchor="sw", text=str(landmark.get("kind", "")), fill=color, font=("Segoe UI", 8))

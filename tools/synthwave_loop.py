@@ -420,14 +420,24 @@ class LeadStartGate:
         return [start, departure, row]
 
 
+def make_cursor():
+    """Build the cursor selected by CURSOR_MODE.
+
+    The UI preview and the compiler both call this, so the drawn curve and the
+    compiled pitch can never be built from different cursor models.
+    """
+    return AbsoluteCursor() if CURSOR_MODE == "absolute" else RelativeCursor()
+
+
 def _apply_cursor_layer(rows: List[Dict[str, object]], pitch_source: str = "cursor") -> List[Dict[str, object]]:
-    """Run the relative cursor over filtered frames and mark the phrase.
+    """Run the cursor over filtered frames and mark the phrase.
 
     In cursor mode the phrase starts at the first engaged frame and stops
-    producing evidence while the hand is lifted, which replaces the left-edge
-    start gate: there is no absolute edge to start from any more.
+    producing evidence while the hand is lifted. With the absolute cursor the
+    re-engage frame snaps to the hand; it is flagged ``rebased`` and marked
+    invalid so the catch-up cannot be read as a turn.
     """
-    cursor = RelativeCursor()
+    cursor = make_cursor()
     started = False
     for row in rows:
         q = row.get("q_app")
@@ -437,14 +447,17 @@ def _apply_cursor_layer(rows: List[Dict[str, object]], pitch_source: str = "curs
             row["cursor_y"] = row.get("cursor_y")
             row["cursor_engaged"] = cursor.engaged
             continue
-        point, gain = cursor.push((float(q[0]), float(q[1])), float(q[2]) * 65535.0)
+        point, gain = cursor.push((float(q[0]) * 65535.0, float(q[1]) * 65535.0),
+                                  float(q[2]) * 65535.0)
+        rebased = bool(getattr(cursor, "rebased", False))
         row["cursor_x"], row["cursor_y"] = point
         row["cursor_gain"] = gain
         row["cursor_engaged"] = cursor.engaged
+        row["cursor_rebased"] = rebased
         if cursor.engaged and not started:
             started = True
         row["start_gate_state"] = "accepted" if started else "prestart"
-        if not started or not cursor.engaged:
+        if not started or not cursor.engaged or rebased:
             row["position_valid"] = False
         if pitch_source == "cursor":
             row["b_abs"] = point[1]
@@ -546,6 +559,82 @@ def preprocess_samples(samples: Sequence[Mapping[str, object]],
 
 def _interp(a: float, b: float, ratio: float) -> float:
     return a + (b - a) * ratio
+
+
+# Absolute (tablet) mapping. The calibrated rectangle maps edge to edge onto
+# the cursor square. The Y range is narrower than X because a square traced on
+# the sensor produced sum|dx| 207761 against sum|dy| 134631 (ratio 0.648), so
+# the same physical height spans fewer counts; using 0.648 of the X span keeps
+# a square hand movement drawing a square while both edges still reach 0 and 1.
+CURSOR_MODE = "absolute"
+CURSOR_X_RANGE = (0.0, 65535.0)
+CURSOR_Y_RANGE = (32768.0 - 65535.0 * 0.648 / 2.0, 32768.0 + 65535.0 * 0.648 / 2.0)
+CURSOR_ALPHA_LOW = 1.0
+CURSOR_ALPHA_HIGH = 0.12
+
+
+class AbsoluteCursor:
+    """Tablet-like mapping: the sensor rectangle fills the cursor square.
+
+    Z does not scale displacement, because that would break the edge-to-edge
+    correspondence. It scales the follow rate instead: a resting hand sits
+    exactly under the pointer, while a raised hand damps fast movement and
+    leaves fine control. Re-engaging after a lift snaps to the hand on a
+    single frame flagged ``rebased``, which the compiler marks invalid so the
+    catch-up cannot be read as a turn.
+    """
+
+    def __init__(self, x_range: Tuple[float, float] = CURSOR_X_RANGE,
+                 y_range: Tuple[float, float] = CURSOR_Y_RANGE,
+                 alpha_low: float = CURSOR_ALPHA_LOW, alpha_high: float = CURSOR_ALPHA_HIGH,
+                 z_low: float = 4000.0, z_high: float = 24000.0,
+                 z_engage: float = CURSOR_Z_ENGAGE, z_release: float = CURSOR_Z_RELEASE,
+                 start: Tuple[float, float] = (0.5, 0.5)) -> None:
+        self.x_range = (float(x_range[0]), float(x_range[1]))
+        self.y_range = (float(y_range[0]), float(y_range[1]))
+        self.alpha_low = float(alpha_low)
+        self.alpha_high = float(alpha_high)
+        self.z_low = float(z_low)
+        self.z_high = float(z_high)
+        self.z_engage = float(z_engage)
+        self.z_release = float(z_release)
+        self.cursor: Tuple[float, float] = (float(start[0]), float(start[1]))
+        self.engaged = True
+        self.rebased = False
+
+    def update_engagement(self, z: float) -> bool:
+        if self.engaged:
+            if float(z) > self.z_release:
+                self.engaged = False
+        elif float(z) < self.z_engage:
+            self.engaged = True
+        return self.engaged
+
+    def alpha_at(self, z: float) -> float:
+        span = max(1e-9, self.z_high - self.z_low)
+        z_norm = (float(z) - self.z_low) / span
+        z_norm = 0.0 if z_norm < 0.0 else (1.0 if z_norm > 1.0 else z_norm)
+        return self.alpha_low - (self.alpha_low - self.alpha_high) * z_norm
+
+    def target(self, q: Sequence[float]) -> Tuple[float, float]:
+        x_lo, x_hi = self.x_range
+        y_lo, y_hi = self.y_range
+        return (_clamp((float(q[0]) - x_lo) / max(1e-9, x_hi - x_lo), 0.0, 1.0),
+                _clamp((float(q[1]) - y_lo) / max(1e-9, y_hi - y_lo), 0.0, 1.0))
+
+    def push(self, q: Sequence[float], z: float, engaged: bool | None = None) -> Tuple[Tuple[float, float], float]:
+        was_engaged = self.engaged
+        active = self.update_engagement(z) if engaged is None else bool(engaged)
+        point = self.target(q)
+        alpha = self.alpha_at(z)
+        self.rebased = False
+        if active and not was_engaged:
+            self.cursor = point
+            self.rebased = True
+        elif active:
+            self.cursor = (self.cursor[0] + alpha * (point[0] - self.cursor[0]),
+                           self.cursor[1] + alpha * (point[1] - self.cursor[1]))
+        return self.cursor, alpha
 
 
 class RelativeCursor:

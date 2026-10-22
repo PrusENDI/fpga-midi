@@ -8,6 +8,7 @@ from tools.synthwave_loop import (
     DEFAULT_CALIBRATION,
     DEFAULT_LEAD_PATCH,
     DEFAULT_PITCH_SPACE,
+    AbsoluteCursor,
     LeadStartGate,
     STYLE,
     RelativeCursor,
@@ -396,6 +397,43 @@ class RelativeCursorTests(unittest.TestCase):
         cursor.push((0.52, 0.5), 21000)
         self.assertAlmostEqual(cursor.cursor[0], 0.5)
         self.assertFalse(cursor.engaged)
+
+
+class AbsoluteCursorTests(unittest.TestCase):
+    def test_sensor_edges_map_to_canvas_edges(self):
+        cursor = AbsoluteCursor()
+        self.assertEqual(cursor.target((0.0, 11534.0)), (0.0, 0.0))
+        self.assertEqual(cursor.target((65535.0, 54002.0)), (1.0, 1.0))
+
+    def test_a_square_hand_move_draws_a_square(self):
+        # The Y axis reports 0.648 counts per X count for the same distance.
+        cursor = AbsoluteCursor()
+        left = cursor.target((10000.0, 30000.0))
+        right = cursor.target((10000.0 + 10000.0, 30000.0 + 10000.0 * 0.648))
+        self.assertAlmostEqual(right[0] - left[0], right[1] - left[1], places=6)
+
+    def test_follow_rate_falls_with_height(self):
+        cursor = AbsoluteCursor()
+        self.assertAlmostEqual(cursor.alpha_at(4000), 1.0)
+        self.assertAlmostEqual(cursor.alpha_at(24000), 0.12)
+        self.assertLess(cursor.alpha_at(15000), cursor.alpha_at(6000))
+
+    def test_resting_hand_sits_exactly_under_the_pointer(self):
+        cursor = AbsoluteCursor()
+        for _ in range(20):
+            moved, _alpha = cursor.push((50000.0, 40000.0), 4000)
+        target = cursor.target((50000.0, 40000.0))
+        self.assertAlmostEqual(moved[0], target[0], places=6)
+        self.assertAlmostEqual(moved[1], target[1], places=6)
+
+    def test_reengaging_snaps_and_flags_the_frame(self):
+        cursor = AbsoluteCursor()
+        cursor.push((32768.0, 32768.0), 6000)
+        cursor.push((32768.0, 32768.0), 40000)
+        self.assertFalse(cursor.engaged)
+        moved, _alpha = cursor.push((60000.0, 40000.0), 6000)
+        self.assertTrue(cursor.rebased)
+        self.assertAlmostEqual(moved[0], cursor.target((60000.0, 40000.0))[0], places=6)
 
 
 if __name__ == "__main__":
