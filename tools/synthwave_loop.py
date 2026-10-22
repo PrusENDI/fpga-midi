@@ -175,6 +175,25 @@ def _capture_order(samples: Sequence[Mapping[str, object]]) -> List[Dict[str, ob
     return capture_order(samples, key=lambda row: _sample_timestamp(row, 0.0))
 
 
+def _phrase_window(samples: Sequence[Mapping[str, object]]) -> Tuple[float, float]:
+    """Time window of the phrase itself, excluding the left-edge pre-roll.
+
+    The start gate accepts the edge frame retroactively, so everything before
+    it is capture diagnostics. Letting those frames own the beginning of the
+    loop compressed the real phrase into whatever was left: a five second wait
+    before drawing cost about 33 of the 128 ticks. Rows without a gate state
+    fall back to the full capture so non-Lead callers keep their behaviour.
+    """
+    ordered = _capture_order(samples)
+    if not ordered:
+        return 0.0, 0.0
+    accepted = [row for row in ordered if row.get("start_gate_state") == "accepted"]
+    window = accepted or ordered
+    start = _sample_timestamp(window[0], 0.0)
+    end = _sample_timestamp(window[-1], start)
+    return start, (end if end > start else start + 1.0)
+
+
 def _cross(a: Sequence[float], b: Sequence[float]) -> tuple[float, float, float]:
     return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
 
@@ -401,8 +420,7 @@ def preprocess_samples(samples: Sequence[Mapping[str, object]],
         projected = _apply_lead_start_gate(projected)
         if not projected:
             return []
-        start = float(projected[0].get("timestamp_ms", 0.0))
-        end = float(projected[-1].get("timestamp_ms", start))
+        start, end = _phrase_window(projected)
         span = max(1e-9, end - start)
         for row in projected:
             row["a_rel"] = _clamp((float(row.get("timestamp_ms", start)) - start) / span, 0.0, 1.0)
@@ -424,8 +442,6 @@ def preprocess_samples(samples: Sequence[Mapping[str, object]],
         for i, value in enumerate(filtered[axis]):
             previous = value if i == 0 else previous + 0.35 * (value - previous)
             filtered[axis][i] = previous
-    start, end = float(projected[0]["timestamp_ms"]), float(projected[-1]["timestamp_ms"])
-    span = max(1e-9, end - start)
     active_axes = (calibration.horizontal_axis, calibration.pitch_axis, calibration.color_axis)
     alignment_fallback = None
     if mode == "gesture_aligned":
@@ -440,14 +456,22 @@ def preprocess_samples(samples: Sequence[Mapping[str, object]],
         updated = dict(row)
         updated.update({
             "q_app": q, "q_x": q[0], "q_y": q[1], "q_z": q[2],
-            "a_rel": _clamp((float(row["timestamp_ms"]) - start) / span, 0.0, 1.0),
+            "a_rel": 0.0,
             "b_abs": _dot(relative, active_axes[1]),
             "c_abs": _dot(relative, active_axes[2]),
             "a_path": _dot(tuple(q[axis] - calibration.q_ref[axis] for axis in range(3)), active_axes[0]),
             "alignment_fallback": alignment_fallback,
         })
         output.append(updated)
-    return _apply_lead_start_gate(output)
+    # Gate first: the phrase clock starts at the frame the gate confirmed, so
+    # the pre-roll cannot claim the beginning of the loop. a_rel is filled in
+    # afterwards against that window.
+    output = _apply_lead_start_gate(output)
+    start, end = _phrase_window(output)
+    span = max(1e-9, end - start)
+    for row in output:
+        row["a_rel"] = _clamp((float(row["timestamp_ms"]) - start) / span, 0.0, 1.0)
+    return output
 
 
 def _interp(a: float, b: float, ratio: float) -> float:
@@ -507,7 +531,7 @@ def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveS
     if not samples:
         return []
     ordered = _capture_order(samples)
-    start, end = _sample_timestamp(ordered[0], 0.0), _sample_timestamp(ordered[-1], 0.0)
+    start, end = _phrase_window(ordered)
     span = max(1e-9, end - start)
     times = [_sample_timestamp(row, start) for row in ordered]
     result: List[Dict[str, object]] = []

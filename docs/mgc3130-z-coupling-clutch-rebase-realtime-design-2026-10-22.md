@@ -225,6 +225,8 @@ tick_i = u_i * (loop_ticks - 1)
 
 当前 128 tick 的 `resample_to_ticks()` 已采用“按 timestamp 在完整采集区间内插值”的策略。对于 Lead，`t_start` 应是左侧起笔门控确认的第一帧；起笔前缓存只用于诊断，不占用正式乐句时间。
 
+> **已实现（2026-10-22）**：`_phrase_window()` 以首个 `accepted` 帧为起点，门控先于时间归一化执行。此前 `t_start` 取整段采集第一帧，若录制后等待再起笔，prestart 会按比例吃掉 tick；实测各段 pre-roll 为 0.8–3.2 s。回归测试固定了“起笔帧 `a_rel = 0` 且首个有效 tick ≤ 2”。
+
 这意味着：
 
 - 冻结区仍然占用音乐时间并形成保持段；

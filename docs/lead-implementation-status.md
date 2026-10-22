@@ -76,6 +76,8 @@ JSONL / live receiver
 3. `a_rel = (t − t_start) / (t_end − t_start)`。
 4. 批量 `_apply_lead_start_gate` 复核：未通过门控的帧保留在数据里但 `position_valid = False`。
 
+**时间窗口从门控确认帧开始**：门控在时间归一化之前执行，`a_rel` 与 128 tick 重采样都只覆盖首个 `accepted` 帧到末帧，prestart 帧不占用乐句时间。此前 `t_start` 取整段采集的第一帧，录制后等待几秒再起笔会吃掉最多约 33 个 tick。
+
 UI 的预览曲线通过 `StreamingLeadFilter` 复用同一组滤波参数（中值窗口与 IIR 系数），逐帧复现批量结果后再绘制，因此**画布显示的就是这里产出的坐标**（WYSIWYG）。原始帧仍完整保存在 capture 文件中，不属于显示层。
 
 传 `host_profile` 时另有一条链路：`filter_capture` → Z 条件 XY 去耦合 → 时间窗中值 / 时间常数低通 / slew → `b_abs` 用 profile 的 `b_min/b_max` 归一化。两条链路产出同一组字段，但**缩放来源不同**，同一份 raw 数据在两条链路上的音高结果不保证相同。

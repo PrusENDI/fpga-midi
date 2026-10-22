@@ -292,6 +292,23 @@ class SynthwaveLoopTests(unittest.TestCase):
             self.assertAlmostEqual(value[2], batch[index]["q_z"], places=9)
 
 
+    def test_phrase_time_starts_at_the_gate_confirmed_frame(self):
+        # Operator waits five seconds before drawing. The pre-roll must not
+        # own the beginning of the loop: it used to cost about 33 of the 128
+        # ticks and squeezed the real phrase into the tail.
+        samples = [_sample(index, x=60000, y=30000) for index in range(250)]
+        samples += [_sample(250 + step, x=3000 + step * 120, y=30000 + step * 60) for step in range(250)]
+        projected = preprocess_samples(samples)
+        accepted = [row for row in projected if row.get("start_gate_state") == "accepted"]
+        self.assertTrue(accepted)
+        self.assertAlmostEqual(accepted[0]["a_rel"], 0.0, places=6)
+        ticks = resample_to_ticks(projected)
+        valid_ticks = [row["tick"] for row in ticks if row["position_valid"]]
+        self.assertTrue(valid_ticks)
+        self.assertLessEqual(min(valid_ticks), 2)
+        self.assertGreaterEqual(max(valid_ticks), 120)
+
+
 if __name__ == "__main__":
     unittest.main()
 
