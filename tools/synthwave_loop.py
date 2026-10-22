@@ -404,11 +404,43 @@ class LeadStartGate:
         return [start, departure, row]
 
 
+def _apply_cursor_layer(rows: List[Dict[str, object]], pitch_source: str = "cursor") -> List[Dict[str, object]]:
+    """Run the relative cursor over filtered frames and mark the phrase.
+
+    In cursor mode the phrase starts at the first engaged frame and stops
+    producing evidence while the hand is lifted, which replaces the left-edge
+    start gate: there is no absolute edge to start from any more.
+    """
+    cursor = RelativeCursor()
+    started = False
+    for row in rows:
+        q = row.get("q_app")
+        if not row.get("position_valid", True) or q is None:
+            row["start_gate_state"] = "accepted" if started else "prestart"
+            row["cursor_x"] = row.get("cursor_x")
+            row["cursor_y"] = row.get("cursor_y")
+            row["cursor_engaged"] = cursor.engaged
+            continue
+        point, gain = cursor.push((float(q[0]), float(q[1])), float(q[2]) * 65535.0)
+        row["cursor_x"], row["cursor_y"] = point
+        row["cursor_gain"] = gain
+        row["cursor_engaged"] = cursor.engaged
+        if cursor.engaged and not started:
+            started = True
+        row["start_gate_state"] = "accepted" if started else "prestart"
+        if not started or not cursor.engaged:
+            row["position_valid"] = False
+        if pitch_source == "cursor":
+            row["b_abs"] = point[1]
+    return rows
+
+
 def preprocess_samples(samples: Sequence[Mapping[str, object]],
                        calibration: CalibrationProfile = DEFAULT_CALIBRATION,
                        mode: str = "workspace",
                        host_profile: HostCalibrationProfile | None = None,
-                       _filtered_capture: FilteredCapture | None = None) -> List[Dict[str, object]]:
+                       _filtered_capture: FilteredCapture | None = None,
+                       pitch_source: str = "absolute") -> List[Dict[str, object]]:
     if host_profile is not None:
         filtered_capture = _filtered_capture or filter_capture(samples, host_profile)
         projected: List[Dict[str, object]] = []
@@ -435,6 +467,8 @@ def preprocess_samples(samples: Sequence[Mapping[str, object]],
             projected.append(row)
         projected = _capture_order(projected)
         projected = _apply_lead_start_gate(projected)
+        if pitch_source == "cursor":
+            projected = _apply_cursor_layer(projected, pitch_source)
         if not projected:
             return []
         start, end = _phrase_window(projected)
@@ -483,7 +517,10 @@ def preprocess_samples(samples: Sequence[Mapping[str, object]],
     # Gate first: the phrase clock starts at the frame the gate confirmed, so
     # the pre-roll cannot claim the beginning of the loop. a_rel is filled in
     # afterwards against that window.
-    output = _apply_lead_start_gate(output)
+    if pitch_source == "cursor":
+        output = _apply_cursor_layer(output, pitch_source)
+    else:
+        output = _apply_lead_start_gate(output)
     start, end = _phrase_window(output)
     span = max(1e-9, end - start)
     for row in output:
@@ -769,9 +806,10 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
                  calibration: CalibrationProfile = DEFAULT_CALIBRATION,
                  pitch_space: PitchSpace = DEFAULT_PITCH_SPACE,
                  mode: str = "workspace",
-                 host_profile: HostCalibrationProfile | None = None) -> Dict[str, object]:
+                 host_profile: HostCalibrationProfile | None = None,
+                 pitch_source: str = "absolute") -> Dict[str, object]:
     host_filter = filter_capture(samples, host_profile) if host_profile is not None else None
-    processed = preprocess_samples(samples, calibration, mode, host_profile, host_filter)
+    processed = preprocess_samples(samples, calibration, mode, host_profile, host_filter, pitch_source)
     ticks = resample_to_ticks(processed, style) if processed else []
     landmarks = extract_landmarks(ticks, style)
     pitches = pitch_space.scale_pitches
@@ -900,8 +938,8 @@ def _record_track(track: str, records: Sequence[Mapping[str, object]], style: Sy
     return result[:16]
 
 
-def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None) -> Dict[str, object]:
-    lead_result = compile_lead(lead_samples, style=style, mode=mode, host_profile=host_profile)
+def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor") -> Dict[str, object]:
+    lead_result = compile_lead(lead_samples, style=style, mode=mode, host_profile=host_profile, pitch_source=pitch_source)
     tracks: Dict[str, List[Dict[str, object]]] = {name: [] for name in TRACKS}
     tracks["lead"] = list(lead_result["events"])
     for track in TRACKS[1:]:

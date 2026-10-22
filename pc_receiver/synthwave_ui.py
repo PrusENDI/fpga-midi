@@ -21,7 +21,7 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate,
-                            StreamingLeadFilter, _clamp, compile_loop,
+                            RelativeCursor, StreamingLeadFilter, _clamp, compile_loop,
                             load_jsonl_records, project_sample, render_loop,
                             write_event_table)  # noqa: E402
 
@@ -31,6 +31,30 @@ from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate,
 # widen the drawn path without moving it relative to the guides.
 VIEW_X_RANGE = (0.0, 65535.0)
 VIEW_Y_RANGE = (0.0, 65535.0)
+
+
+def _iso_point(x: float, y: float, z: float, width: int, height: int) -> tuple:
+    """Isometric projection of a point in the unit cube."""
+    left, top, plot_w, plot_h = _plot_rect(width, height, (0.0, 1.0), (0.0, 1.0))
+    scale = min(plot_w, plot_h) / 2.4
+    cx = left + plot_w / 2.0
+    cy = top + plot_h / 2.0
+    x, y, z = float(x) - 0.5, float(y) - 0.5, float(z) - 0.5
+    return (cx + (x - y) * 0.8660254037844386 * scale, cy + ((x + y) * 0.5 - z) * scale)
+
+
+def _project_3d(row: dict, width: int, height: int,
+                x_range: tuple | None = None, y_range: tuple | None = None) -> tuple:
+    """Project a preview row: cursor XY plus the working height.
+
+    All three axes use one pixel scale, so a unit step on X, Y or Z draws the
+    same length and the box reads square.
+    """
+    x = row.get("cursor_x")
+    y = row.get("cursor_y")
+    z = row.get("z_norm")
+    return _iso_point(0.5 if x is None else x, 0.5 if y is None else y, 0.5 if z is None else z,
+                      width, height)
 
 
 def _y_to_canvas(value: float, width: int, height: int) -> float:
@@ -150,8 +174,10 @@ class _PixelPathCache:
 
     def points(self, samples: List[dict], width: int, height: int,
                x_range: tuple = (0.0, 65535.0),
-               y_range: tuple = (0.0, 65535.0)) -> List[tuple]:
-        size = (width, height, x_range, y_range)
+               y_range: tuple = (0.0, 65535.0),
+               projector=None) -> List[tuple]:
+        project = projector or _project_point
+        size = (width, height, x_range, y_range, getattr(project, "__name__", "projector"))
         if (self._source is not samples or self._size != size
                 or len(samples) < self._count):
             self._source = samples
@@ -161,7 +187,7 @@ class _PixelPathCache:
             self._last_key = None
         pending = samples[self._count:]
         for row in pending:
-            point = _project_point(row, width, height, x_range, y_range)
+            point = project(row, width, height, x_range, y_range)
             key = (round(point[0]), round(point[1]))
             if key != self._last_key:
                 self._pixels.append(point)
@@ -218,6 +244,7 @@ class SynthwaveUI(tk.Tk):
         self.lead_preview_capture: List[dict] = []
         self.lead_start_gate = LeadStartGate()
         self.lead_filter = StreamingLeadFilter()
+        self.lead_cursor = RelativeCursor()
         self.event_table: dict | None = None
         self.receiver: subprocess.Popen[str] | None = None
         self.receiver_thread: threading.Thread | None = None
@@ -354,6 +381,7 @@ class SynthwaveUI(tk.Tk):
         if self.selected_track.get() == "lead":
             self.lead_start_gate = LeadStartGate()
             self.lead_filter = StreamingLeadFilter()
+            self.lead_cursor = RelativeCursor()
         self.recording = True
         track = self.selected_track.get()
         prompt = "move to the left edge, then move right" if track == "lead" else "stop when the take is complete"
@@ -409,24 +437,27 @@ class SynthwaveUI(tk.Tk):
         self.receiver_thread.start()
 
     def _push_lead_preview(self, record: dict) -> None:
-        """Run the compiler's own filter so the drawn curve is its input.
+        """Run the compiler's own filter and cursor so the view is its input.
 
-        The operator has to judge the take from the canvas, so the canvas must
-        show the coordinates that will be compiled, not the raw sensor noise
-        the filter is about to remove.
+        The left-edge gate no longer applies: in cursor mode the phrase starts
+        at the first engaged frame, and raising the hand stops the cursor.
         """
-        for accepted in self.lead_start_gate.push(record):
-            projected = project_sample(accepted)
-            value = self.lead_filter.push(projected["q_app"])
-            if value is None:
-                continue
-            self.lead_preview_capture.append({
-                "x": value[0] * 65535.0,
-                "y": value[1] * 65535.0,
-                "z": value[2] * 65535.0,
-                "sequence": accepted.get("sequence"),
-                "start_gate_state": accepted.get("start_gate_state"),
-            })
+        projected = project_sample(record)
+        value = self.lead_filter.push(projected["q_app"])
+        if value is None:
+            return
+        z_raw = value[2] * 65535.0
+        point, gain = self.lead_cursor.push((value[0], value[1]), z_raw)
+        z_norm = _clamp((z_raw - 4000.0) / 20000.0, 0.0, 1.0)
+        self.lead_preview_capture.append({
+            "cursor_x": point[0],
+            "cursor_y": point[1],
+            "z_norm": z_norm,
+            "cursor_gain": gain,
+            "cursor_engaged": self.lead_cursor.engaged,
+            "start_gate_state": "accepted" if self.lead_cursor.engaged else "prestart",
+            "sequence": record.get("sequence"),
+        })
 
     def _poll_inbox(self) -> None:
         latest: dict | None = None
@@ -553,6 +584,7 @@ class SynthwaveUI(tk.Tk):
             self.lead_samples.extend(records)
             self.lead_start_gate = LeadStartGate()
             self.lead_filter = StreamingLeadFilter()
+            self.lead_cursor = RelativeCursor()
             self.lead_preview_capture = []
             for record in records:
                 self._push_lead_preview(record)
@@ -616,20 +648,27 @@ class SynthwaveUI(tk.Tk):
         # stops the empty side margins from reading as "lost" range.
         self.canvas.create_rectangle(plot_left, plot_top, plot_left + plot_w, plot_top + plot_h,
                                      outline="#1d2740")
-        # Fixed G3–C5 PitchSpace guides. The labels are intentionally tied to
-        # the calibrated workspace rather than to the current capture extent.
+        # Three equal-length axes: a unit step on X, Y or Z draws the same
+        # distance, so the box reads square and depth is comparable to width.
+        origin = _iso_point(0.0, 0.0, 0.0, width, height)
+        for corner, colour, label in (((1.0, 0.0, 0.0), "#c96a6a", "X"),
+                                      ((0.0, 1.0, 0.0), "#6ac97a", "Y"),
+                                      ((0.0, 0.0, 1.0), "#6a9ac9", "Z")):
+            end = _iso_point(*corner, width, height)
+            self.canvas.create_line(origin[0], origin[1], end[0], end[1], fill=colour)
+            self.canvas.create_text(end[0] + 8, end[1] - 8, text=label, fill=colour, font=("Segoe UI", 9, "bold"))
+        # Fixed G3–C5 PitchSpace guides, projected along the Y axis.
         for midi in DEFAULT_PITCH_SPACE.scale_pitches:
             ratio = (midi - DEFAULT_PITCH_SPACE.min_midi) / max(1, DEFAULT_PITCH_SPACE.max_midi - DEFAULT_PITCH_SPACE.min_midi)
-            py = _y_to_canvas(ratio * 65535.0, width, height)
-            self.canvas.create_line(plot_left, py, plot_left + plot_w, py, fill="#27344d")
-            self.canvas.create_text(plot_left + plot_w - 6, py - 2, anchor="e", text=str(midi), fill="#536078", font=("Segoe UI", 8))
+            a = _iso_point(0.0, ratio, 0.0, width, height)
+            b = _iso_point(1.0, ratio, 0.0, width, height)
+            self.canvas.create_line(a[0], a[1], b[0], b[1], fill="#27344d")
+            self.canvas.create_text(a[0] - 6, a[1], anchor="e", text=str(midi), fill="#536078", font=("Segoe UI", 8))
         if len(samples) < 2:
             self.canvas.create_text(width / 2, height / 2, text="Record Lead or import a JSONL capture", fill="#536078")
             return
-        # The grid is a fixed workspace. A short or wide gesture therefore
-        # remains visibly comparable between takes; it is never stretched to
-        # its own min/max range.
-        pixels = self._path_cache.points(samples, width, height, VIEW_X_RANGE, VIEW_Y_RANGE)
+        pixels = self._path_cache.points(samples, width, height, (0.0, 1.0), (0.0, 1.0),
+                                         projector=_project_3d)
         self._drawn_points = len(pixels)
         points = []
         for px, py in pixels:

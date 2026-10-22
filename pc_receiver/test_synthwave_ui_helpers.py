@@ -4,7 +4,8 @@ import unittest
 from pathlib import Path
 
 from synthwave_ui import (DIAG_FIELDS, _PixelPathCache, _append_diag_row, _capture_filename,
-                          _clip_percent, _plot_rect, _project_point, _thin_path)
+                          _clip_percent, _iso_point, _plot_rect, _project_3d,
+                          _project_point, _thin_path)
 
 
 class ThinPathTests(unittest.TestCase):
@@ -154,6 +155,23 @@ class CaptureFilenameTests(unittest.TestCase):
 
     def test_empty_label_falls_back_to_the_track(self):
         self.assertEqual(_capture_filename("   ", "lead", "T"), "lead_T.jsonl")
+
+
+class IsoProjectionTests(unittest.TestCase):
+    def test_the_three_axes_have_equal_length(self):
+        import math
+        origin = _iso_point(0.5, 0.5, 0.5, 800, 400)
+        lengths = [math.dist(origin, _iso_point(0.5 + dx, 0.5 + dy, 0.5 + dz, 800, 400))
+                   for dx, dy, dz in ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))]
+        self.assertAlmostEqual(lengths[0], lengths[1], places=6)
+        self.assertAlmostEqual(lengths[0], lengths[2], places=6)
+
+    def test_projection_uses_the_cursor_fields(self):
+        row = {"cursor_x": 0.5, "cursor_y": 0.5, "z_norm": 0.5}
+        self.assertEqual(_project_3d(row, 800, 400), _iso_point(0.5, 0.5, 0.5, 800, 400))
+
+    def test_missing_cursor_fields_fall_back_to_the_centre(self):
+        self.assertEqual(_project_3d({}, 800, 400), _iso_point(0.5, 0.5, 0.5, 800, 400))
 
 
 if __name__ == "__main__":
