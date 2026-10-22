@@ -3,9 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from synthwave_ui import (DIAG_FIELDS, _PixelPathCache, _append_diag_row, _capture_filename,
-                          _clip_percent, _iso_point, _plot_rect, _project_3d,
-                          _project_point, _thin_path)
+from synthwave_ui import (DIAG_FIELDS, _DepthPathCache, _PixelPathCache, _append_diag_row, _capture_filename,
+                          _clip_percent, _iso_point, _plot_rect, _preview_xy_z, _project_3d,
+                          _project_point, _thin_path, _thin_xy_z,
+                          _z_color)
 
 
 class ThinPathTests(unittest.TestCase):
@@ -119,8 +120,8 @@ class ViewRangeTests(unittest.TestCase):
     def test_workspace_edges_map_to_the_plot_rect(self):
         points = _thin_path([{"x": 4000, "y": 4000}, {"x": 60000, "y": 50000}],
                             800, 400, x_range=(4000, 60000), y_range=(4000, 50000))
-        self.assertAlmostEqual(points[0][1], 372.0, places=6)
-        self.assertAlmostEqual(points[-1][1], 28.0, places=6)
+        self.assertAlmostEqual(points[0][1], 384.0, places=6)
+        self.assertAlmostEqual(points[-1][1], 16.0, places=6)
         self.assertLess(points[0][0], points[-1][0])
 
     def test_projection_stays_fractional_so_the_line_is_not_a_staircase(self):
@@ -138,23 +139,10 @@ class ViewRangeTests(unittest.TestCase):
 
     def test_out_of_range_values_clamp_inside_the_plot(self):
         point = _project_point({"x": 90000, "y": -500}, 800, 400)
-        self.assertGreaterEqual(point[0], 28.0)
-        self.assertLessEqual(point[0], 772.0)
-        self.assertGreaterEqual(point[1], 28.0)
-        self.assertLessEqual(point[1], 372.0)
-
-
-class CaptureFilenameTests(unittest.TestCase):
-    def test_label_prefixes_the_capture(self):
-        self.assertEqual(_capture_filename("z_sweep", "lead", "20261022-213000"),
-                         "z_sweep_20261022-213000.jsonl")
-
-    def test_spaces_and_symbols_become_underscores(self):
-        self.assertEqual(_capture_filename("clutch cross/2", "lead", "T"),
-                         "clutch_cross_2_T.jsonl")
-
-    def test_empty_label_falls_back_to_the_track(self):
-        self.assertEqual(_capture_filename("   ", "lead", "T"), "lead_T.jsonl")
+        self.assertGreaterEqual(point[0], 16.0)
+        self.assertLessEqual(point[0], 784.0)
+        self.assertGreaterEqual(point[1], 16.0)
+        self.assertLessEqual(point[1], 384.0)
 
 
 class IsoProjectionTests(unittest.TestCase):
@@ -172,6 +160,95 @@ class IsoProjectionTests(unittest.TestCase):
 
     def test_missing_cursor_fields_fall_back_to_the_centre(self):
         self.assertEqual(_project_3d({}, 800, 400), _iso_point(0.5, 0.5, 0.5, 800, 400))
+
+
+class CaptureFilenameTests(unittest.TestCase):
+    def test_label_prefixes_the_capture(self):
+        self.assertEqual(_capture_filename("z_sweep", "lead", "20261022-213000"),
+                         "z_sweep_20261022-213000.jsonl")
+
+    def test_spaces_and_symbols_become_underscores(self):
+        self.assertEqual(_capture_filename("clutch cross/2", "lead", "T"),
+                         "clutch_cross_2_T.jsonl")
+
+    def test_empty_label_falls_back_to_the_track(self):
+        self.assertEqual(_capture_filename("   ", "lead", "T"), "lead_T.jsonl")
+
+
+class DepthEncodedPathTests(unittest.TestCase):
+    def test_preview_coordinates_prefer_filtered_cursor_and_keep_depth(self):
+        row = {"x": 1000, "y": 2000, "z": 3000,
+               "cursor_x": 0.2, "cursor_y": 0.7, "z_norm": 0.9}
+        self.assertEqual(_preview_xy_z(row), (0.2, 0.7, 0.9))
+
+    def test_raw_position_rows_are_normalized_for_the_xy_view(self):
+        x, y, z = _preview_xy_z({"x": 32767.5, "y": 65535, "z": 0})
+        self.assertAlmostEqual(x, 0.5, places=6)
+        self.assertAlmostEqual(y, 1.0, places=6)
+        self.assertEqual(z, 0.0)
+
+    def test_depth_color_runs_from_cool_to_warm(self):
+        low = tuple(int(_z_color(0.0)[i:i + 2], 16) for i in (1, 3, 5))
+        high = tuple(int(_z_color(1.0)[i:i + 2], 16) for i in (1, 3, 5))
+        self.assertGreater(low[2], low[0])
+        self.assertGreater(high[0], high[2])
+        self.assertNotEqual(_z_color(0.25), _z_color(0.75))
+        self.assertEqual(_z_color(-0.1), _z_color(0.0))
+        self.assertEqual(_z_color(2.0), _z_color(1.0))
+
+    def test_xy_path_keeps_depth_per_segment_and_preserves_endpoints(self):
+        rows = [
+            {"cursor_x": 0.0, "cursor_y": 0.0, "z_norm": 0.1},
+            {"cursor_x": 0.5, "cursor_y": 0.5, "z_norm": 0.5},
+            {"cursor_x": 1.0, "cursor_y": 1.0, "z_norm": 0.9},
+        ]
+        path = _thin_xy_z(rows, 800, 400)
+        self.assertEqual(len(path), 3)
+        self.assertEqual(path[0][2], 0.1)
+        self.assertEqual(path[-1][2], 0.9)
+        self.assertLess(path[0][0], path[-1][0])
+        self.assertAlmostEqual(path[-1][0] - path[0][0], path[0][1] - path[-1][1])
+
+    def test_pure_depth_changes_keep_xy_fixed_but_remain_visible(self):
+        rows = [{"cursor_x": 0.4, "cursor_y": 0.6, "z_norm": z}
+                for z in (0.0, 0.5, 1.0)]
+        path = _thin_xy_z(rows, 800, 400)
+        self.assertEqual(len(path), 3)
+        self.assertEqual(len({point[:2] for point in path}), 1)
+        self.assertEqual([point[2] for point in path], [0.0, 0.5, 1.0])
+
+    def test_lift_and_invalid_frames_break_the_drawn_stroke(self):
+        rows = [
+            {"cursor_x": 0.1, "cursor_y": 0.2, "z_norm": 0.1},
+            {"cursor_x": 0.2, "cursor_y": 0.3, "cursor_engaged": False},
+            {"cursor_x": 0.3, "cursor_y": 0.4, "z_norm": 0.2},
+            {"cursor_x": 0.4, "cursor_y": 0.5, "position_valid": False},
+            {"cursor_x": 0.5, "cursor_y": 0.6, "z_norm": 0.3},
+        ]
+        path = _thin_xy_z(rows, 800, 400)
+        self.assertEqual(len(path), 3)
+        self.assertEqual(len({point[3] for point in path}), 3)
+
+    def test_long_capture_keeps_both_ends_and_stroke_breaks_when_thinned(self):
+        rows = [{"cursor_x": (i % 100) / 100, "cursor_y": (i % 80) / 80,
+                 "z_norm": i / 4999, "cursor_engaged": i != 2500}
+                for i in range(5000)]
+        path = _DepthPathCache(limit=128).points(rows, 800, 400)
+        self.assertLessEqual(len(path), 128)
+        self.assertEqual(path[0][2], 0.0)
+        self.assertEqual(path[-1][2], 1.0)
+        self.assertEqual({point[3] for point in path}, {0, 1})
+
+    def test_incremental_depth_cache_matches_full_replay_and_resizes(self):
+        rows = [{"cursor_x": i / 199, "cursor_y": 0.5, "z_norm": i / 199}
+                for i in range(200)]
+        cache = _DepthPathCache()
+        growing = []
+        for row in rows:
+            growing.append(row)
+            path = cache.points(growing, 800, 400)
+        self.assertEqual(path, _thin_xy_z(rows, 800, 400))
+        self.assertEqual(cache.points(growing, 400, 300), _thin_xy_z(rows, 400, 300))
 
 
 if __name__ == "__main__":

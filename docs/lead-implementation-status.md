@@ -195,8 +195,9 @@ Lead `note_on` 事件：`tick, duration, note, velocity, source="trajectory", so
 ## 8. 已知限制
 
 - 跟踪中的缺陷与未决设计问题单独记录在 [Lead 开放问题记录（2026-10-22）](lead-open-issues-2026-10-22.md)，包括掉帧归因、传感器中心偏移、Z→XY 漂移与状态估计可行性。
-- **音高默认来自相对光标**。`compile_loop`（UI 路径）以 `pitch_source="cursor"` 调用：`cursor += gain(z)·Δq`，音高取 `cursor.y`，`z > 20000` 抬起、`z < 16000` 重新接合。`compile_lead` 的库默认仍是 `absolute`，便于 A/B 与保留原回归测试。详见 [Z 耦合文档 §9](mgc3130-z-coupling-clutch-rebase-realtime-design-2026-10-22.md)。
-- **画布为三维等距视图**：X/Y/Z 三轴等长（同一个像素尺度），音级导线沿 Y 轴投影；绘制数据与编译器输入同源，但按点预算是抽稀显示。
+- **音高默认来自光标（绝对/数位板映射）**。`compile_loop`（UI 路径）以 `pitch_source="cursor"` 调用：传感器矩形边缘到边缘映射到光标 0–1，Y 区间收窄到 X 的 0.648 以保持等比；`cursor += alpha(z)·(target−cursor)`，α 从 1.0（低）降到 0.12（高），只影响跟随速率不影响最终位置。`compile_lead` 的库默认仍是 `absolute`（绝对 `q_app`），便于 A/B。
+- **抬起阈值**：`z > 36000` 断开、`z < 30000` 重新接合；接合帧标记 `rebased` 并判为无效，避免追赶位移被读成转折。
+- **画布为 XY 俯视图 + Z 色标**：深度分 10 阶、连续同阶段合并绘制，实测 1983 点时 58–307 图元、4.7–5.7 ms。详见 [PC 界面规格 §3](pc-ui-spec-2026-10-22.md)。
 - GUI 的 `BPM` 与 `Swing %` 控件**未接线**，编译始终使用 `STYLE` 默认值（100 BPM / 0.50）。界面上显示的数值不代表实际编译参数。
 - CLI 主程序把所有输入记录同时喂给五个非 Lead 轨，等于用同一份数据反复触发 Touch/Tap，只适合快速冒烟。
 - 被门控拒绝的录音报 `weak_motif` + 单个 rest，没有区分"未从左侧起笔"与"画得太平"，与设计文档 §11 要求的可解释失败不符。
