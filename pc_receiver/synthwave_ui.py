@@ -603,19 +603,26 @@ class SynthwaveUI(tk.Tk):
             self.lead_cursor = make_cursor()
         self.recording = True
         track = self.selected_track.get()
-        self.status.set(f"CALIBRATING — hold still at the centre for {self.calibration_seconds:.0f} s")
-        self._log(f"calibrating before {track}")
+        self.status.set(f"CALIBRATING — hand off the sensor, forcing baseline ({self.calibration_seconds:.0f} s)")
+        self._log(f"forcing the SDK baseline before {track}")
         self._start_receiver()
 
     def _maybe_finish_calibration(self) -> None:
-        """End the hold-still window and start the take proper."""
+        """End the baseline window and start the take proper.
+
+        The receiver called gestic_force_calibration() when it opened, so the
+        device has already re-measured its own baseline; this wait only gives
+        that measurement time to settle and confirms data is flowing. No host
+        side offset is applied: the point is to re-baseline the sensor, not to
+        re-centre the numbers.
+        """
         elapsed = time.monotonic() - self._calibration_started
-        if len(self.calibration_frames) >= 40 and elapsed >= self.calibration_seconds:
-            self.take_offset = calibration_offset(self.calibration_frames)
+        if len(self.calibration_frames) >= 20 and elapsed >= self.calibration_seconds:
+            self.take_offset = (0.0, 0.0)
             self.calibrating = False
             self.current_capture = []
             self.lead_preview_capture = []
-            self._log(f"calibrated offset x{self.take_offset[0]:+.0f} y{self.take_offset[1]:+.0f}")
+            self._log("baseline forced; take starts from a clean sensor state")
             self._begin_take()
         elif elapsed > 6.0:
             # No usable data: record anyway, but say the take is uncalibrated.
@@ -653,7 +660,7 @@ class SynthwaveUI(tk.Tk):
             self.status.set("RECORDING — receiver executable not found; import JSONL instead")
             self._log(f"missing receiver: {receiver}")
             return
-        command = [str(receiver), "--format", "jsonl"]
+        command = [str(receiver), "--format", "jsonl", "--force-calibration"]
         self.capture_path = self._prepare_capture_path()
         if self.capture_path is not None:
             command += ["--output", str(self.capture_path)]

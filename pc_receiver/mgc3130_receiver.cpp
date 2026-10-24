@@ -14,6 +14,7 @@ struct Options {
     double seconds = 0.0;
     std::string output;
     std::string format = "jsonl";
+    bool force_calibration = false;
 };
 
 std::string narrow(const wchar_t *value) {
@@ -35,8 +36,10 @@ bool parse_options(int argc, wchar_t **argv, Options &options) {
             options.output = narrow(argv[++index]);
         } else if (argument == L"--format" && index + 1 < argc) {
             options.format = narrow(argv[++index]);
+        } else if (argument == L"--force-calibration") {
+            options.force_calibration = true;
         } else if (argument == L"--help" || argument == L"-h") {
-            std::cout << "mgc3130_receiver [--seconds N] [--output FILE] [--format jsonl|csv]\n";
+            std::cout << "mgc3130_receiver [--seconds N] [--output FILE] [--format jsonl|csv] [--force-calibration]\n";
             return false;
         } else {
             std::cerr << "unknown argument: " << narrow(argv[index]) << "\n";
@@ -55,6 +58,13 @@ public:
         }
         if (format_ == "csv") {
             write("timestamp_ms,logical_time_ms,timestamp_raw,sequence,sequence_gap,frame,x,y,z,gesture,gesture_flags,touch_flags,tap_flags,position_valid,xyz_valid,report_error,clipping,environmental_noise,calibration_reason,quality_known\n");
+        }
+    }
+
+    void calibration(bool ok) {
+        if (format_ == "jsonl") {
+            write(ok ? "{\"type\":\"calibration\",\"target\":\"baseline\",\"ok\":true}\n"
+                     : "{\"type\":\"calibration\",\"target\":\"baseline\",\"ok\":false}\n");
         }
     }
 
@@ -135,6 +145,13 @@ int wmain(int argc, wchar_t **argv) {
             gestic_close(&gestic);
             gestic_cleanup(&gestic);
             return 4;
+        }
+
+        if (options.force_calibration) {
+            // Force baseline: the SDK re-measures the untouched sensor. Ask for
+            // it before the first frame so the take starts from a known state.
+            int calibration = gestic_force_calibration(&gestic, 100);
+            output.calibration(calibration == 0);
         }
 
         output.ready();
