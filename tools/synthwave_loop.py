@@ -247,18 +247,22 @@ def _gesture_axes(rows: Sequence[Mapping[str, object]], calibration: Calibration
 
 
 def _looks_absent(sample: Mapping[str, object]) -> bool:
-    """Detect the MGC3130 "no hand" report.
+    """Detect a report that carries no hand position.
 
-    Without a hand the device reports x=65535, y=0, z=65535. Those frames are
-    indistinguishable from a real position once the envelope is dropped, so
-    they used to be drawn as a jump into the top-right corner and could seed a
-    landmark. The signature is specific enough not to collide with a real pose.
+    Two signatures are known. Without a hand the device reports
+    x=65535, y=0, z=65535; right after the stream opens it also reports
+    x=0, y=0 before the first real measurement. Both are indistinguishable
+    from a real pose once the envelope is dropped, and the second one used to
+    become a fourteen tick note at the bottom of the range at the start of
+    every take.
     """
     try:
         x = float(sample.get("x", 0))
         y = float(sample.get("y", 0))
     except (TypeError, ValueError):
         return False
+    if x <= 5.0 and y <= 5.0:
+        return True
     return x >= 65530.0 and y <= 5.0
 
 
