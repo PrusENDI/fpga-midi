@@ -615,13 +615,37 @@ class ArticulationTests(unittest.TestCase):
         for index in range(600):
             # y constant, x sweeps back and forth every 100 frames
             phase = (index // 100) % 2
-            x = 30000 if phase == 0 else 36000
+            x = 30000 if phase == 0 else 42000
             samples.append(_sample(index, x=x, y=30000, z=6000))
         result = compile_lead(samples, pitch_source="cursor", note_source="variational", lam=6.0)
         notes = [event for event in result["events"] if event["type"] == "note_on"]
         self.assertGreaterEqual(len(notes), 4)
         self.assertEqual(len({note["note"] for note in notes}), 1)
         self.assertTrue(any(note.get("reattack") for note in notes))
+
+
+class LoopTimeMapTests(unittest.TestCase):
+    # _sample() advances 20 ms per frame, so 960 frames is one 19.2 s bar.
+
+    def test_short_take_reports_partial_coverage(self):
+        samples = [_sample(index, x=3000 + index * 20, y=34000, z=6000) for index in range(250)]
+        result = compile_lead(samples, pitch_source="cursor", time_map="loop")
+        self.assertLess(result["diagnostics"]["coverage"], 0.5)
+
+    def test_full_bar_take_covers_the_loop(self):
+        samples = [_sample(index, x=3000 + index * 5, y=34000, z=6000) for index in range(960)]
+        result = compile_lead(samples, pitch_source="cursor", time_map="loop")
+        self.assertAlmostEqual(result["diagnostics"]["coverage"], 1.0, places=2)
+
+    def test_tick_positions_follow_absolute_time(self):
+        # A pitch step at 1.5 s must land near tick 10 at 100 BPM (150 ms/tick),
+        # whatever the take length, rather than at a fraction of the take.
+        samples = [_sample(index, x=3000, y=20000 if index < 75 else 40000, z=6000)
+                   for index in range(200)]
+        ticks = resample_to_ticks(preprocess_samples(samples, pitch_source="cursor"), STYLE, "loop")
+        before = float(ticks[9]["b_abs"])
+        after = float(ticks[11]["b_abs"])
+        self.assertLess(before, after)
 
 
 if __name__ == "__main__":

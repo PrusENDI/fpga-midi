@@ -688,10 +688,13 @@ class SynthwaveUI(tk.Tk):
             return
         lam = density_to_lambda(self.density.get())
         self.event_table = compile_loop(self.lead_samples, self.records, mode=self.mapping_mode.get(),
-                                        note_source=self.note_source.get(), lam=lam)
+                                        note_source=self.note_source.get(), lam=lam,
+                                        time_map="loop")
         self._refresh_events()
         diagnostics = self.event_table.get("diagnostics", {})
-        self.status.set(f"COMPILED — {diagnostics.get('status', 'ok')} · {len(self.event_table['tracks']['lead'])} Lead events")
+        self.status.set(f"COMPILED — {diagnostics.get('status', 'ok')} · "
+                        f"{len(self.event_table['tracks']['lead'])} Lead events · "
+                        f"loop covered {float(diagnostics.get('coverage', 0.0)) * 100:.0f}%")
         self._log(json.dumps(self.event_table["diagnostics"], ensure_ascii=False))
 
     def _refresh_events(self) -> None:

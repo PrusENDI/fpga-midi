@@ -772,10 +772,81 @@ class StreamingLeadFilter:
         return (self._iir[0], self._iir[1], self._iir[2])
 
 
-def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle = STYLE) -> List[Dict[str, object]]:
+def _annotate_ticks(result: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """Derive speed, state and curvature for a tick series in place."""
+    for i, row in enumerate(result):
+        previous, following = result[max(0, i - 1)], result[min(len(result) - 1, i + 1)]
+        if previous.get("b_abs") is None or following.get("b_abs") is None:
+            row["db"], row["dc"], row["speed"] = 0.0, 0.0, 0.0
+            row["curvature"], row["state"] = 0.0, "rest"
+            continue
+        db = float(following["b_abs"]) - float(previous["b_abs"])
+        dc = float(following["c_abs"]) - float(previous["c_abs"])
+        row["db"], row["dc"], row["speed"] = db, dc, math.hypot(db, dc)
+        row["curvature"] = 0.0
+        if not row["position_valid"]:
+            row["state"] = "rest"
+        elif row["speed"] < 0.002:
+            row["state"] = "hold"
+        else:
+            row["state"] = "move"
+    for i in range(1, len(result) - 1):
+        result[i]["curvature"] = float(result[i + 1]["db"]) - float(result[i - 1]["db"])
+    return result
+
+
+def _resample_loop(rows: Sequence[Mapping[str, object]], style: SynthwaveStyle) -> List[Dict[str, object]]:
+    """Map absolute time onto the tick grid and wrap at the loop end.
+
+    One tick lasts 60/BPM/4 seconds regardless of how long the take runs, so
+    playing a beat is worth the same rhythm in a five second take and a two
+    minute one. Time past the loop wraps to tick zero and overwrites what the
+    previous pass wrote, which is how a looper pedal behaves; ticks never
+    reached stay invalid instead of being stretched to fill the bar.
+    """
+    if not rows:
+        return []
+    ticks_per_beat = max(1, style.ticks_per_bar // 4)
+    ms_per_tick = 60000.0 / max(1, style.bpm) / ticks_per_beat
+    loop = style.loop_ticks
+    start = _sample_timestamp(rows[0], 0.0)
+    table: Dict[int, Mapping[str, object]] = {}
+    for row in rows:
+        if row.get("b_abs") is None:
+            continue
+        tick = int((_sample_timestamp(row, start) - start) / ms_per_tick) % loop
+        table[tick] = row  # later passes overwrite earlier ones
+    result: List[Dict[str, object]] = []
+    for tick in range(loop):
+        row = table.get(tick)
+        if row is None:
+            result.append({
+                "tick": tick, "a_rel": tick / max(1, loop - 1),
+                "timestamp_ms": start + tick * ms_per_tick,
+                "b_abs": None, "c_abs": None, "q_x": None, "q_y": None, "q_z": None,
+                "position_valid": False, "out_of_range": False, "lift": False,
+            })
+            continue
+        result.append({
+            "tick": tick, "a_rel": tick / max(1, loop - 1),
+            "timestamp_ms": start + tick * ms_per_tick,
+            "b_abs": row.get("b_abs"), "c_abs": row.get("c_abs"),
+            "q_x": row.get("q_x"), "q_y": row.get("q_y"), "q_z": row.get("q_z"),
+            "cursor_x": row.get("cursor_x"), "cursor_y": row.get("cursor_y"),
+            "position_valid": valid_flag(row.get("position_valid")),
+            "out_of_range": bool(row.get("out_of_range", False)),
+            "lift": bool(row.get("cursor_lift", False)),
+        })
+    return _annotate_ticks(result)
+
+
+def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle = STYLE,
+                      time_map: str = "stretch") -> List[Dict[str, object]]:
     if not samples:
         return []
     ordered = _capture_order(samples)
+    if time_map == "loop":
+        return _resample_loop(ordered, style)
     start, end = _phrase_window(ordered)
     span = max(1e-9, end - start)
     times = [_sample_timestamp(row, start) for row in ordered]
@@ -809,25 +880,7 @@ def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveS
         # landmark extraction can tell "let go" from "bad data".
         row["lift"] = bool(left.get("cursor_lift", False) or right.get("cursor_lift", False))
         result.append(row)
-    for i, row in enumerate(result):
-        previous, following = result[max(0, i - 1)], result[min(len(result) - 1, i + 1)]
-        if previous.get("b_abs") is None or following.get("b_abs") is None:
-            row["db"], row["dc"], row["speed"] = 0.0, 0.0, 0.0
-            row["curvature"], row["state"] = 0.0, "rest"
-            continue
-        db = float(following["b_abs"]) - float(previous["b_abs"])
-        dc = float(following["c_abs"]) - float(previous["c_abs"])
-        row["db"], row["dc"], row["speed"] = db, dc, math.hypot(db, dc)
-        row["curvature"] = 0.0
-        if not row["position_valid"]:
-            row["state"] = "rest"
-        elif row["speed"] < 0.002:
-            row["state"] = "hold"
-        else:
-            row["state"] = "move"
-    for i in range(1, len(result) - 1):
-        result[i]["curvature"] = float(result[i + 1]["db"]) - float(result[i - 1]["db"])
-    return result
+    return _annotate_ticks(result)
 
 
 def extract_landmarks(projected_samples: Sequence[Mapping[str, object]], style: SynthwaveStyle = STYLE) -> List[Dict[str, object]]:
@@ -1150,7 +1203,27 @@ def _segment_events(ticks: Sequence[Mapping[str, object]], pitch_space: PitchSpa
         if bow is None:
             bow = row.get("q_x")
         bows.append(0.5 if bow is None else float(bow))
-    segments = merge_leaps(segment_contour(filled, levels, lam, min_len), leap_degrees, leap_dwell)
+    # Segment each covered run separately: in loop time mapping a short take
+    # leaves the end of the loop unreached, and that gap is a rest, not a note
+    # that sustains on stale data.
+    runs: List[List[Tuple[int, float]]] = []
+    current: List[Tuple[int, float]] = []
+    for index, value in enumerate(raw_values):
+        if value is None:
+            if current:
+                runs.append(current)
+                current = []
+        else:
+            current.append((index, value))
+    if current:
+        runs.append(current)
+    segments: List[Tuple[int, int, int]] = []
+    for run in runs:
+        local = segment_contour([value for _, value in run], levels, lam, min_len)
+        for start, end, level in merge_leaps(local, leap_degrees, leap_dwell):
+            if end <= start:
+                continue
+            segments.append((run[start][0], run[end - 1][0] + 1, level))
     gap = max(1, min_len)
     events: List[Dict[str, object]] = []
     for segment_index, (start, end, level) in enumerate(segments):
@@ -1204,12 +1277,13 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
                  note_source: str = "anchors",
                  lam: float = 6.0,
                  min_segment: int = 4,
-                 bow_deadzone: float = 0.03,
+                 bow_deadzone: float = 0.10,
                  leap_degrees: int = 3,
-                 leap_dwell: int = 8) -> Dict[str, object]:
+                 leap_dwell: int = 8,
+                 time_map: str = "stretch") -> Dict[str, object]:
     host_filter = filter_capture(samples, host_profile) if host_profile is not None else None
     processed = preprocess_samples(samples, calibration, mode, host_profile, host_filter, pitch_source)
-    ticks = resample_to_ticks(processed, style) if processed else []
+    ticks = resample_to_ticks(processed, style, time_map) if processed else []
     landmarks = extract_landmarks(ticks, style)
     features = intent_features(ticks, pitch_space)
     pitches = pitch_space.scale_pitches
@@ -1274,6 +1348,10 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
         event["duration"] = max(1, min(int(event["duration"]), following - int(event["tick"])))
     valid_count = sum(1 for row in processed if valid_flag(row.get("position_valid")))
     coverage = valid_count / len(processed) if processed else 0.0
+    if time_map == "loop" and ticks:
+        # In loop recording the useful number is how much of the bar the take
+        # actually reached, not how many captured frames were valid.
+        coverage = sum(1 for row in ticks if row.get("b_abs") is not None) / len(ticks)
     status = "insufficient_capture" if len(processed) < 2 else (
         "weak_motif" if sum(1 for event in events if event["type"] == "note_on") <= 1 else "ok")
     diagnostics = {
@@ -1384,8 +1462,8 @@ def _record_track(track: str, records: Sequence[Mapping[str, object]], style: Sy
     return result[:16]
 
 
-def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0, bow_deadzone: float = 0.03, leap_degrees: int = 3, leap_dwell: int = 8) -> Dict[str, object]:
-    lead_result = compile_lead(lead_samples, style=style, calibration=DEFAULT_CALIBRATION, pitch_space=pitch_space, mode=mode, host_profile=host_profile, pitch_source=pitch_source, note_source=note_source, lam=lam, bow_deadzone=bow_deadzone, leap_degrees=leap_degrees, leap_dwell=leap_dwell)
+def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0, bow_deadzone: float = 0.10, leap_degrees: int = 3, leap_dwell: int = 8, time_map: str = "stretch") -> Dict[str, object]:
+    lead_result = compile_lead(lead_samples, style=style, calibration=DEFAULT_CALIBRATION, pitch_space=pitch_space, mode=mode, host_profile=host_profile, pitch_source=pitch_source, note_source=note_source, lam=lam, bow_deadzone=bow_deadzone, leap_degrees=leap_degrees, leap_dwell=leap_dwell, time_map=time_map)
     tracks: Dict[str, List[Dict[str, object]]] = {name: [] for name in TRACKS}
     tracks["lead"] = list(lead_result["events"])
     for track in TRACKS[1:]:
@@ -1515,9 +1593,10 @@ def main() -> int:
     parser.add_argument("--sample-rate", type=int, default=22050)
     parser.add_argument("--notes", choices=("anchors", "variational"), default="anchors")
     parser.add_argument("--lam", type=float, default=6.0, help="segment change price for --notes variational")
+    parser.add_argument("--time-map", choices=("stretch", "loop"), default="stretch")
     args = parser.parse_args()
     records = load_jsonl_records(args.input)
-    result = compile_loop(records, {track: records for track in TRACKS[1:]}, note_source=args.notes, lam=args.lam)
+    result = compile_loop(records, {track: records for track in TRACKS[1:]}, note_source=args.notes, lam=args.lam, time_map=args.time_map)
     write_event_table(result, args.events)
     render_loop(result, args.wav, sample_rate=args.sample_rate)
     print(json.dumps(result["diagnostics"], ensure_ascii=False))
