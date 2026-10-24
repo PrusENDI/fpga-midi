@@ -1176,7 +1176,7 @@ def segment_contour(values: Sequence[float], levels: Sequence[int],
 
 def _segment_events(ticks: Sequence[Mapping[str, object]], pitch_space: PitchSpace,
                     style: SynthwaveStyle, lam: float, min_len: int,
-                    bow_deadzone: float = 0.10, leap_degrees: int = 3,
+                    bow_deadzone: float = 0.10, leap_degrees: int = 0,
                     leap_dwell: int = 8) -> List[Dict[str, object]]:
     """Turn the optimal segmentation into Lead events, then articulate it.
 
@@ -1220,6 +1220,11 @@ def _segment_events(ticks: Sequence[Mapping[str, object]], pitch_space: PitchSpa
     segments: List[Tuple[int, int, int]] = []
     for run in runs:
         local = segment_contour([value for _, value in run], levels, lam, min_len)
+        # Leap merging is off by default. Measured: a genuine fast oscillation
+        # produces many short segments, and merging those swallowed whole
+        # melodies (a 1 Hz sine dropped from 71 notes to 3). min_segment
+        # already stops sub-four-tick passing tones, which is the rule that was
+        # actually asked for; set leap_degrees above zero to opt back in.
         for start, end, level in merge_leaps(local, leap_degrees, leap_dwell):
             if end <= start:
                 continue
@@ -1278,7 +1283,7 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
                  lam: float = 6.0,
                  min_segment: int = 4,
                  bow_deadzone: float = 0.10,
-                 leap_degrees: int = 3,
+                 leap_degrees: int = 0,
                  leap_dwell: int = 8,
                  time_map: str = "stretch") -> Dict[str, object]:
     host_filter = filter_capture(samples, host_profile) if host_profile is not None else None
@@ -1462,7 +1467,7 @@ def _record_track(track: str, records: Sequence[Mapping[str, object]], style: Sy
     return result[:16]
 
 
-def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0, bow_deadzone: float = 0.10, leap_degrees: int = 3, leap_dwell: int = 8, time_map: str = "stretch") -> Dict[str, object]:
+def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0, bow_deadzone: float = 0.10, leap_degrees: int = 0, leap_dwell: int = 8, time_map: str = "stretch") -> Dict[str, object]:
     lead_result = compile_lead(lead_samples, style=style, calibration=DEFAULT_CALIBRATION, pitch_space=pitch_space, mode=mode, host_profile=host_profile, pitch_source=pitch_source, note_source=note_source, lam=lam, bow_deadzone=bow_deadzone, leap_degrees=leap_degrees, leap_dwell=leap_dwell, time_map=time_map)
     tracks: Dict[str, List[Dict[str, object]]] = {name: [] for name in TRACKS}
     tracks["lead"] = list(lead_result["events"])
