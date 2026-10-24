@@ -362,7 +362,9 @@ class SynthwaveUI(tk.Tk):
         # 0.6 maps to lambda 6.0, the value agreed for testing.
         self.density = tk.DoubleVar(value=0.6)
         self.records: Dict[str, List[dict]] = {track: [] for track in TRACKS}
-        self.lead_samples: List[dict] = []
+        self.active_layer = tk.IntVar(value=0)
+        self.lead_layers: List[List[dict]] = [[]]
+        self.auto_length = tk.BooleanVar(value=False)
         self.current_capture: List[dict] = []
         self.lead_preview_capture: List[dict] = []
         self.lead_start_gate = LeadStartGate()
@@ -453,6 +455,14 @@ class SynthwaveUI(tk.Tk):
         self.density_label = ttk.Label(left, text="λ 6.0", style="Muted.TLabel")
         self.density_label.pack(anchor="w")
         self.density.trace_add("write", lambda *_: self._update_density_label())
+        ttk.Separator(left).pack(fill="x", pady=12)
+        ttk.Checkbutton(left, text="Auto length (follow take)", variable=self.auto_length).pack(anchor="w")
+        self.layer_label = ttk.Label(left, text="layer 1 of 1", style="Muted.TLabel")
+        self.layer_label.pack(anchor="w", pady=(8, 0))
+        layer_row = ttk.Frame(left)
+        layer_row.pack(fill="x")
+        ttk.Button(layer_row, text="Add layer", command=self.add_layer).pack(side="left", expand=True, fill="x")
+        ttk.Button(layer_row, text="Clear layer", command=self.clear_layer).pack(side="left", expand=True, fill="x")
 
         # The surrounding center pane stays the panel color.  The square plot
         # gets its own dark fill below, so the old wide dark canvas no longer
@@ -680,6 +690,29 @@ class SynthwaveUI(tk.Tk):
         lam = density_to_lambda(self.density.get())
         self.density_label.configure(text=f"λ {lam:.1f}")
 
+    @property
+    def lead_samples(self) -> List[dict]:
+        """The take recorded into the currently selected layer."""
+        while len(self.lead_layers) <= self.active_layer.get():
+            self.lead_layers.append([])
+        return self.lead_layers[self.active_layer.get()]
+
+    @lead_samples.setter
+    def lead_samples(self, value: List[dict]) -> None:
+        while len(self.lead_layers) <= self.active_layer.get():
+            self.lead_layers.append([])
+        self.lead_layers[self.active_layer.get()] = list(value)
+
+    def add_layer(self) -> None:
+        self.lead_layers.append([])
+        self.active_layer.set(len(self.lead_layers) - 1)
+        self.layer_label.configure(text=f"layer {self.active_layer.get() + 1} of {len(self.lead_layers)}")
+        self._log(f"new lead layer {self.active_layer.get() + 1}")
+
+    def clear_layer(self) -> None:
+        self.lead_layers[self.active_layer.get()].clear()
+        self._log(f"cleared lead layer {self.active_layer.get() + 1}")
+
     def compile(self) -> None:
         if self.recording:
             self.stop_record()
@@ -689,7 +722,8 @@ class SynthwaveUI(tk.Tk):
         lam = density_to_lambda(self.density.get())
         self.event_table = compile_loop(self.lead_samples, self.records, mode=self.mapping_mode.get(),
                                         note_source=self.note_source.get(), lam=lam,
-                                        time_map="loop")
+                                        time_map="loop", auto_length=self.auto_length.get(),
+                                        lead_layers=[layer for layer in self.lead_layers if layer])
         self._refresh_events()
         diagnostics = self.event_table.get("diagnostics", {})
         self.status.set(f"COMPILED — {diagnostics.get('status', 'ok')} · "

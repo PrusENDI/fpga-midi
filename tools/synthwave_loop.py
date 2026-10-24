@@ -14,7 +14,7 @@ import json
 import math
 import struct
 import wave
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, MutableMapping, Sequence, Tuple
 
@@ -1467,15 +1467,57 @@ def _record_track(track: str, records: Sequence[Mapping[str, object]], style: Sy
     return result[:16]
 
 
-def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0, bow_deadzone: float = 0.10, leap_degrees: int = 0, leap_dwell: int = 8, time_map: str = "stretch") -> Dict[str, object]:
-    lead_result = compile_lead(lead_samples, style=style, calibration=DEFAULT_CALIBRATION, pitch_space=pitch_space, mode=mode, host_profile=host_profile, pitch_source=pitch_source, note_source=note_source, lam=lam, bow_deadzone=bow_deadzone, leap_degrees=leap_degrees, leap_dwell=leap_dwell, time_map=time_map)
+def length_from_take(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle,
+                     max_bars: int = 32) -> SynthwaveStyle:
+    """Return a style whose loop covers the take, rounded up to whole bars.
+
+    The loop is still a loop, but its length follows how long the operator
+    played instead of being fixed at eight bars. The cap exists because the
+    event table and the eventual hardware loop buffer are finite.
+    """
+    if not samples:
+        return style
+    ordered = _capture_order(samples)
+    start = _sample_timestamp(ordered[0], 0.0)
+    end = _sample_timestamp(ordered[-1], start)
+    bar_ms = 60000.0 * 4.0 / max(1, style.bpm)
+    bars = max(1, int(math.ceil(max(0.0, end - start) / bar_ms)))
+    return replace(style, loop_bars=min(max(1, int(max_bars)), bars))
+
+
+def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0, bow_deadzone: float = 0.10, leap_degrees: int = 0, leap_dwell: int = 8, time_map: str = "stretch", auto_length: bool = False, max_bars: int = 32, lead_layers: Sequence[Sequence[Mapping[str, object]]] | None = None) -> Dict[str, object]:
+    if auto_length:
+        style = length_from_take(lead_samples, style, max_bars)
+    layers = [list(layer) for layer in (lead_layers if lead_layers is not None else [lead_samples]) if layer]
+    if not layers:
+        layers = [list(lead_samples)]
+    compile_kwargs = dict(style=style, calibration=DEFAULT_CALIBRATION, pitch_space=pitch_space, mode=mode,
+                          host_profile=host_profile, pitch_source=pitch_source, note_source=note_source, lam=lam,
+                          bow_deadzone=bow_deadzone, leap_degrees=leap_degrees, leap_dwell=leap_dwell,
+                          time_map=time_map)
+    lead_results = [compile_lead(layer, **compile_kwargs) for layer in layers]
+    lead_result = lead_results[0]
+    lead_events: List[Dict[str, object]] = []
+    seen: set = set()
+    for index, result in enumerate(lead_results):
+        for event in result["events"]:
+            event["layer"] = index
+            key = (int(event["tick"]), str(event.get("type")), event.get("note"), int(event.get("duration", 0)))
+            if key in seen:
+                continue
+            seen.add(key)
+            lead_events.append(event)
+    lead_events.sort(key=lambda event: (int(event["tick"]), str(event.get("type"))))
     tracks: Dict[str, List[Dict[str, object]]] = {name: [] for name in TRACKS}
-    tracks["lead"] = list(lead_result["events"])
+    tracks["lead"] = lead_events
     for track in TRACKS[1:]:
         tracks[track] = _record_track(track, track_records.get(track, ()), style)
     all_events = [event for values in tracks.values() for event in values]
     diagnostics = dict(lead_result["diagnostics"])
-    diagnostics.update({"lead_events": len(tracks["lead"]), "recorded_events": {name: len(tracks[name]) for name in TRACKS[1:]}, "harmony": list(style.harmony), "high_point_ratio": None})
+    diagnostics.update({"lead_events": len(tracks["lead"]), "recorded_events": {name: len(tracks[name]) for name in TRACKS[1:]}, "harmony": list(style.harmony), "high_point_ratio": None,
+                        "loop_bars": style.loop_bars, "auto_length": bool(auto_length),
+                        "layers": len(layers), "layer_notes": [sum(1 for event in values if event.get("type") == "note_on") for values in
+                                                              ([result["events"] for result in lead_results])]})
     return {"version": 3, "style": style.name, "config": asdict(style), "tracks": tracks,
             "events": sorted(all_events, key=lambda e: (int(e["tick"]), TRACKS.index(str(e["track"])) if e["track"] in TRACKS else 99)),
             "landmarks": lead_result["landmarks"], "samples": lead_result["samples"], "pitch_space": lead_result["pitch_space"],

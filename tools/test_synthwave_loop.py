@@ -22,6 +22,7 @@ from tools.synthwave_loop import (
     bow_attacks,
     merge_leaps,
     extract_landmarks,
+    length_from_take,
     load_jsonl_records,
     preprocess_samples,
     project_sample,
@@ -646,6 +647,33 @@ class LoopTimeMapTests(unittest.TestCase):
         before = float(ticks[9]["b_abs"])
         after = float(ticks[11]["b_abs"])
         self.assertLess(before, after)
+
+
+class LoopLengthAndLayerTests(unittest.TestCase):
+    # _sample() advances 20 ms per frame; a bar at 100 BPM is 2.4 s.
+
+    def test_length_follows_the_take(self):
+        samples = [_sample(index, x=3000 + index * 2, y=30000, z=6000) for index in range(2150)]
+        self.assertEqual(length_from_take(samples, STYLE).loop_bars, 18)
+
+    def test_length_is_capped(self):
+        samples = [_sample(index, x=3000 + index * 2, y=30000, z=6000) for index in range(10000)]
+        self.assertEqual(length_from_take(samples, STYLE, max_bars=32).loop_bars, 32)
+
+    def test_auto_length_is_reported_in_the_table(self):
+        samples = [_sample(index, x=3000 + index * 2, y=30000, z=6000) for index in range(2150)]
+        result = compile_loop(samples, {}, auto_length=True)
+        self.assertEqual(result["config"]["loop_bars"], 18)
+        self.assertTrue(result["diagnostics"]["auto_length"])
+
+    def test_layers_merge_and_tag_their_events(self):
+        first = [_sample(index, x=3000 + index * 2, y=30000 + index * 8, z=6000) for index in range(960)]
+        second = [_sample(index, x=3000 + index * 2, y=20000 + index * 14, z=6000) for index in range(960)]
+        result = compile_loop(first, {}, lead_layers=[first, second], time_map="loop")
+        layers = {event["layer"] for event in result["tracks"]["lead"] if event["type"] == "note_on"}
+        self.assertEqual(layers, {0, 1})
+        self.assertEqual(result["diagnostics"]["layers"], 2)
+        self.assertEqual(len(result["diagnostics"]["layer_notes"]), 2)
 
 
 if __name__ == "__main__":

@@ -109,6 +109,10 @@ min_rightward_delta = 256 / 65535 ≈ 0.00391   （离开边缘的最小右移�
 
 `loop` 模式的分段在覆盖区段上分别进行，因此短录制的未覆盖部分是休止，不会用前一段的值延续成假长音。
 
+**Loop 长度可以跟随录制**：`compile_loop(..., auto_length=True, max_bars=32)` 时，`length_from_take()` 把 `loop_bars` 改成「录制时长 ÷ 每小节时长，向上取整」，上限 `max_bars`。100 BPM 下 43 s → 18 小节（43.2 s）。渲染、伴奏、事件表都读 `config.loop_bars`，所以长度自然一致。
+
+**分层录制**：`compile_loop(..., lead_layers=[layer0, layer1, ...])` 把每一层单独编译后合并进 `lead` 轨，事件带 `layer` 字段。同一 tick、同一音高、同一时值的事件会被去重（避免同相位叠加）；诊断给出 `layers` 与 `layer_notes`。
+
 其余细节：
 
 - 目标 128 个 16 分 tick，按时间线性插值 `b_abs / c_abs / q_x / q_y / q_z / cursor_x / cursor_y`。
