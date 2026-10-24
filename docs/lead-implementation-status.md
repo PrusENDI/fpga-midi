@@ -157,6 +157,8 @@ note = 若 |raw − prev| ≤ 0.10 且 prev 在音阶内则保持，否则取最
 
 这样换音阶、换和声、换长度只改配置，不改算法；输出格式仍是 EventTable / WAV。
 
+**音符生成方式也是参数**：`note_source="anchors"`（默认，转折/极值锚点）或 `"variational"`（Potts 分段）。变分模式的密度由 `lam` 控制，UI 的 DENSITY 滑块按 `λ = 0.5·60^density` 映射；两种模式共享同一 `EventTable` 契约，可对同一采集直接对比。变分模式的前向填充使抬手表现为长音持续，因此不产生 rest。
+
 ## 5. 参数速查
 
 | 量 | 当前值 | 位置 |

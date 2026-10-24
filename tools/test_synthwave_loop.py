@@ -18,6 +18,7 @@ from tools.synthwave_loop import (
     TRACKS,
     compile_lead,
     compile_loop,
+    density_to_lambda,
     extract_landmarks,
     load_jsonl_records,
     preprocess_samples,
@@ -537,6 +538,14 @@ class VariationalSegmentTests(unittest.TestCase):
         samples = self._capture()
         result = compile_lead(samples, pitch_source="cursor", note_source="variational")
         self.assertFalse([event for event in result["events"] if event["type"] == "rest"])
+
+    def test_density_maps_to_lambda_monotonically(self):
+        values = [density_to_lambda(value) for value in (0.0, 0.25, 0.5, 0.75, 1.0)]
+        self.assertEqual(values, sorted(values))
+        self.assertAlmostEqual(values[0], 0.5)
+        self.assertAlmostEqual(values[-1], 30.0)
+        self.assertAlmostEqual(density_to_lambda(-1.0), 0.5)
+        self.assertAlmostEqual(density_to_lambda(2.0), 30.0)
 
 
 if __name__ == "__main__":

@@ -922,6 +922,22 @@ def _event(track: str, tick: int, *, note: int | None = None, duration: int = 1,
     return result
 
 
+LAM_DENSITY_MIN = 0.5
+LAM_DENSITY_MAX = 30.0
+
+
+def density_to_lambda(density: float) -> float:
+    """Map a 0-1 density control onto the segment change price λ.
+
+    Low density (0.0) gives λ=0.5, which keeps almost every contour wiggle;
+    high density (1.0) gives λ=30, which keeps only the large gestures. The
+    mapping is geometric so the middle of the slider is musically useful
+    rather than crammed against one end.
+    """
+    ratio = _clamp(float(density), 0.0, 1.0)
+    return LAM_DENSITY_MIN * (LAM_DENSITY_MAX / LAM_DENSITY_MIN) ** ratio
+
+
 def segment_contour(values: Sequence[float], levels: Sequence[int],
                     lam: float, min_len: int = 4) -> List[Tuple[int, int, int]]:
     """Optimal piecewise-constant fit of a contour on a fixed degree set.

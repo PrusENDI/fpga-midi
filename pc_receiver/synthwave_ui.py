@@ -21,8 +21,8 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 from synthwave_loop import (DEFAULT_PITCH_SPACE, STYLE, TRACKS, LeadStartGate,
-                            StreamingLeadFilter, _clamp, compile_loop, make_cursor,
-                            load_jsonl_records, project_sample, render_loop,
+                            StreamingLeadFilter, _clamp, compile_loop, density_to_lambda,
+                            make_cursor, load_jsonl_records, project_sample, render_loop,
                             write_event_table)  # noqa: E402
 
 # Canvas view range in raw sensor counts. The path and the pitch guides share
@@ -358,6 +358,9 @@ class SynthwaveUI(tk.Tk):
         self.bpm = tk.IntVar(value=STYLE.bpm)
         self.swing = tk.DoubleVar(value=STYLE.swing * 100.0)
         self.mapping_mode = tk.StringVar(value="workspace")
+        self.note_source = tk.StringVar(value="variational")
+        # 0.6 maps to lambda 6.0, the value agreed for testing.
+        self.density = tk.DoubleVar(value=0.6)
         self.records: Dict[str, List[dict]] = {track: [] for track in TRACKS}
         self.lead_samples: List[dict] = []
         self.current_capture: List[dict] = []
@@ -438,6 +441,18 @@ class SynthwaveUI(tk.Tk):
         ttk.Label(left, text="LEAD SPACE", style="Muted.TLabel").pack(anchor="w")
         ttk.Radiobutton(left, text="Workspace (fixed)", value="workspace", variable=self.mapping_mode).pack(anchor="w")
         ttk.Radiobutton(left, text="Gesture-Aligned", value="gesture_aligned", variable=self.mapping_mode).pack(anchor="w")
+        ttk.Separator(left).pack(fill="x", pady=12)
+        ttk.Label(left, text="NOTE SOURCE", style="Muted.TLabel").pack(anchor="w")
+        ttk.Radiobutton(left, text="Anchors (turns)", value="anchors",
+                        variable=self.note_source).pack(anchor="w")
+        ttk.Radiobutton(left, text="Variational (segments)", value="variational",
+                        variable=self.note_source).pack(anchor="w")
+        ttk.Label(left, text="DENSITY", style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
+        ttk.Scale(left, from_=0.0, to=1.0, variable=self.density,
+                  orient="horizontal").pack(fill="x")
+        self.density_label = ttk.Label(left, text="λ 6.0", style="Muted.TLabel")
+        self.density_label.pack(anchor="w")
+        self.density.trace_add("write", lambda *_: self._update_density_label())
 
         # The surrounding center pane stays the panel color.  The square plot
         # gets its own dark fill below, so the old wide dark canvas no longer
@@ -661,13 +676,19 @@ class SynthwaveUI(tk.Tk):
         else:
             self._log(f"captured {len(self.current_capture)} reports for {track}")
 
+    def _update_density_label(self) -> None:
+        lam = density_to_lambda(self.density.get())
+        self.density_label.configure(text=f"λ {lam:.1f}")
+
     def compile(self) -> None:
         if self.recording:
             self.stop_record()
         if len(self.lead_samples) < 2:
             messagebox.showwarning("Lead required", "Record or import at least two Lead position reports first.")
             return
-        self.event_table = compile_loop(self.lead_samples, self.records, mode=self.mapping_mode.get())
+        lam = density_to_lambda(self.density.get())
+        self.event_table = compile_loop(self.lead_samples, self.records, mode=self.mapping_mode.get(),
+                                        note_source=self.note_source.get(), lam=lam)
         self._refresh_events()
         diagnostics = self.event_table.get("diagnostics", {})
         self.status.set(f"COMPILED — {diagnostics.get('status', 'ok')} · {len(self.event_table['tracks']['lead'])} Lead events")
