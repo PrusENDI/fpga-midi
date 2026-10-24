@@ -227,6 +227,8 @@ p = 音高投影    b = 运弓投影    z = 高度    v = 平滑速度
 
 所以当前的实现策略不变：**先用零阶与一阶特征落地**，二阶特征留到有可靠的尺度空间平滑之后。
 
+> **已实现（2026-10-24）**：`intent_features(ticks)` 输出每 tick 的 `pitch / pitch_norm / bow / height / speed / direction / valid / engaged`，写入 `result["intent"]`，诊断附 `intent_summary`。它不产生任何事件，因此启用前后音符序列完全一致（测试覆盖）。`bow` 取 `cursor_x`，`height` 取 `q_z`；`cursor_x` 已加入 128 tick 重采样的插值字段。
+
 ## 11. 待确认
 
 - X 的运弓死区取多少（建议 0.03 归一化 ≈ 2000 counts）？

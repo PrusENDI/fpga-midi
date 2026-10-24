@@ -159,6 +159,19 @@ note = 若 |raw − prev| ≤ 0.10 且 prev 在音阶内则保持，否则取最
 
 **音符生成方式也是参数**：`note_source="anchors"`（默认，转折/极值锚点）或 `"variational"`（Potts 分段）。变分模式的密度由 `lam` 控制，UI 的 DENSITY 滑块按 `λ = 0.5·60^density` 映射；两种模式共享同一 `EventTable` 契约，可对同一采集直接对比。变分模式的前向填充使抬手表现为长音持续，因此不产生 rest。
 
+### 4.10 意图特征层 `intent_features`
+
+曲线是矢量值函数；音符需要的每个量都是它的一个标量泛函。这一层显式化，**只产生特征、不产生事件**，两种音符生成方式都读同一份数据。
+
+每个 tick 一行：
+
+```text
+tick, pitch(半音), pitch_norm(0-1), bow(cursor_x), height(q_z),
+speed, direction(-1/0/1), valid, engaged
+```
+
+结果写入 `result["intent"]`，诊断里附 `intent_summary`（音高范围、平均速度、接合率、方向反转次数）。故意**不含曲率/挠率**：实测 200 Hz 下曲率中位数 11.9、MAD 11.1（p10 0、p90 143.8），噪声主导，需先做尺度空间平滑。
+
 ## 5. 参数速查
 
 | 量 | 当前值 | 位置 |

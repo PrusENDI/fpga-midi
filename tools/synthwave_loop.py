@@ -791,7 +791,7 @@ def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveS
         left_t, right_t = times[cursor], times[min(cursor + 1, len(ordered) - 1)]
         ratio = 0.0 if right_t <= left_t else _clamp((target - left_t) / (right_t - left_t), 0.0, 1.0)
         row: Dict[str, object] = {"tick": tick, "a_rel": a_rel, "timestamp_ms": target}
-        for field in ("b_abs", "c_abs", "q_x", "q_y", "q_z"):
+        for field in ("b_abs", "c_abs", "q_x", "q_y", "q_z", "cursor_x", "cursor_y"):
             left_value, right_value = left.get(field), right.get(field)
             left_valid = valid_flag(left.get("position_valid")) and left_value is not None
             right_valid = valid_flag(right.get("position_valid")) and right_value is not None
@@ -938,6 +938,67 @@ def density_to_lambda(density: float) -> float:
     return LAM_DENSITY_MIN * (LAM_DENSITY_MAX / LAM_DENSITY_MIN) ** ratio
 
 
+def intent_features(ticks: Sequence[Mapping[str, object]],
+                    pitch_space: PitchSpace = DEFAULT_PITCH_SPACE) -> List[Dict[str, object]]:
+    """Per-tick expression features of the trajectory. Produces no events.
+
+    This is the explicit middle layer between geometry and music: the curve is
+    a vector valued function, and each musical parameter reads one scalar
+    functional of it. Keeping the layer separate means the note generators (the
+    anchor path and the variational segmentation) both read the same features,
+    and that a new feature can be added and validated without touching them.
+
+    Only zeroth and first order quantities are provided. Curvature and torsion
+    are deliberately absent: measured at 200 Hz they are noise dominated
+    (median 11.9 against MAD 11.1), so they need a scale space smoother first.
+    """
+    span = max(1, pitch_space.max_midi - pitch_space.min_midi)
+    features: List[Dict[str, object]] = []
+    previous_pitch: float | None = None
+    for row in ticks:
+        raw = row.get("b_abs")
+        pitch: float | None = None if raw is None else pitch_space.min_midi + float(raw) * span
+        bow = row.get("cursor_x")
+        if bow is None:
+            bow = row.get("q_x")
+        height = row.get("q_z")
+        speed = float(row.get("speed", 0.0))
+        direction = 0
+        if pitch is not None and previous_pitch is not None:
+            delta = pitch - previous_pitch
+            direction = 0 if abs(delta) < 1e-9 else (1 if delta > 0.0 else -1)
+        features.append({
+            "tick": int(row.get("tick", 0)),
+            "pitch": None if pitch is None else round(pitch, 4),
+            "pitch_norm": None if raw is None else round(float(raw), 6),
+            "bow": None if bow is None else round(float(bow), 6),
+            "height": None if height is None else round(float(height), 6),
+            "speed": round(speed, 6),
+            "direction": direction,
+            "valid": bool(row.get("position_valid", True)),
+            "engaged": not bool(row.get("lift", False)),
+        })
+        if pitch is not None:
+            previous_pitch = pitch
+    return features
+
+
+def _intent_summary(features: Sequence[Mapping[str, object]]) -> Dict[str, object]:
+    pitches = [float(item["pitch"]) for item in features if item.get("pitch") is not None]
+    speeds = [float(item["speed"]) for item in features]
+    engaged = sum(1 for item in features if item.get("engaged"))
+    return {
+        "ticks": len(features),
+        "pitch_min": round(min(pitches), 3) if pitches else None,
+        "pitch_max": round(max(pitches), 3) if pitches else None,
+        "speed_mean": round(sum(speeds) / len(speeds), 4) if speeds else 0.0,
+        "engaged_ratio": round(engaged / len(features), 4) if features else 0.0,
+        "reversals": sum(1 for before, after in zip(features, features[1:])
+                         if before["direction"] and after["direction"]
+                         and before["direction"] != after["direction"]),
+    }
+
+
 def segment_contour(values: Sequence[float], levels: Sequence[int],
                     lam: float, min_len: int = 4) -> List[Tuple[int, int, int]]:
     """Optimal piecewise-constant fit of a contour on a fixed degree set.
@@ -1051,6 +1112,7 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
     processed = preprocess_samples(samples, calibration, mode, host_profile, host_filter, pitch_source)
     ticks = resample_to_ticks(processed, style) if processed else []
     landmarks = extract_landmarks(ticks, style)
+    features = intent_features(ticks, pitch_space)
     pitches = pitch_space.scale_pitches
     chosen: List[Dict[str, object]] = []
     for landmark in (item for item in landmarks if item["kind"] in {"move", "hold", "turn", "apex", "valley", "release"}):
@@ -1127,6 +1189,7 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
         "forced_tonic": False, "forced_high_point": False, "capture_hash": _capture_hash(samples),
         "pitch_profile_hash": _profile_hash(asdict(pitch_space)), "calibration_profile_hash": _profile_hash(asdict(calibration)), "mode": mode,
         "note_source": note_source, "lam": lam if note_source == "variational" else None,
+        "intent_summary": _intent_summary(features),
     }
     if host_profile is not None and host_filter is not None:
         diagnostics.update({
@@ -1136,6 +1199,7 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
     else:
         diagnostics.update({"host_profile_hash": None, "host_filter": None})
     return {"version": 3, "style": style.name, "config": asdict(style), "events": events, "landmarks": landmarks,
+            "intent": features,
             "samples": ticks, "pitch_space": asdict(pitch_space), "calibration": asdict(calibration),
             "lead_patch": asdict(DEFAULT_LEAD_PATCH), "diagnostics": diagnostics}
 

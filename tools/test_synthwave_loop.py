@@ -548,6 +548,50 @@ class VariationalSegmentTests(unittest.TestCase):
         self.assertAlmostEqual(density_to_lambda(2.0), 30.0)
 
 
+class IntentFeatureTests(unittest.TestCase):
+    def _rise_then_fall(self):
+        samples = [_sample(index, x=3000 + index * 20, y=20000 + index * 60, z=6000)
+                   for index in range(300)]
+        samples += [_sample(300 + index, x=3000 + (300 + index) * 20,
+                            y=38000 - index * 60, z=6000) for index in range(300)]
+        return samples
+
+    def test_features_cover_every_tick_and_are_bounded(self):
+        result = compile_lead(self._rise_then_fall(), pitch_source="cursor")
+        features = result["intent"]
+        self.assertEqual(len(features), 128)
+        expected = {"tick", "pitch", "pitch_norm", "bow", "height", "speed",
+                    "direction", "valid", "engaged"}
+        for item in features:
+            self.assertEqual(set(item), expected)
+            if item["pitch"] is not None:
+                self.assertGreaterEqual(item["pitch"], DEFAULT_PITCH_SPACE.min_midi - 1e-6)
+                self.assertLessEqual(item["pitch"], DEFAULT_PITCH_SPACE.max_midi + 1e-6)
+            for key in ("bow", "height"):
+                if item[key] is not None:
+                    self.assertGreaterEqual(item[key], -1e-6)
+                    self.assertLessEqual(item[key], 1.0 + 1e-6)
+
+    def test_direction_follows_a_rise_then_fall(self):
+        result = compile_lead(self._rise_then_fall(), pitch_source="cursor")
+        directions = [item["direction"] for item in result["intent"]]
+        self.assertEqual(directions[0], 0)
+        self.assertIn(1, directions)
+        self.assertIn(-1, directions)
+        self.assertGreater(result["diagnostics"]["intent_summary"]["reversals"], 0)
+
+    def test_intent_layer_emits_no_events(self):
+        result = compile_lead(self._rise_then_fall(), pitch_source="cursor")
+        for item in result["intent"]:
+            self.assertNotIn("type", item)
+            self.assertNotIn("event_type", item)
+
+    def test_intent_layer_is_deterministic(self):
+        first = compile_lead(self._rise_then_fall(), pitch_source="cursor")
+        second = compile_lead(self._rise_then_fall(), pitch_source="cursor")
+        self.assertEqual(first["intent"], second["intent"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
