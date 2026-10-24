@@ -922,12 +922,115 @@ def _event(track: str, tick: int, *, note: int | None = None, duration: int = 1,
     return result
 
 
+def segment_contour(values: Sequence[float], levels: Sequence[int],
+                    lam: float, min_len: int = 4) -> List[Tuple[int, int, int]]:
+    """Optimal piecewise-constant fit of a contour on a fixed degree set.
+
+    Minimises ``Σ (f - g)² + λ · segments`` with ``g`` restricted to ``levels``
+    and every segment at least ``min_len`` frames long, solved exactly by
+    dynamic programming over (frame, degree, run length). The segment
+    boundaries are the notes and the segment lengths are their durations, so
+    density is controlled by one musical quantity: λ, the price of changing
+    note.
+    """
+    n = len(values)
+    if n == 0:
+        return []
+    dp: List[Dict[Tuple[int, int], float]] = [dict() for _ in range(n)]
+    back: List[Dict[Tuple[int, int], Tuple[int, int] | None]] = [dict() for _ in range(n)]
+    for k, level in enumerate(levels):
+        dp[0][(k, 1)] = (float(values[0]) - float(level)) ** 2
+        back[0][(k, 1)] = None
+    for t in range(1, n):
+        frame_value = float(values[t])
+        for k, level in enumerate(levels):
+            frame_cost = (frame_value - float(level)) ** 2
+            for (previous, run), cost in dp[t - 1].items():
+                if previous == k:
+                    key = (k, run + 1)
+                    if key not in dp[t] or cost + frame_cost < dp[t][key]:
+                        dp[t][key] = cost + frame_cost
+                        back[t][key] = (previous, run)
+                elif run >= min_len:
+                    key = (k, 1)
+                    if key not in dp[t] or cost + lam + frame_cost < dp[t][key]:
+                        dp[t][key] = cost + lam + frame_cost
+                        back[t][key] = (previous, run)
+    if not dp[n - 1]:
+        return []
+    state = min(dp[n - 1], key=lambda item: dp[n - 1][item])
+    path: List[int] = []
+    for t in range(n - 1, -1, -1):
+        path.append(state[0])
+        previous = back[t][state]
+        if previous is not None:
+            state = previous
+    path.reverse()
+    segments: List[Tuple[int, int, int]] = []
+    start = 0
+    for index in range(1, n):
+        if path[index] != path[index - 1]:
+            segments.append((start, index, int(levels[path[index - 1]])))
+            start = index
+    segments.append((start, n, int(levels[path[-1]])))
+    return segments
+
+
+def _segment_events(ticks: Sequence[Mapping[str, object]], pitch_space: PitchSpace,
+                    style: SynthwaveStyle, lam: float, min_len: int) -> List[Dict[str, object]]:
+    """Turn the optimal segmentation into Lead events."""
+    span = max(1, pitch_space.max_midi - pitch_space.min_midi)
+    raw_values: List[float | None] = []
+    for row in ticks:
+        value = row.get("b_abs")
+        raw_values.append(None if value is None else pitch_space.min_midi + float(value) * span)
+    filled: List[float] = []
+    previous = float(pitch_space.center_midi)
+    for value in raw_values:
+        if value is not None:
+            previous = value
+        filled.append(previous)
+    levels = list(pitch_space.scale_pitches)
+    events: List[Dict[str, object]] = []
+    for index, (start, end, level) in enumerate(segment_contour(filled, levels, lam, min_len)):
+        row = ticks[min(len(ticks) - 1, start)] if ticks else {}
+        duration = max(1, end - start)
+        z_norm = _clamp((float(row.get("q_z", 0.0)) * 65535.0 - 4000.0) / 20000.0, 0.0, 1.0)
+        proximity = 1.0 - z_norm
+        velocity = int(_clamp(40.0 + 55.0 * proximity + 22.0 * _clamp(float(row.get("speed", 0.0)) * 12.0, 0.0, 1.0), 32.0, 122.0))
+        articulation = "legato" if duration >= 8 else "pluck"
+        events.append(_event(
+            "lead", start, note=level, duration=duration, velocity=velocity, source="trajectory",
+            source_landmarks=[], raw_target_midi=round(filled[start], 4),
+            target_scale_index=levels.index(level),
+            quantization_delta=round(level - filled[start], 4), register_id=0,
+            color_layer=int(_clamp(float(row.get("c_abs", 0.5)), 0.0, 1.0) * 2.999),
+            out_of_range=bool(row.get("out_of_range", False)),
+            b_abs=round(float(row.get("b_abs", 0.0)), 6),
+            b_norm=round(_clamp(float(row.get("b_abs", 0.0)), 0.0, 1.0), 6),
+            z_norm=round(z_norm, 4), proximity=round(proximity, 4),
+            confidence=1.0 if duration >= min_len else 0.5,
+            pitch_profile_hash=_profile_hash(asdict(pitch_space)),
+            correction_reason="optimal_piecewise_constant",
+            articulation=articulation, gate_ratio=0.92 if articulation == "legato" else 0.72,
+            legato=articulation == "legato", tie=False,
+            glide_ms=DEFAULT_LEAD_PATCH.glide_ms if index else 0,
+            accent=round(_clamp(velocity / 127.0, 0.0, 1.0), 4),
+            release_tail=DEFAULT_LEAD_PATCH.release_ms,
+            generated_reason=f"segment:{index}", segment_index=index, lam=lam,
+        ))
+    return events
+
+
 def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle = STYLE,
                  calibration: CalibrationProfile = DEFAULT_CALIBRATION,
                  pitch_space: PitchSpace = DEFAULT_PITCH_SPACE,
                  mode: str = "workspace",
                  host_profile: HostCalibrationProfile | None = None,
-                 pitch_source: str = "absolute") -> Dict[str, object]:
+                 pitch_source: str = "absolute",
+                 note_source: str = "anchors",
+                 lam: float = 6.0,
+                 min_segment: int = 4) -> Dict[str, object]:
     host_filter = filter_capture(samples, host_profile) if host_profile is not None else None
     processed = preprocess_samples(samples, calibration, mode, host_profile, host_filter, pitch_source)
     ticks = resample_to_ticks(processed, style) if processed else []
@@ -978,6 +1081,10 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
             next_tick = next((int(future["tick"]) for future in landmarks if int(future["tick"]) > int(landmark["tick"])), style.loop_ticks)
             events.append(_event("lead", int(landmark["tick"]), duration=max(1, next_tick - int(landmark["tick"])),
                                  event_type="rest", source="trajectory", source_landmarks=[landmark["id"]], generated_reason="position_invalid"))
+    if note_source == "variational":
+        # The segmentation covers every tick, so landmarks stay diagnostic and
+        # their rest events are not emitted.
+        events = _segment_events(ticks, pitch_space, style, lam, min_segment)
     events.sort(key=lambda event: (int(event["tick"]), str(event["type"])) )
     # A note may not outlast the next event. Before this, a 126 tick note
     # overlapped the 70 tick rest that followed it, so any player that honours
@@ -989,7 +1096,8 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
         event["duration"] = max(1, min(int(event["duration"]), following - int(event["tick"])))
     valid_count = sum(1 for row in processed if valid_flag(row.get("position_valid")))
     coverage = valid_count / len(processed) if processed else 0.0
-    status = "insufficient_capture" if len(processed) < 2 else ("weak_motif" if len(chosen) <= 1 else "ok")
+    status = "insufficient_capture" if len(processed) < 2 else (
+        "weak_motif" if sum(1 for event in events if event["type"] == "note_on") <= 1 else "ok")
     diagnostics = {
         "status": status, "coverage": round(coverage, 4),
         "lead_start_gate": {
@@ -1002,6 +1110,7 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
         "no_source_count": sum(1 for event in events if event.get("type") == "note_on" and not event.get("source_landmarks")),
         "forced_tonic": False, "forced_high_point": False, "capture_hash": _capture_hash(samples),
         "pitch_profile_hash": _profile_hash(asdict(pitch_space)), "calibration_profile_hash": _profile_hash(asdict(calibration)), "mode": mode,
+        "note_source": note_source, "lam": lam if note_source == "variational" else None,
     }
     if host_profile is not None and host_filter is not None:
         diagnostics.update({
@@ -1095,8 +1204,8 @@ def _record_track(track: str, records: Sequence[Mapping[str, object]], style: Sy
     return result[:16]
 
 
-def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE) -> Dict[str, object]:
-    lead_result = compile_lead(lead_samples, style=style, calibration=DEFAULT_CALIBRATION, pitch_space=pitch_space, mode=mode, host_profile=host_profile, pitch_source=pitch_source)
+def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0) -> Dict[str, object]:
+    lead_result = compile_lead(lead_samples, style=style, calibration=DEFAULT_CALIBRATION, pitch_space=pitch_space, mode=mode, host_profile=host_profile, pitch_source=pitch_source, note_source=note_source, lam=lam)
     tracks: Dict[str, List[Dict[str, object]]] = {name: [] for name in TRACKS}
     tracks["lead"] = list(lead_result["events"])
     for track in TRACKS[1:]:
@@ -1224,9 +1333,11 @@ def main() -> int:
     parser.add_argument("--events", type=Path, default=Path("synthwave_events.json"))
     parser.add_argument("--wav", type=Path, default=Path("synthwave_loop.wav"))
     parser.add_argument("--sample-rate", type=int, default=22050)
+    parser.add_argument("--notes", choices=("anchors", "variational"), default="anchors")
+    parser.add_argument("--lam", type=float, default=6.0, help="segment change price for --notes variational")
     args = parser.parse_args()
     records = load_jsonl_records(args.input)
-    result = compile_loop(records, {track: records for track in TRACKS[1:]})
+    result = compile_loop(records, {track: records for track in TRACKS[1:]}, note_source=args.notes, lam=args.lam)
     write_event_table(result, args.events)
     render_loop(result, args.wav, sample_rate=args.sample_rate)
     print(json.dumps(result["diagnostics"], ensure_ascii=False))

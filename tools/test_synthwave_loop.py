@@ -501,6 +501,44 @@ class StructureParameterTests(unittest.TestCase):
             self.assertLess(int(event["tick"]), 64)
 
 
+class VariationalSegmentTests(unittest.TestCase):
+    def _capture(self, count=600):
+        return [_sample(index, x=3000 + index * 30, y=20000 + index * 55, z=6000) for index in range(count)]
+
+    def test_segments_are_on_scale_contiguous_and_deterministic(self):
+        samples = self._capture()
+        first = compile_lead(samples, pitch_source="cursor", note_source="variational", lam=6.0)
+        second = compile_lead(samples, pitch_source="cursor", note_source="variational", lam=6.0)
+        self.assertEqual(first["events"], second["events"])
+        notes = [event for event in first["events"] if event["type"] == "note_on"]
+        self.assertTrue(notes)
+        for note in notes:
+            self.assertIn(note["note"], DEFAULT_PITCH_SPACE.scale_pitches)
+        for before, after in zip(notes, notes[1:]):
+            self.assertEqual(before["tick"] + before["duration"], after["tick"])
+
+    def test_min_segment_length_holds_except_at_the_tail(self):
+        samples = self._capture()
+        result = compile_lead(samples, pitch_source="cursor", note_source="variational", lam=6.0, min_segment=4)
+        notes = [event for event in result["events"] if event["type"] == "note_on"]
+        for note in notes[:-1]:
+            self.assertGreaterEqual(note["duration"], 4)
+
+    def test_larger_lambda_produces_fewer_notes(self):
+        samples = self._capture()
+        counts = []
+        for lam in (0.5, 6.0, 30.0):
+            result = compile_lead(samples, pitch_source="cursor", note_source="variational", lam=lam)
+            counts.append(sum(1 for event in result["events"] if event["type"] == "note_on"))
+        self.assertGreaterEqual(counts[0], counts[1])
+        self.assertGreaterEqual(counts[1], counts[2])
+
+    def test_variational_mode_emits_no_rests(self):
+        samples = self._capture()
+        result = compile_lead(samples, pitch_source="cursor", note_source="variational")
+        self.assertFalse([event for event in result["events"] if event["type"] == "rest"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
