@@ -345,6 +345,35 @@ def _append_diag_row(path: Path, row: dict) -> None:
         writer.writerow(row)
 
 
+def calibration_offset(records: List[dict], centre: float = 32768.0) -> tuple:
+    """Offset that puts the resting hand at the centre of the sensing area.
+
+    Takes the median of the valid frames of a hold-still window, so a single
+    outlier cannot move the origin. Returns (0, 0) when there is not enough
+    trustworthy data, which leaves the take untouched.
+    """
+    xs = [float(row["x"]) for row in records
+          if row.get("position_valid", True) and row.get("x") is not None]
+    ys = [float(row["y"]) for row in records
+          if row.get("position_valid", True) and row.get("y") is not None]
+    if len(xs) < 10 or len(ys) < 10:
+        return (0.0, 0.0)
+    xs.sort()
+    ys.sort()
+    return (xs[len(xs) // 2] - centre, ys[len(ys) // 2] - centre)
+
+
+def apply_offset(record: dict, offset: tuple) -> dict:
+    """Shift a raw position so that the calibrated rest position reads centre."""
+    dx, dy = offset
+    if not dx and not dy:
+        return record
+    shifted = dict(record)
+    shifted["x"] = int(_clamp(float(record.get("x", 32768)) - dx, 0.0, 65535.0))
+    shifted["y"] = int(_clamp(float(record.get("y", 32768)) - dy, 0.0, 65535.0))
+    return shifted
+
+
 class SynthwaveUI(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -374,6 +403,11 @@ class SynthwaveUI(tk.Tk):
         self.receiver: subprocess.Popen[str] | None = None
         self.receiver_thread: threading.Thread | None = None
         self.inbox: queue.Queue[dict] = queue.Queue()
+        self.calibrating = False
+        self.calibration_frames: List[dict] = []
+        self.calibration_seconds = 2.0
+        self._calibration_started = 0.0
+        self.take_offset = (0.0, 0.0)
         self.recording = False
         self.playing = False
         # Redraw budget. The sensor streams at 200 Hz, but the trajectory view
@@ -553,6 +587,13 @@ class SynthwaveUI(tk.Tk):
             return
         self.current_capture = []
         self.lead_preview_capture = []
+        # Every take starts with a short hold-still calibration: the hand
+        # resting at the centre defines zero, so takes do not drift apart.
+        self.calibrating = True
+        self.calibration_frames = []
+        self._calibration_started = time.monotonic()
+        self.calibration_seconds = 2.0
+        self.take_offset = (0.0, 0.0)
         # Reset the rate window with the capture, otherwise the first row of a
         # new take reports a large negative rate against the previous take.
         self._diag_window = (time.monotonic(), 0)
@@ -562,10 +603,32 @@ class SynthwaveUI(tk.Tk):
             self.lead_cursor = make_cursor()
         self.recording = True
         track = self.selected_track.get()
+        self.status.set(f"CALIBRATING — hold still at the centre for {self.calibration_seconds:.0f} s")
+        self._log(f"calibrating before {track}")
+        self._start_receiver()
+
+    def _maybe_finish_calibration(self) -> None:
+        """End the hold-still window and start the take proper."""
+        elapsed = time.monotonic() - self._calibration_started
+        if len(self.calibration_frames) >= 40 and elapsed >= self.calibration_seconds:
+            self.take_offset = calibration_offset(self.calibration_frames)
+            self.calibrating = False
+            self.current_capture = []
+            self.lead_preview_capture = []
+            self._log(f"calibrated offset x{self.take_offset[0]:+.0f} y{self.take_offset[1]:+.0f}")
+            self._begin_take()
+        elif elapsed > 6.0:
+            # No usable data: record anyway, but say the take is uncalibrated.
+            self.calibrating = False
+            self.take_offset = (0.0, 0.0)
+            self.status.set("RECORDING — calibration skipped (no data)")
+            self._log("calibration skipped: no position data")
+
+    def _begin_take(self) -> None:
+        track = self.selected_track.get()
         prompt = "move to the left edge, then move right" if track == "lead" else "stop when the take is complete"
         self.status.set(f"RECORDING — {track}; {prompt}")
         self._log(f"recording {track}")
-        self._start_receiver()
 
     def _prepare_capture_path(self) -> Path | None:
         """Return a raw-capture path the receiver can create, or None.
@@ -646,10 +709,16 @@ class SynthwaveUI(tk.Tk):
                 break
             if record.get("type") != "position":
                 continue
+            if self.calibrating:
+                self.calibration_frames.append(record)
+                continue
+            record = apply_offset(record, self.take_offset)
             self.current_capture.append(record)
             latest = record
             if self.selected_track.get() == "lead":
                 self._push_lead_preview(record)
+        if self.calibrating:
+            self._maybe_finish_calibration()
         now = time.monotonic()
         if latest is not None:
             if self.selected_track.get() == "lead" and not self.lead_preview_capture:

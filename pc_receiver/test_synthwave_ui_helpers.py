@@ -6,7 +6,7 @@ from pathlib import Path
 from synthwave_ui import (DIAG_FIELDS, _DepthPathCache, _PixelPathCache, _append_diag_row, _capture_filename,
                           _clip_percent, _iso_point, _plot_rect, _preview_xy_z, _project_3d,
                           _project_point, _thin_path, _thin_xy_z,
-                          _z_color)
+                          _z_color, apply_offset, calibration_offset)
 
 
 class ThinPathTests(unittest.TestCase):
@@ -249,6 +249,25 @@ class DepthEncodedPathTests(unittest.TestCase):
             path = cache.points(growing, 800, 400)
         self.assertEqual(path, _thin_xy_z(rows, 800, 400))
         self.assertEqual(cache.points(growing, 400, 300), _thin_xy_z(rows, 400, 300))
+
+
+class CalibrationTests(unittest.TestCase):
+    def test_rest_position_maps_to_centre(self):
+        rows = [{"x": 35000, "y": 30000, "position_valid": True} for _ in range(50)]
+        offset = calibration_offset(rows)
+        self.assertEqual(offset, (2232.0, -2768.0))
+        moved = apply_offset({"x": 35000, "y": 30000}, offset)
+        self.assertEqual((moved["x"], moved["y"]), (32768, 32768))
+
+    def test_invalid_frames_are_ignored(self):
+        rows = [{"x": 1000, "y": 1000, "position_valid": False} for _ in range(50)]
+        rows += [{"x": 35000, "y": 30000, "position_valid": True} for _ in range(50)]
+        self.assertEqual(calibration_offset(rows), (2232.0, -2768.0))
+
+    def test_too_few_frames_leave_the_take_untouched(self):
+        self.assertEqual(calibration_offset([{"x": 1, "y": 2}] * 3), (0.0, 0.0))
+        row = {"x": 100, "y": 200}
+        self.assertIs(apply_offset(row, (0.0, 0.0)), row)
 
 
 if __name__ == "__main__":
