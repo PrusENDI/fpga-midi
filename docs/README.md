@@ -20,6 +20,7 @@
 | [pc-ui-spec-2026-10-22.md](pc-ui-spec-2026-10-22.md) | 界面逐元素规格：布局、控件绑定、画布图元、哪些控件未接线 |
 | [lead-mapping-report-2026-10-22.md](lead-mapping-report-2026-10-22.md) | 曲线 → 音高 → 音符的量化分析：为什么直线只出 2 个音、抬手断点的成因 |
 | [curve-to-melody-algorithms-2026-10-22.md](curve-to-melody-algorithms-2026-10-22.md) | 高级算法评估、三层架构（表达 → 风格拟合 → 渲染）、自由度边界 |
+| [curve-to-melody-variational-2026-10-24.md](curve-to-melody-variational-2026-10-24.md) | 一维化 + Potts 变分分段：把旋律定义为音级格上的最优分段常值逼近 |
 
 ## 3. 问题跟踪与采集
 
