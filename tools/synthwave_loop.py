@@ -999,6 +999,74 @@ def _intent_summary(features: Sequence[Mapping[str, object]]) -> Dict[str, objec
     }
 
 
+def bow_attacks(values: Sequence[float], deadzone: float = 0.03) -> List[int]:
+    """Return the ticks where the bow reverses direction.
+
+    A reversal counts only after the bow has travelled ``deadzone`` back from
+    its extreme, so sensor jitter cannot machine-gun a repeated note. A full
+    round trip produces two attacks (out and back), which is the agreed
+    behaviour.
+    """
+    attacks: List[int] = []
+    if len(values) < 2:
+        return attacks
+    direction = 0
+    extreme = float(values[0])
+    extreme_index = 0
+    for index in range(1, len(values)):
+        value = float(values[index])
+        if direction == 0:
+            if value - extreme >= deadzone:
+                direction, extreme, extreme_index = 1, value, index
+            elif extreme - value >= deadzone:
+                direction, extreme, extreme_index = -1, value, index
+            elif value > extreme:
+                extreme, extreme_index = value, index
+        elif direction > 0:
+            if value > extreme:
+                extreme, extreme_index = value, index
+            elif extreme - value >= deadzone:
+                attacks.append(extreme_index)
+                direction, extreme, extreme_index = -1, value, index
+        else:
+            if value < extreme:
+                extreme, extreme_index = value, index
+            elif value - extreme >= deadzone:
+                attacks.append(extreme_index)
+                direction, extreme, extreme_index = 1, value, index
+    return attacks
+
+
+def merge_leaps(segments: Sequence[Tuple[int, int, int]], degrees: int = 3,
+                dwell: int = 8) -> List[Tuple[int, int, int]]:
+    """Collapse short glances at passing degrees into one leap.
+
+    Starting from a segment, everything shorter than ``dwell`` is treated as a
+    sweep; the run ends at the first segment that actually dwells. When the
+    swept pitch distance reaches ``degrees``, the departure note is kept and
+    the sweep lands directly on the arrival level, so the levels merely passed
+    through never become notes. A real dwell on a passing note is longer than
+    ``dwell`` and therefore survives.
+    """
+    if degrees <= 0 or len(segments) < 2:
+        return list(segments)
+    merged: List[Tuple[int, int, int]] = []
+    index = 0
+    while index < len(segments):
+        end = index
+        while end + 1 < len(segments) and (segments[end][1] - segments[end][0]) < dwell:
+            end += 1
+        target = end
+        if target > index and abs(segments[target][2] - segments[index][2]) >= degrees:
+            merged.append(segments[index])
+            merged.append((segments[index + 1][0], segments[target][1], segments[target][2]))
+            index = target + 1
+        else:
+            merged.append(segments[index])
+            index += 1
+    return merged
+
+
 def segment_contour(values: Sequence[float], levels: Sequence[int],
                     lam: float, min_len: int = 4) -> List[Tuple[int, int, int]]:
     """Optimal piecewise-constant fit of a contour on a fixed degree set.
@@ -1054,8 +1122,16 @@ def segment_contour(values: Sequence[float], levels: Sequence[int],
 
 
 def _segment_events(ticks: Sequence[Mapping[str, object]], pitch_space: PitchSpace,
-                    style: SynthwaveStyle, lam: float, min_len: int) -> List[Dict[str, object]]:
-    """Turn the optimal segmentation into Lead events."""
+                    style: SynthwaveStyle, lam: float, min_len: int,
+                    bow_deadzone: float = 0.10, leap_degrees: int = 3,
+                    leap_dwell: int = 8) -> List[Dict[str, object]]:
+    """Turn the optimal segmentation into Lead events, then articulate it.
+
+    Two post-passes sit on top of the segmentation: short glances at passing
+    degrees collapse into one leap, and every bow reversal inside a segment
+    re-attacks the same pitch. The segmentation decides where the melody goes;
+    these decide how it is played.
+    """
     span = max(1, pitch_space.max_midi - pitch_space.min_midi)
     raw_values: List[float | None] = []
     for row in ticks:
@@ -1068,33 +1144,53 @@ def _segment_events(ticks: Sequence[Mapping[str, object]], pitch_space: PitchSpa
             previous = value
         filled.append(previous)
     levels = list(pitch_space.scale_pitches)
+    bows: List[float] = []
+    for row in ticks:
+        bow = row.get("cursor_x")
+        if bow is None:
+            bow = row.get("q_x")
+        bows.append(0.5 if bow is None else float(bow))
+    segments = merge_leaps(segment_contour(filled, levels, lam, min_len), leap_degrees, leap_dwell)
+    gap = max(1, min_len)
     events: List[Dict[str, object]] = []
-    for index, (start, end, level) in enumerate(segment_contour(filled, levels, lam, min_len)):
-        row = ticks[min(len(ticks) - 1, start)] if ticks else {}
-        duration = max(1, end - start)
-        z_norm = _clamp((float(row.get("q_z", 0.0)) * 65535.0 - 4000.0) / 20000.0, 0.0, 1.0)
-        proximity = 1.0 - z_norm
-        velocity = int(_clamp(40.0 + 55.0 * proximity + 22.0 * _clamp(float(row.get("speed", 0.0)) * 12.0, 0.0, 1.0), 32.0, 122.0))
-        articulation = "legato" if duration >= 8 else "pluck"
-        events.append(_event(
-            "lead", start, note=level, duration=duration, velocity=velocity, source="trajectory",
-            source_landmarks=[], raw_target_midi=round(filled[start], 4),
-            target_scale_index=levels.index(level),
-            quantization_delta=round(level - filled[start], 4), register_id=0,
-            color_layer=int(_clamp(float(row.get("c_abs", 0.5)), 0.0, 1.0) * 2.999),
-            out_of_range=bool(row.get("out_of_range", False)),
-            b_abs=round(float(row.get("b_abs", 0.0)), 6),
-            b_norm=round(_clamp(float(row.get("b_abs", 0.0)), 0.0, 1.0), 6),
+    for segment_index, (start, end, level) in enumerate(segments):
+        bounds = [start]
+        for attack in bow_attacks(bows[start:end], bow_deadzone):
+            tick = start + attack
+            if tick - bounds[-1] >= gap and end - tick >= 2:
+                bounds.append(tick)
+        bounds.append(end)
+        for part in range(len(bounds) - 1):
+            note_start, note_end = bounds[part], bounds[part + 1]
+            row = ticks[min(len(ticks) - 1, note_start)] if ticks else {}
+            duration = max(1, note_end - note_start)
+            travel = abs(bows[note_end - 1] - bows[note_start]) if note_end > note_start else 0.0
+            z_norm = _clamp((float(row.get("q_z", 0.0)) * 65535.0 - 4000.0) / 20000.0, 0.0, 1.0)
+            proximity = 1.0 - z_norm
+            velocity = int(_clamp(40.0 + 55.0 * proximity
+                                  + 22.0 * _clamp(float(row.get("speed", 0.0)) * 12.0, 0.0, 1.0)
+                                  + 10.0 * _clamp(travel / 0.1, 0.0, 1.0), 32.0, 122.0))
+            articulation = "legato" if duration >= 8 else "pluck"
+            events.append(_event(
+                "lead", note_start, note=level, duration=duration, velocity=velocity, source="trajectory",
+                source_landmarks=[], raw_target_midi=round(filled[note_start], 4),
+                target_scale_index=levels.index(level),
+                quantization_delta=round(level - filled[note_start], 4), register_id=0,
+                color_layer=int(_clamp(float(row.get("c_abs", 0.5)), 0.0, 1.0) * 2.999),
+                out_of_range=bool(row.get("out_of_range", False)),
+                b_abs=round(float(row.get("b_abs", 0.0)), 6),
+                b_norm=round(_clamp(float(row.get("b_abs", 0.0)), 0.0, 1.0), 6),
             z_norm=round(z_norm, 4), proximity=round(proximity, 4),
             confidence=1.0 if duration >= min_len else 0.5,
             pitch_profile_hash=_profile_hash(asdict(pitch_space)),
             correction_reason="optimal_piecewise_constant",
             articulation=articulation, gate_ratio=0.92 if articulation == "legato" else 0.72,
             legato=articulation == "legato", tie=False,
-            glide_ms=DEFAULT_LEAD_PATCH.glide_ms if index else 0,
+            glide_ms=DEFAULT_LEAD_PATCH.glide_ms if note_start else 0,
             accent=round(_clamp(velocity / 127.0, 0.0, 1.0), 4),
             release_tail=DEFAULT_LEAD_PATCH.release_ms,
-            generated_reason=f"segment:{index}", segment_index=index, lam=lam,
+            reattack=part > 0, bow_travel=round(travel, 6),
+            generated_reason=f"segment:{segment_index}", segment_index=segment_index, lam=lam,
         ))
     return events
 
@@ -1107,7 +1203,10 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
                  pitch_source: str = "absolute",
                  note_source: str = "anchors",
                  lam: float = 6.0,
-                 min_segment: int = 4) -> Dict[str, object]:
+                 min_segment: int = 4,
+                 bow_deadzone: float = 0.03,
+                 leap_degrees: int = 3,
+                 leap_dwell: int = 8) -> Dict[str, object]:
     host_filter = filter_capture(samples, host_profile) if host_profile is not None else None
     processed = preprocess_samples(samples, calibration, mode, host_profile, host_filter, pitch_source)
     ticks = resample_to_ticks(processed, style) if processed else []
@@ -1162,7 +1261,8 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
     if note_source == "variational":
         # The segmentation covers every tick, so landmarks stay diagnostic and
         # their rest events are not emitted.
-        events = _segment_events(ticks, pitch_space, style, lam, min_segment)
+        events = _segment_events(ticks, pitch_space, style, lam, min_segment,
+                                 bow_deadzone, leap_degrees, leap_dwell)
     events.sort(key=lambda event: (int(event["tick"]), str(event["type"])) )
     # A note may not outlast the next event. Before this, a 126 tick note
     # overlapped the 70 tick rest that followed it, so any player that honours
@@ -1284,8 +1384,8 @@ def _record_track(track: str, records: Sequence[Mapping[str, object]], style: Sy
     return result[:16]
 
 
-def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0) -> Dict[str, object]:
-    lead_result = compile_lead(lead_samples, style=style, calibration=DEFAULT_CALIBRATION, pitch_space=pitch_space, mode=mode, host_profile=host_profile, pitch_source=pitch_source, note_source=note_source, lam=lam)
+def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0, bow_deadzone: float = 0.03, leap_degrees: int = 3, leap_dwell: int = 8) -> Dict[str, object]:
+    lead_result = compile_lead(lead_samples, style=style, calibration=DEFAULT_CALIBRATION, pitch_space=pitch_space, mode=mode, host_profile=host_profile, pitch_source=pitch_source, note_source=note_source, lam=lam, bow_deadzone=bow_deadzone, leap_degrees=leap_degrees, leap_dwell=leap_dwell)
     tracks: Dict[str, List[Dict[str, object]]] = {name: [] for name in TRACKS}
     tracks["lead"] = list(lead_result["events"])
     for track in TRACKS[1:]:

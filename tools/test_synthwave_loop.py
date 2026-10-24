@@ -19,6 +19,8 @@ from tools.synthwave_loop import (
     compile_lead,
     compile_loop,
     density_to_lambda,
+    bow_attacks,
+    merge_leaps,
     extract_landmarks,
     load_jsonl_records,
     preprocess_samples,
@@ -590,6 +592,36 @@ class IntentFeatureTests(unittest.TestCase):
         first = compile_lead(self._rise_then_fall(), pitch_source="cursor")
         second = compile_lead(self._rise_then_fall(), pitch_source="cursor")
         self.assertEqual(first["intent"], second["intent"])
+
+
+class ArticulationTests(unittest.TestCase):
+    def test_bow_attacks_counts_each_reversal(self):
+        # A full oscillation has two extrema, so two attacks.
+        self.assertEqual(bow_attacks([0.5, 0.6, 0.5, 0.4, 0.5, 0.6], 0.03), [1, 3])
+
+    def test_bow_jitter_below_the_deadzone_is_ignored(self):
+        self.assertEqual(bow_attacks([0.5, 0.51, 0.5, 0.51, 0.5], 0.03), [])
+
+    def test_merge_leaps_drops_passing_degrees(self):
+        merged = merge_leaps([(0, 4, 57), (4, 8, 60), (8, 12, 64), (12, 40, 67)], 3, 8)
+        self.assertEqual(merged, [(0, 4, 57), (4, 40, 67)])
+
+    def test_merge_leaps_keeps_a_real_dwell(self):
+        segments = [(0, 4, 57), (4, 24, 60), (24, 28, 64), (28, 40, 67)]
+        self.assertEqual(merge_leaps(segments, 3, 8), segments)
+
+    def test_bow_reversals_split_a_held_pitch(self):
+        samples = []
+        for index in range(600):
+            # y constant, x sweeps back and forth every 100 frames
+            phase = (index // 100) % 2
+            x = 30000 if phase == 0 else 36000
+            samples.append(_sample(index, x=x, y=30000, z=6000))
+        result = compile_lead(samples, pitch_source="cursor", note_source="variational", lam=6.0)
+        notes = [event for event in result["events"] if event["type"] == "note_on"]
+        self.assertGreaterEqual(len(notes), 4)
+        self.assertEqual(len({note["note"] for note in notes}), 1)
+        self.assertTrue(any(note.get("reattack") for note in notes))
 
 
 if __name__ == "__main__":
