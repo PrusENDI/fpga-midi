@@ -676,6 +676,17 @@ class LoopLengthAndLayerTests(unittest.TestCase):
         self.assertEqual(len(result["diagnostics"]["layer_notes"]), 2)
 
 
+    def test_auto_length_keeps_notes_beyond_the_default_grid(self):
+        # Slow steps (three seconds each) so every plateau is long enough to
+        # become a segment under the default minimum length.
+        samples = [_sample(index, x=3000 + index * 2, y=30000 + ((index // 60) % 4) * 5000, z=6000)
+                   for index in range(2150)]
+        result = compile_loop(samples, {}, auto_length=True, note_source="variational", time_map="loop")
+        ticks = [event["tick"] for event in result["tracks"]["lead"] if event["type"] == "note_on"]
+        self.assertTrue(any(tick > 128 for tick in ticks))
+        self.assertLessEqual(max(ticks), result["config"]["loop_bars"] * 16 - 1)
+
+
 if __name__ == "__main__":
     unittest.main()
 

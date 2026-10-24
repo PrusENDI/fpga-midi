@@ -964,9 +964,13 @@ def _capture_hash(samples: Sequence[Mapping[str, object]]) -> str:
 
 def _event(track: str, tick: int, *, note: int | None = None, duration: int = 1,
            velocity: int = 80, event_type: str = "note_on", source: str = "touch_tap",
-           **fields: object) -> Dict[str, object]:
+           limit: int | None = None, **fields: object) -> Dict[str, object]:
+    # The clamp must use the style actually being compiled: with automatic loop
+    # length the grid is longer than the module default, and clamping to it
+    # folded every later note onto tick 127.
+    bound = (STYLE.loop_ticks if limit is None else int(limit)) - 1
     result: Dict[str, object] = {
-        "track": track, "type": event_type, "tick": int(_clamp(tick, 0, STYLE.loop_ticks - 1)),
+        "track": track, "type": event_type, "tick": int(_clamp(tick, 0, max(0, bound))),
         "duration": max(0, int(duration)), "velocity": int(_clamp(velocity, 1, 127)), "source": source,
     }
     if note is not None:
@@ -1269,6 +1273,7 @@ def _segment_events(ticks: Sequence[Mapping[str, object]], pitch_space: PitchSpa
             release_tail=DEFAULT_LEAD_PATCH.release_ms,
             reattack=part > 0, bow_travel=round(travel, 6),
             generated_reason=f"segment:{segment_index}", segment_index=segment_index, lam=lam,
+            limit=style.loop_ticks,
         ))
     return events
 
@@ -1331,12 +1336,12 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
                              legato=articulation == "legato", tie=False,
                              glide_ms=DEFAULT_LEAD_PATCH.glide_ms if index else 0,
                              accent=round(_clamp(velocity / 127.0, 0.0, 1.0), 4), release_tail=DEFAULT_LEAD_PATCH.release_ms,
-                             generated_reason=f"landmark:{landmark['kind']}"))
+                             generated_reason=f"landmark:{landmark['kind']}", limit=style.loop_ticks))
     for landmark in landmarks:
         if landmark["kind"] == "rest":
             next_tick = next((int(future["tick"]) for future in landmarks if int(future["tick"]) > int(landmark["tick"])), style.loop_ticks)
             events.append(_event("lead", int(landmark["tick"]), duration=max(1, next_tick - int(landmark["tick"])),
-                                 event_type="rest", source="trajectory", source_landmarks=[landmark["id"]], generated_reason="position_invalid"))
+                                 event_type="rest", source="trajectory", source_landmarks=[landmark["id"]], generated_reason="position_invalid", limit=style.loop_ticks))
     if note_source == "variational":
         # The segmentation covers every tick, so landmarks stay diagnostic and
         # their rest events are not emitted.
@@ -1446,23 +1451,23 @@ def _record_track(track: str, records: Sequence[Mapping[str, object]], style: Sy
                 mapping = (36, 38, 42, 46, 49)
                 bit = (new_tap or rising_touch) & -(new_tap or rising_touch)
                 index = min(4, max(0, bit.bit_length() - 1))
-                result.append(_event(track, tick, note=mapping[index], duration=1, velocity=velocity, source="touch_tap", electrode=index))
+                result.append(_event(track, tick, note=mapping[index], duration=1, velocity=velocity, source="touch_tap", electrode=index, limit=style.loop_ticks))
             elif track == "bass":
                 root, _ = _chord(tick, style)
                 degree = 0 if y < 0.45 else (7 if y < 0.75 else 12)
-                result.append(_event(track, tick, note=root - 12 + degree, duration=8, velocity=velocity, source="touch_tap"))
+                result.append(_event(track, tick, note=root - 12 + degree, duration=8, velocity=velocity, source="touch_tap", limit=style.loop_ticks))
             elif track == "pad":
                 _, chord = _chord(tick, style)
                 inversion = 0 if y < 0.5 else 1
                 for offset, note in enumerate(chord):
-                    result.append(_event(track, tick, note=note + 12 * inversion, duration=32, velocity=max(1, velocity - offset * 5), source="touch_tap", chord_voice=offset))
+                    result.append(_event(track, tick, note=note + 12 * inversion, duration=32, velocity=max(1, velocity - offset * 5), source="touch_tap", chord_voice=offset, limit=style.loop_ticks))
             elif track == "arp":
                 _, chord = _chord(tick, style)
                 order = chord if y < 0.5 else tuple(reversed(chord))
                 for offset, note in enumerate(order):
-                    result.append(_event(track, min(127, tick + offset * 4), note=note + 12, duration=3, velocity=velocity, source="touch_tap", arp_step=offset))
+                    result.append(_event(track, min(style.loop_ticks - 1, tick + offset * 4), note=note + 12, duration=3, velocity=velocity, source="touch_tap", arp_step=offset, limit=style.loop_ticks))
             elif track == "texture_fx":
-                result.append(_event(track, tick, duration=16, velocity=velocity, event_type="control_point", source="touch_tap", cutoff=int(300 + 6000 * y), reverb_send=int(40 + 80 * z), delay_send=int(30 + 90 * z)))
+                result.append(_event(track, tick, duration=16, velocity=velocity, event_type="control_point", source="touch_tap", cutoff=int(300 + 6000 * y), reverb_send=int(40 + 80 * z), delay_send=int(30 + 90 * z), limit=style.loop_ticks))
         previous_touch, previous_tap = touch, tap
     return result[:16]
 
