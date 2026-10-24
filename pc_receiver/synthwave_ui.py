@@ -414,13 +414,61 @@ class SynthwaveUI(tk.Tk):
         ttk.Label(self, text="CAPTURE & LOOP  |  six tracks  |  Lead trajectory + Touch/Tap performance", style="Muted.TLabel").pack(anchor="w", padx=20, pady=(0, 12))
         main = ttk.Frame(self)
         main.pack(fill="both", expand=True, padx=14, pady=6)
-        left = ttk.Frame(main)
-        left.pack(side="left", fill="y", padx=(0, 10))
+        # The left column carries more controls than fit in a short window, so
+        # it scrolls: a plain frame silently pushed the Lead controls out of
+        # view (they existed at y=0, height 1, and could not be clicked).
+        left_host = ttk.Frame(main)
+        left_host.pack(side="left", fill="y", padx=(0, 10))
+        left_canvas = tk.Canvas(left_host, borderwidth=0, highlightthickness=0, width=214)
+        left_bar = ttk.Scrollbar(left_host, orient="vertical", command=left_canvas.yview)
+        left_canvas.configure(yscrollcommand=left_bar.set)
+        left_bar.pack(side="right", fill="y")
+        left_canvas.pack(side="left", fill="both", expand=True)
+        left = ttk.Frame(left_canvas)
+        left_window = left_canvas.create_window((0, 0), window=left, anchor="nw")
+        left.bind("<Configure>", lambda _event: left_canvas.configure(scrollregion=left_canvas.bbox("all")))
+        left_canvas.bind("<Configure>", lambda event: left_canvas.itemconfigure(left_window, width=event.width))
+
+        def _in_left(widget) -> bool:
+            while widget is not None:
+                if widget is left_canvas or widget is left:
+                    return True
+                widget = getattr(widget, "master", None)
+            return False
+
+        def _wheel(event: "tk.Event") -> None:
+            if _in_left(self.winfo_containing(event.x_root, event.y_root)):
+                left_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+        self.bind_all("<MouseWheel>", _wheel)
         center = ttk.Frame(main)
         center.pack(side="left", fill="both", expand=True)
         right = ttk.Frame(main)
         right.pack(side="right", fill="y", padx=(10, 0))
 
+        ttk.Label(left, text="LEAD SPACE", style="Muted.TLabel").pack(anchor="w")
+        ttk.Radiobutton(left, text="Workspace (fixed)", value="workspace", variable=self.mapping_mode).pack(anchor="w")
+        ttk.Radiobutton(left, text="Gesture-Aligned", value="gesture_aligned", variable=self.mapping_mode).pack(anchor="w")
+        ttk.Separator(left).pack(fill="x", pady=10)
+        ttk.Label(left, text="NOTE SOURCE", style="Muted.TLabel").pack(anchor="w")
+        ttk.Radiobutton(left, text="Anchors (turns)", value="anchors",
+                        variable=self.note_source).pack(anchor="w")
+        ttk.Radiobutton(left, text="Variational (segments)", value="variational",
+                        variable=self.note_source).pack(anchor="w")
+        ttk.Label(left, text="DENSITY", style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
+        ttk.Scale(left, from_=0.0, to=1.0, variable=self.density,
+                  orient="horizontal").pack(fill="x")
+        self.density_label = ttk.Label(left, text="λ 6.0", style="Muted.TLabel")
+        self.density_label.pack(anchor="w")
+        self.density.trace_add("write", lambda *_: self._update_density_label())
+        ttk.Checkbutton(left, text="Auto length (follow take)", variable=self.auto_length).pack(anchor="w", pady=(8, 0))
+        self.layer_label = ttk.Label(left, text="layer 1 of 1", style="Muted.TLabel")
+        self.layer_label.pack(anchor="w", pady=(6, 0))
+        layer_row = ttk.Frame(left)
+        layer_row.pack(fill="x")
+        ttk.Button(layer_row, text="Add layer", command=self.add_layer).pack(side="left", expand=True, fill="x")
+        ttk.Button(layer_row, text="Clear layer", command=self.clear_layer).pack(side="left", expand=True, fill="x")
+        ttk.Separator(left).pack(fill="x", pady=12)
         ttk.Label(left, text="TRACKS", style="Muted.TLabel").pack(anchor="w", pady=(0, 6))
         for track in TRACKS:
             label = {"lead": "LEAD  ·  XY + Z depth", "bass": "BASS  ·  touch", "pad": "PAD  ·  touch", "arp": "ARP  ·  touch", "drums": "DRUMS  ·  tap", "texture_fx": "TEXTURE / FX"}[track]
@@ -440,29 +488,8 @@ class SynthwaveUI(tk.Tk):
         ttk.Button(left, text="Export Event JSON…", command=self.export_events).pack(fill="x", pady=3)
         ttk.Button(left, text="Render WAV…", command=self.render_wav).pack(fill="x", pady=3)
         ttk.Separator(left).pack(fill="x", pady=12)
-        ttk.Label(left, text="LEAD SPACE", style="Muted.TLabel").pack(anchor="w")
-        ttk.Radiobutton(left, text="Workspace (fixed)", value="workspace", variable=self.mapping_mode).pack(anchor="w")
-        ttk.Radiobutton(left, text="Gesture-Aligned", value="gesture_aligned", variable=self.mapping_mode).pack(anchor="w")
-        ttk.Separator(left).pack(fill="x", pady=12)
-        ttk.Label(left, text="NOTE SOURCE", style="Muted.TLabel").pack(anchor="w")
-        ttk.Radiobutton(left, text="Anchors (turns)", value="anchors",
-                        variable=self.note_source).pack(anchor="w")
-        ttk.Radiobutton(left, text="Variational (segments)", value="variational",
-                        variable=self.note_source).pack(anchor="w")
-        ttk.Label(left, text="DENSITY", style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
-        ttk.Scale(left, from_=0.0, to=1.0, variable=self.density,
-                  orient="horizontal").pack(fill="x")
-        self.density_label = ttk.Label(left, text="λ 6.0", style="Muted.TLabel")
-        self.density_label.pack(anchor="w")
-        self.density.trace_add("write", lambda *_: self._update_density_label())
-        ttk.Separator(left).pack(fill="x", pady=12)
-        ttk.Checkbutton(left, text="Auto length (follow take)", variable=self.auto_length).pack(anchor="w")
-        self.layer_label = ttk.Label(left, text="layer 1 of 1", style="Muted.TLabel")
-        self.layer_label.pack(anchor="w", pady=(8, 0))
-        layer_row = ttk.Frame(left)
-        layer_row.pack(fill="x")
-        ttk.Button(layer_row, text="Add layer", command=self.add_layer).pack(side="left", expand=True, fill="x")
-        ttk.Button(layer_row, text="Clear layer", command=self.clear_layer).pack(side="left", expand=True, fill="x")
+
+        # The surrounding center pane stays the panel color.  The square plot
 
         # The surrounding center pane stays the panel color.  The square plot
         # gets its own dark fill below, so the old wide dark canvas no longer
