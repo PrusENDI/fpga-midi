@@ -668,16 +668,32 @@ class TouchHoldTests(unittest.TestCase):
         held = cursor.push((30000, 30000, 6000), 6000, touching=True)[0]
         self.assertEqual(held, start)
 
-    def test_release_resumes_following_immediately(self):
+    def test_touch_rolls_back_the_approach_drag(self):
+        # The centroid is pulled for a few frames before the flag rises; the
+        # cursor must return to where it sat before that pull.
+        cursor = make_cursor()
+        for _ in range(6):
+            cursor.push((40000, 30000, 6000), 6000)
+        steady = cursor.cursor[0]
+        for _ in range(4):
+            cursor.push((30000, 30000, 6000), 6000)  # the drag
+        dragged = cursor.cursor[0]
+        self.assertLess(dragged, steady)
+        rolled = cursor.push((30000, 30000, 6000), 6000, touching=True)[0]
+        self.assertAlmostEqual(rolled[0], steady, places=4)
+
+    def test_release_holds_through_the_spring_back_then_snaps(self):
         cursor = make_cursor()
         cursor.push((40000, 30000, 6000), 6000)
-        cursor.push((30000, 30000, 6000), 6000, touching=True)
-        held = cursor.cursor[0]
-        released = cursor.push((30000, 30000, 6000), 6000)[0]
-        self.assertNotAlmostEqual(released[0], held, places=3)
-        for _ in range(10):
-            cursor.push((30000, 30000, 6000), 6000)
-        self.assertLess(abs(cursor.cursor[0] - 30000 / 65535.0), 0.01)
+        held = cursor.push((30000, 30000, 6000), 6000, touching=True)[0][0]
+        values, flags = [], []
+        for _ in range(21):
+            values.append(cursor.push((30000, 30000, 6000), 6000)[0][0])
+            flags.append(cursor.rebased)
+        self.assertEqual(len(set(values[:15])), 1)      # held through the spring back
+        self.assertAlmostEqual(values[0], held, places=6)
+        self.assertTrue(any(flags))                     # one snap, flagged
+        self.assertLess(abs(values[-1] - 30000 / 65535.0), 0.01)
 
 
 class LoopTimeMapTests(unittest.TestCase):

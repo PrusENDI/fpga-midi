@@ -605,7 +605,7 @@ class AbsoluteCursor:
                  z_low: float = 4000.0, z_high: float = 24000.0,
                  z_engage: float = CURSOR_Z_ENGAGE, z_release: float = CURSOR_Z_RELEASE,
                  start: Tuple[float, float] = (0.5, 0.5),
-                 settle_frames: int = 0, alpha_settle: float = 0.25) -> None:
+                 settle_frames: int = 20, alpha_settle: float = 0.25) -> None:
         self.x_range = (float(x_range[0]), float(x_range[1]))
         self.y_range = (float(y_range[0]), float(y_range[1]))
         self.alpha_low = float(alpha_low)
@@ -615,6 +615,7 @@ class AbsoluteCursor:
         self.z_engage = float(z_engage)
         self.z_release = float(z_release)
         self.settle_frames = int(settle_frames)
+        self.history: List[Tuple[float, float]] = []
         self.alpha_settle = float(alpha_settle)
         self.cursor: Tuple[float, float] = (float(start[0]), float(start[1]))
         self.engaged = True
@@ -648,37 +649,34 @@ class AbsoluteCursor:
         active = self.update_engagement(z) if engaged is None else bool(engaged)
         self.rebased = False
         if touching:
-            # Contact shifts the reported centroid roughly ten thousand counts
-            # to the left and it springs back when the finger leaves (measured
-            # on capture lead_20261025-121454: -10071 during, -4055 just after).
-            # Holding the cursor for the duration of the contact keeps the pitch
-            # steady, which is exactly what a repeated note needs.
+            if not self.touching:
+                # The centroid is dragged towards the false position for about
+                # four frames before the touch flag rises (measured: 18043 to
+                # 10509 between frames 817 and 822). Roll the cursor back to
+                # where it sat before that approach, otherwise every tap drags
+                # it out and the repeated taps draw a fan.
+                if self.history:
+                    self.cursor = self.history[0]
+                self.settle = 0
             self.touching = True
             if not active:
                 self.engaged = False
             return self.cursor, self.alpha_at(z)
         if self.touching:
-            # No settle by default: after the finger leaves the cursor simply
-            # follows the hand again. Gliding back was worse in practice,
-            # because in touch gated playing the frames between contacts emit
-            # nothing, so a smoother path buys no music and costs latency.
-            # Set settle_frames above zero to bring the glide back.
+            # The reading stays wrong for about twenty frames after the finger
+            # leaves (8452 at release, 16082 once settled), so hold through that
+            # window and then snap once, instead of following the spring back.
             self.touching = False
             self.settle = int(self.settle_frames)
             self.engaged = active
-            if self.settle > 0:
-                return self.cursor, self.alpha_at(z)
         if self.settle > 0:
-            # Glide back instead of snapping: the correction is spread over the
-            # settle window, so no single frame jumps far enough to read as a
-            # turn or to move the pitch by a scale step.
             self.settle -= 1
             self.engaged = active
-            point = self.target(q)
-            alpha = float(self.alpha_settle)
-            self.cursor = (self.cursor[0] + alpha * (point[0] - self.cursor[0]),
-                           self.cursor[1] + alpha * (point[1] - self.cursor[1]))
-            return self.cursor, alpha
+            if self.settle > 0:
+                return self.cursor, self.alpha_at(z)
+            self.cursor = self.target(q)
+            self.rebased = True
+            return self.cursor, self.alpha_at(z)
         point = self.target(q)
         alpha = self.alpha_at(z)
         if active and not was_engaged:
@@ -687,6 +685,9 @@ class AbsoluteCursor:
         elif active:
             self.cursor = (self.cursor[0] + alpha * (point[0] - self.cursor[0]),
                            self.cursor[1] + alpha * (point[1] - self.cursor[1]))
+        self.history.append(self.cursor)
+        if len(self.history) > 6:
+            self.history.pop(0)
         return self.cursor, alpha
 
 
