@@ -41,18 +41,25 @@ def _delay_samples(hz: float, sample_rate: int, max_delay: int) -> float:
     return max(2.0, min(float(max_delay - 3), delay))
 
 
-def render_contour(levels, pressure, activity, output, sample_rate=SAMPLE_RATE,
-                   seconds_per_tick=0.15):
-    """Drive one string with a contour: pitch follows, height sets damping."""
+def render_contour(levels, pressure, activity, output, onsets=(), sample_rate=SAMPLE_RATE,
+                   seconds_per_tick=0.15, burst_ms=12.0):
+    """One string with note onsets: continuous bow plus a burst per note.
+
+    Continuous excitation alone gives a siren, because nothing ever restarts
+    the string. Every onset adds a short noise burst and a brief rise in loop
+    gain, which is what turns a slide into a melody.
+    """
     rng = random.Random(20261025)
     per_tick = max(1, int(round(seconds_per_tick * sample_rate)))
+    burst = max(1, int(burst_ms * sample_rate / 1000.0))
+    onset_set = set(int(tick) for tick in onsets)
     size = int(sample_rate / 20.0) + 4
     buffer = [0.0] * size
     write = 0
     last = 0.0
     delay = sample_rate / semitone_to_hz(levels[0]) if levels else 200.0
     samples = []
-    for level, pressed, moving in zip(levels, pressure, activity):
+    for index, (level, pressed, moving) in enumerate(zip(levels, pressure, activity)):
         pressed = float(pressed)
         moving = float(moving)
         target = sample_rate / max(20.0, semitone_to_hz(level))
@@ -60,8 +67,9 @@ def render_contour(levels, pressure, activity, output, sample_rate=SAMPLE_RATE,
         step = (target - delay) / float(per_tick)
         alpha = 0.35 + 0.35 * pressed
         gain = 0.9955 + 0.0040 * pressed
-        level_noise = 0.0012 * (0.25 + 0.75 * moving) * (0.4 + 0.6 * pressed)
-        for _ in range(per_tick):
+        noise = 0.0012 * (0.25 + 0.75 * moving) * (0.4 + 0.6 * pressed)
+        hit = index in onset_set
+        for sample in range(per_tick):
             delay += step
             read = write - delay
             while read < 0.0:
@@ -73,7 +81,13 @@ def render_contour(levels, pressure, activity, output, sample_rate=SAMPLE_RATE,
             delayed = a + (b - a) * frac
             filtered = alpha * delayed + (1.0 - alpha) * last
             last = delayed
-            buffer[write] = filtered * gain + rng.uniform(-level_noise, level_noise)
+            current = gain
+            level_noise = noise
+            if hit and sample < burst:
+                progress = 1.0 - sample / float(burst)
+                current = min(0.9995, gain + 0.004 * progress)
+                level_noise = noise + 0.06 * progress
+            buffer[write] = filtered * current + rng.uniform(-level_noise, level_noise)
             write = (write + 1) % size
             samples.append(filtered)
     peak = max((abs(value) for value in samples), default=0.0)
