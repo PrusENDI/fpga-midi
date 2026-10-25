@@ -874,11 +874,17 @@ def _resample_loop(rows: Sequence[Mapping[str, object]], style: SynthwaveStyle) 
     loop = style.loop_ticks
     start = _sample_timestamp(rows[0], 0.0)
     table: Dict[int, Mapping[str, object]] = {}
+    # Touch is a state that holds for the whole tick, not a sample: a tap can
+    # occupy the first twenty frames of a thirty frame tick and be overwritten
+    # by the last frame, which is how short taps were being lost. OR the flags
+    # across every frame that maps to the tick.
+    touch_table: Dict[int, int] = {}
     for row in rows:
+        tick_of_row = int((_sample_timestamp(row, start) - start) / ms_per_tick) % loop
+        touch_table[tick_of_row] = touch_table.get(tick_of_row, 0) | int(row.get("touch_flags") or 0)
         if row.get("b_abs") is None:
             continue
-        tick = int((_sample_timestamp(row, start) - start) / ms_per_tick) % loop
-        table[tick] = row  # later passes overwrite earlier ones
+        table[tick_of_row] = row  # later passes overwrite earlier ones
     result: List[Dict[str, object]] = []
     for tick in range(loop):
         row = table.get(tick)
@@ -900,7 +906,7 @@ def _resample_loop(rows: Sequence[Mapping[str, object]], style: SynthwaveStyle) 
             "position_valid": valid_flag(row.get("position_valid")),
             "out_of_range": bool(row.get("out_of_range", False)),
             "lift": bool(row.get("cursor_lift", False)),
-            "touch_flags": int(row.get("touch_flags") or 0),
+            "touch_flags": touch_table.get(tick, 0),
         })
     return _annotate_ticks(result)
 
