@@ -43,42 +43,53 @@ def _delay_samples(hz: float, sample_rate: int, max_delay: int) -> float:
 
 def render_contour(levels, pressure, activity, output, sample_rate=SAMPLE_RATE,
                    seconds_per_tick=0.15):
+    """Drive one string with a contour: pitch follows, height sets damping."""
     rng = random.Random(20261025)
     per_tick = max(1, int(round(seconds_per_tick * sample_rate)))
-    max_delay = int(sample_rate / 30.0) + 4
-    buffer = [0.0] * max_delay
+    size = int(sample_rate / 20.0) + 4
+    buffer = [0.0] * size
     write = 0
     last = 0.0
+    delay = sample_rate / semitone_to_hz(levels[0]) if levels else 200.0
     samples = []
     for level, pressed, moving in zip(levels, pressure, activity):
-        pressed = float(pressed); moving = float(moving)
-        target = sample_rate / max(30.0, semitone_to_hz(level))
-        target = max(4.0, min(float(max_delay - 3), target))
-        alpha = 0.18 + 0.42 * pressed
-        gain = 0.985 + 0.012 * pressed
-        excite = 0.0002 + 0.0012 * moving * (0.3 + 0.7 * pressed)
+        pressed = float(pressed)
+        moving = float(moving)
+        target = sample_rate / max(20.0, semitone_to_hz(level))
+        target = max(4.0, min(float(size - 3), target))
+        step = (target - delay) / float(per_tick)
+        alpha = 0.35 + 0.35 * pressed
+        gain = 0.9955 + 0.0040 * pressed
+        level_noise = 0.0012 * (0.25 + 0.75 * moving) * (0.4 + 0.6 * pressed)
         for _ in range(per_tick):
-            read = write - target
+            delay += step
+            read = write - delay
             while read < 0.0:
-                read += max_delay
-            first = int(read); frac = read - first
-            a = buffer[first % max_delay]; b = buffer[(first + 1) % max_delay]
+                read += size
+            first = int(read)
+            frac = read - first
+            a = buffer[first % size]
+            b = buffer[(first + 1) % size]
             delayed = a + (b - a) * frac
             filtered = alpha * delayed + (1.0 - alpha) * last
             last = delayed
-            buffer[write] = filtered * gain + rng.uniform(-excite, excite)
-            write = (write + 1) % max_delay
+            buffer[write] = filtered * gain + rng.uniform(-level_noise, level_noise)
+            write = (write + 1) % size
             samples.append(filtered)
-    peak = max((abs(v) for v in samples), default=0.0)
-    if peak > 0:
+    peak = max((abs(value) for value in samples), default=0.0)
+    if peak:
         scale = (0.8 * 32767.0) / peak
-        samples = [v * scale for v in samples]
-    path = Path(output); path.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(path), "wb") as h:
-        h.setnchannels(1); h.setsampwidth(2); h.setframerate(sample_rate)
-        h.writeframes(b"".join(struct.pack("<h", int(max(-32768, min(32767, v)))) for v in samples))
-    return {"samples": len(samples), "seconds": len(samples)/sample_rate,
-            "peak": max((abs(int(v)) for v in samples), default=0)}
+        samples = [value * scale for value in samples]
+    path = Path(output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(b"".join(struct.pack("<h", int(max(-32768, min(32767, value))))
+                                    for value in samples))
+    return {"samples": len(samples), "seconds": len(samples) / sample_rate,
+            "peak": max((abs(int(value)) for value in samples), default=0)}
 
 
 def contour_from_capture(path: Path | str, pitch_source: str = "cursor") -> dict:
