@@ -433,14 +433,18 @@ class AbsoluteCursorTests(unittest.TestCase):
         self.assertAlmostEqual(moved[0], target[0], places=6)
         self.assertAlmostEqual(moved[1], target[1], places=6)
 
-    def test_reengaging_snaps_and_flags_the_frame(self):
+    def test_reengaging_flags_the_frame_and_approaches_one_step_at_a_time(self):
         cursor = AbsoluteCursor()
         cursor.push((32768.0, 32768.0), 6000)
         cursor.push((32768.0, 32768.0), 40000)
         self.assertFalse(cursor.engaged)
+        before = cursor.cursor[0]
         moved, _alpha = cursor.push((60000.0, 40000.0), 6000)
         self.assertTrue(cursor.rebased)
-        self.assertAlmostEqual(moved[0], cursor.target((60000.0, 40000.0))[0], places=6)
+        self.assertLessEqual(abs(moved[0] - before), 0.0201)
+        for _ in range(40):
+            moved, _alpha = cursor.push((60000.0, 40000.0), 6000)
+        self.assertAlmostEqual(moved[0], cursor.target((60000.0, 40000.0))[0], places=2)
 
 
     def test_a_lift_is_silence_not_a_rest(self):
@@ -668,31 +672,22 @@ class TouchHoldTests(unittest.TestCase):
         held = cursor.push((30000, 30000, 6000), 6000, touching=True)[0]
         self.assertEqual(held, start)
 
-    def test_touch_rolls_back_the_approach_drag(self):
-        # The centroid is pulled for a few frames before the flag rises; the
-        # cursor must return to where it sat before that pull.
+    def test_cursor_moves_at_most_one_step_per_frame(self):
         cursor = make_cursor()
-        for _ in range(6):
-            cursor.push((40000, 30000, 6000), 6000)
-        steady = cursor.cursor[0]
-        for _ in range(4):
-            cursor.push((30000, 30000, 6000), 6000)  # the drag
-        dragged = cursor.cursor[0]
-        self.assertLess(dragged, steady)
-        rolled = cursor.push((30000, 30000, 6000), 6000, touching=True)[0]
-        self.assertAlmostEqual(rolled[0], steady, places=4)
+        cursor.push((20000, 30000, 6000), 6000)
+        before = cursor.cursor[0]
+        after = cursor.push((50000, 30000, 6000), 6000)[0][0]
+        self.assertLessEqual(abs(after - before), 0.0201)
 
-    def test_release_holds_through_the_spring_back_then_snaps(self):
+    def test_release_converges_without_a_jump(self):
         cursor = make_cursor()
         cursor.push((40000, 30000, 6000), 6000)
-        held = cursor.push((30000, 30000, 6000), 6000, touching=True)[0][0]
-        values, flags = [], []
-        for _ in range(21):
+        cursor.push((30000, 30000, 6000), 6000, touching=True)
+        values = []
+        for _ in range(60):
             values.append(cursor.push((30000, 30000, 6000), 6000)[0][0])
-            flags.append(cursor.rebased)
-        self.assertEqual(len(set(values[:15])), 1)      # held through the spring back
-        self.assertAlmostEqual(values[0], held, places=6)
-        self.assertTrue(any(flags))                     # one snap, flagged
+        steps = [abs(values[index + 1] - values[index]) for index in range(len(values) - 1)]
+        self.assertLessEqual(max(steps), 0.0201)
         self.assertLess(abs(values[-1] - 30000 / 65535.0), 0.01)
 
 

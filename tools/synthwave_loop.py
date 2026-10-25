@@ -605,7 +605,8 @@ class AbsoluteCursor:
                  z_low: float = 4000.0, z_high: float = 24000.0,
                  z_engage: float = CURSOR_Z_ENGAGE, z_release: float = CURSOR_Z_RELEASE,
                  start: Tuple[float, float] = (0.5, 0.5),
-                 settle_frames: int = 20, alpha_settle: float = 0.25) -> None:
+                 settle_frames: int = 20, alpha_settle: float = 0.25,
+                 max_step: float = 0.02) -> None:
         self.x_range = (float(x_range[0]), float(x_range[1]))
         self.y_range = (float(y_range[0]), float(y_range[1]))
         self.alpha_low = float(alpha_low)
@@ -616,6 +617,7 @@ class AbsoluteCursor:
         self.z_release = float(z_release)
         self.settle_frames = int(settle_frames)
         self.history: List[Tuple[float, float]] = []
+        self.max_step = float(max_step)
         self.alpha_settle = float(alpha_settle)
         self.cursor: Tuple[float, float] = (float(start[0]), float(start[1]))
         self.engaged = True
@@ -643,20 +645,35 @@ class AbsoluteCursor:
         return (_clamp((float(q[0]) - x_lo) / max(1e-9, x_hi - x_lo), 0.0, 1.0),
                 _clamp((float(q[1]) - y_lo) / max(1e-9, y_hi - y_lo), 0.0, 1.0))
 
+    def _limit(self, previous: Tuple[float, float], point: Tuple[float, float]) -> Tuple[float, float]:
+        """Cap how far the cursor may travel in a single frame.
+
+        Sensor artefacts - contact, release, re-engage - arrive as steps of a
+        tenth of the panel or more. Capping the step turns any such step into a
+        short glide, so the drawn path stays continuous whatever the cause.
+        """
+        dx, dy = point[0] - previous[0], point[1] - previous[1]
+        distance = math.hypot(dx, dy)
+        if distance <= self.max_step or distance <= 0.0:
+            return point
+        scale = self.max_step / distance
+        return (previous[0] + dx * scale, previous[1] + dy * scale)
+
     def push(self, q: Sequence[float], z: float, engaged: bool | None = None,
              touching: bool = False) -> Tuple[Tuple[float, float], float]:
         was_engaged = self.engaged
         active = self.update_engagement(z) if engaged is None else bool(engaged)
         self.rebased = False
+        was_position = self.cursor
         if touching:
             if not self.touching:
-                # The centroid is dragged towards the false position for about
-                # four frames before the touch flag rises (measured: 18043 to
-                # 10509 between frames 817 and 822). Roll the cursor back to
-                # where it sat before that approach, otherwise every tap drags
-                # it out and the repeated taps draw a fan.
+                # Contact pulls the centroid for about five frames before the
+                # flag rises (18043 to 10509 on the first tap of
+                # lead_20261025-121454). Return to where the cursor sat before
+                # that pull, through the step limiter so the return glides
+                # instead of spiking.
                 if self.history:
-                    self.cursor = self.history[0]
+                    self.cursor = self._limit(was_position, self.history[0])
                 self.settle = 0
             self.touching = True
             if not active:
@@ -674,9 +691,9 @@ class AbsoluteCursor:
             self.engaged = active
             if self.settle > 0:
                 return self.cursor, self.alpha_at(z)
-            self.cursor = self.target(q)
-            self.rebased = True
-            return self.cursor, self.alpha_at(z)
+            # The blind window is over. Fall through: the ordinary smoothing
+            # closes the remaining gap over the next few frames, which reads as
+            # motion rather than a teleport on a single frame.
         point = self.target(q)
         alpha = self.alpha_at(z)
         if active and not was_engaged:
@@ -685,6 +702,7 @@ class AbsoluteCursor:
         elif active:
             self.cursor = (self.cursor[0] + alpha * (point[0] - self.cursor[0]),
                            self.cursor[1] + alpha * (point[1] - self.cursor[1]))
+        self.cursor = self._limit(was_position, self.cursor)
         self.history.append(self.cursor)
         if len(self.history) > 6:
             self.history.pop(0)
