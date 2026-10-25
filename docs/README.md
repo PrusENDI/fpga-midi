@@ -21,6 +21,7 @@
 | [lead-mapping-report-2026-10-22.md](lead-mapping-report-2026-10-22.md) | 曲线 → 音高 → 音符的量化分析：为什么直线只出 2 个音、抬手断点的成因 |
 | [curve-to-melody-algorithms-2026-10-22.md](curve-to-melody-algorithms-2026-10-22.md) | 高级算法评估、三层架构（表达 → 风格拟合 → 渲染）、自由度边界 |
 | [curve-to-melody-variational-2026-10-24.md](curve-to-melody-variational-2026-10-24.md) | 一维化 + Potts 变分分段：把旋律定义为音级格上的最优分段常值逼近 |
+| [synth-backend-design-2026-10-25.md](synth-backend-design-2026-10-25.md) | PC→FPGA 合成器后端接口：64-bit 事件帧、CSR 控制帧、32 声部微架构、7 天计划 |
 | [lead-articulation-and-leaps-2026-10-24.md](lead-articulation-and-leaps-2026-10-24.md) | 用 X 轴做"运弓"实现同音重复，用速度规则实现大跳；三通道演奏语言 |
 
 ## 3. 问题跟踪与采集
@@ -51,3 +52,14 @@
 2. 改动**界面元素**时，同步更新 `pc-ui-spec-2026-10-22.md`。
 3. 改动**设计意图**（不变量、音域、网格、坐标语义）时，先改主规范，再改实现，并在提交信息里写明原因。
 4. 新增文档请按上面的分类放进本索引，并在文件名里带日期。
+
+## 当前实现同步说明（2026-10-25）
+
+下列历史章节仍保留当时的实验过程，但阅读时应以当前代码和最近提交为准：
+
+- PC UI 当前使用 **XY 俯视图 + Z 颜色** 的二维画布，不再使用早期的三维等距投影。
+- UI 的默认 `compile_loop` 路径使用 `pitch_source="cursor"` 和绝对数位板式光标；`RelativeCursor` 只保留为 A/B 实验实现。
+- 在非 `host_profile` 的 cursor 路径中，乐句从第一帧有效接合开始；旧的左沿起笔门控仍适用于 absolute/HostProfile 路径，但不是当前 UI 默认路径。
+- 当前 Z 阈值为 `z_release=36000`、`z_engage=30000`；早期 `20000/16000` 参数已经废弃。
+- CLUTCH/REBASE 是设计分析和后续实时策略的历史方案；当前 PC UI 使用光标增益、抬手断开和重新接合标记来避免跳变。
+- `HostCalibrationProfile`、Z→XY 去耦合和回放工具已经存在，但 GUI/CLI 默认不自动加载 profile；显式 profile 回放与普通 cursor 路径必须区分。
