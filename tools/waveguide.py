@@ -41,67 +41,44 @@ def _delay_samples(hz: float, sample_rate: int, max_delay: int) -> float:
     return max(2.0, min(float(max_delay - 3), delay))
 
 
-def render_contour(levels: Sequence[float], pressure: Sequence[float], activity: Sequence[float],
-                   output: Path | str, sample_rate: int = SAMPLE_RATE,
-                   seconds_per_tick: float = 0.15, loop: bool = False) -> dict:
-    """One string, driven by a pitch contour with per tick pressure and activity.
-
-    `levels` are semitones, `pressure` 0..1 (1 = pressed against the string),
-    `activity` 0..1 (how fast the hand is moving). `loop` repeats the contour so
-    the result can be judged as a groove rather than a fragment.
-    """
-    max_delay = int(sample_rate / 40.0) + 8
+def render_contour(levels, pressure, activity, output, sample_rate=SAMPLE_RATE,
+                   seconds_per_tick=0.15):
+    rng = random.Random(20261025)
+    per_tick = max(1, int(round(seconds_per_tick * sample_rate)))
+    max_delay = int(sample_rate / 30.0) + 4
     buffer = [0.0] * max_delay
     write = 0
-    rng = random.Random(20261025)
-    samples_per_tick = max(1, int(round(seconds_per_tick * sample_rate)))
-    samples: List[int] = []
-    passes = 2 if loop else 1
-
-    for _ in range(passes):
-        for index, level in enumerate(levels):
-            pressed = float(pressure[index])
-            moving = float(activity[index])
-            target = _delay_samples(semitone_to_hz(level), sample_rate, max_delay)
-            damping = DAMP_NEAR * pressed + DAMP_FAR * (1.0 - pressed)
-            gain = LOOP_GAIN * (0.30 + 0.30 * pressed)
-            # Excitation: friction noise, rougher when the hand moves quickly.
-            excite = (0.02 + 0.10 * moving) * (0.3 + 0.7 * pressed)
-            for _sample in range(samples_per_tick):
-                read = write - target
-                while read < 0:
-                    read += max_delay
-                first = int(read)
-                frac = read - first
-                a = buffer[first % max_delay]
-                b = buffer[(first + 1) % max_delay]
-                delayed = a + (b - a) * frac
-                filtered = delayed * (1.0 - damping) + damping * buffer[(write - 2) % max_delay]
-                buffer[write] = filtered * gain + rng.uniform(-excite, excite)
-                write = (write + 1) % max_delay
-                value = filtered * LEVEL_SCALE
-                if value > 32767:
-                    value = 32767
-                elif value < -32768:
-                    value = -32768
-                samples.append(int(value))
-            # Glide the delay length towards the new pitch between ticks.
-            current = target
-
-    # Normalise to a fixed headroom so every take is comparable by ear.
-    peak = max((abs(sample) for sample in samples), default=0)
+    last = 0.0
+    samples = []
+    for level, pressed, moving in zip(levels, pressure, activity):
+        pressed = float(pressed); moving = float(moving)
+        target = sample_rate / max(30.0, semitone_to_hz(level))
+        target = max(4.0, min(float(max_delay - 3), target))
+        alpha = 0.18 + 0.42 * pressed
+        gain = 0.985 + 0.012 * pressed
+        excite = 0.0002 + 0.0012 * moving * (0.3 + 0.7 * pressed)
+        for _ in range(per_tick):
+            read = write - target
+            while read < 0.0:
+                read += max_delay
+            first = int(read); frac = read - first
+            a = buffer[first % max_delay]; b = buffer[(first + 1) % max_delay]
+            delayed = a + (b - a) * frac
+            filtered = alpha * delayed + (1.0 - alpha) * last
+            last = delayed
+            buffer[write] = filtered * gain + rng.uniform(-excite, excite)
+            write = (write + 1) % max_delay
+            samples.append(filtered)
+    peak = max((abs(v) for v in samples), default=0.0)
     if peak > 0:
         scale = (0.8 * 32767.0) / peak
-        samples = [int(max(-32768, min(32767, sample * scale))) for sample in samples]
-    path = Path(output)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(sample_rate)
-        handle.writeframes(b"".join(struct.pack("<h", sample) for sample in samples))
-    peak = max(abs(sample) for sample in samples) if samples else 0
-    return {"samples": len(samples), "seconds": len(samples) / sample_rate, "peak": peak}
+        samples = [v * scale for v in samples]
+    path = Path(output); path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as h:
+        h.setnchannels(1); h.setsampwidth(2); h.setframerate(sample_rate)
+        h.writeframes(b"".join(struct.pack("<h", int(max(-32768, min(32767, v)))) for v in samples))
+    return {"samples": len(samples), "seconds": len(samples)/sample_rate,
+            "peak": max((abs(int(v)) for v in samples), default=0)}
 
 
 def contour_from_capture(path: Path | str, pitch_source: str = "cursor") -> dict:
