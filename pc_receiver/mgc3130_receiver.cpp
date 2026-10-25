@@ -147,6 +147,13 @@ int wmain(int argc, wchar_t **argv) {
             return 4;
         }
 
+        // Touch detection is off by default, which is why seventy three
+        // captures contained no touch or tap frame at all. Non fatal: a device
+        // that refuses it still streams positions.
+        if (gestic_set_touch_detection(&gestic, 1, 100) < 0) {
+            std::cerr << "touch detection could not be enabled; continuing without it\n";
+        }
+
         if (options.force_calibration) {
             // Force baseline: the SDK re-measures the untouched sensor. Ask for
             // it before the first frame so the take starts from a known state.
