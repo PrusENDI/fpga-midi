@@ -42,6 +42,7 @@
 | [loop-audio-integration-interface.md](loop-audio-integration-interface.md) | 音频接线边界 |
 | [synth-plugin-event-interface.md](synth-plugin-event-interface.md) | 独立合成器插件的 EventTable/实时事件接口 |
 | [superpowers/specs/2026-10-25-fpga-synth-plugin-design.md](superpowers/specs/2026-10-25-fpga-synth-plugin-design.md) | GW5A-25A 固定点合成器插件总体设计 |
+| [synth-plugin-two-ui-flow-2026-10-25.md](synth-plugin-two-ui-flow-2026-10-25.md) | Capture & Loop UI 与独立 FPGA 合成器配置 UI 的串联规范 |
 
 ## 5. 历史与讨论（不作为依据）
 
