@@ -40,10 +40,12 @@
 | [loop-event-store-interface.md](loop-event-store-interface.md) | 事件存储与提交语义 |
 | [loop-scheduler-interface.md](loop-scheduler-interface.md) | 调度器与扫描时序 |
 | [loop-audio-integration-interface.md](loop-audio-integration-interface.md) | 音频接线边界 |
+| [synth-plugin-event-interface.md](synth-plugin-event-interface.md) | 独立合成器插件的 EventTable/实时事件接口 |
+| [superpowers/specs/2026-10-25-fpga-synth-plugin-design.md](superpowers/specs/2026-10-25-fpga-synth-plugin-design.md) | GW5A-25A 固定点合成器插件总体设计 |
 
 ## 5. 历史与讨论（不作为依据）
 
-`ambient-*.md`、`mgc3130-pre-audio-feedback-discussion-2026-10-19.md`、`development-log-2026-10-18.md`、`toolchain-verification-2026-10-16.md`、`superpowers/` 下的计划与规格。这些记录了当时的取舍过程，结论已被上面的主规范取代。
+`ambient-*.md`、`mgc3130-pre-audio-feedback-discussion-2026-10-19.md`、`development-log-2026-10-18.md`、`toolchain-verification-2026-10-16.md`、以及 `superpowers/` 下未被本索引列为当前规范的历史计划。这些记录了当时的取舍过程，结论已被上面的主规范取代。
 
 ## 维护规则
 
