@@ -457,13 +457,15 @@ def _apply_cursor_layer(rows: List[Dict[str, object]], pitch_source: str = "curs
             row["cursor_engaged"] = cursor.engaged
             row["cursor_lift"] = started and not cursor.engaged
             continue
+        touching = bool(row.get("touch_flags") or 0)
         point, gain = cursor.push((float(q[0]) * 65535.0, float(q[1]) * 65535.0),
-                                  float(q[2]) * 65535.0)
+                                  float(q[2]) * 65535.0, touching=touching)
         rebased = bool(getattr(cursor, "rebased", False))
         row["cursor_x"], row["cursor_y"] = point
         row["cursor_gain"] = gain
         row["cursor_engaged"] = cursor.engaged
         row["cursor_rebased"] = rebased
+        row["cursor_touch"] = touching
         # A lift is the operator letting go; a rebase is the hand returning to
         # a new place. Both are silent frames, but neither is a musical rest.
         row["cursor_lift"] = started and (not cursor.engaged or rebased)
@@ -613,6 +615,7 @@ class AbsoluteCursor:
         self.z_release = float(z_release)
         self.cursor: Tuple[float, float] = (float(start[0]), float(start[1]))
         self.engaged = True
+        self.touching = False
         self.rebased = False
 
     def update_engagement(self, z: float) -> bool:
@@ -635,12 +638,31 @@ class AbsoluteCursor:
         return (_clamp((float(q[0]) - x_lo) / max(1e-9, x_hi - x_lo), 0.0, 1.0),
                 _clamp((float(q[1]) - y_lo) / max(1e-9, y_hi - y_lo), 0.0, 1.0))
 
-    def push(self, q: Sequence[float], z: float, engaged: bool | None = None) -> Tuple[Tuple[float, float], float]:
+    def push(self, q: Sequence[float], z: float, engaged: bool | None = None,
+             touching: bool = False) -> Tuple[Tuple[float, float], float]:
         was_engaged = self.engaged
         active = self.update_engagement(z) if engaged is None else bool(engaged)
+        self.rebased = False
+        if touching:
+            # Contact shifts the reported centroid roughly ten thousand counts
+            # to the left and it springs back when the finger leaves (measured
+            # on capture lead_20261025-121454: -10071 during, -4055 just after).
+            # Holding the cursor for the duration of the contact keeps the pitch
+            # steady, which is exactly what a repeated note needs.
+            self.touching = True
+            if not active:
+                self.engaged = False
+            return self.cursor, self.alpha_at(z)
+        if self.touching:
+            # First frame after the finger leaves: snap to the hand, as after a
+            # lift, so the spring-back cannot be read as a turn.
+            self.touching = False
+            self.cursor = self.target(q)
+            self.rebased = True
+            self.engaged = active
+            return self.cursor, self.alpha_at(z)
         point = self.target(q)
         alpha = self.alpha_at(z)
-        self.rebased = False
         if active and not was_engaged:
             self.cursor = point
             self.rebased = True

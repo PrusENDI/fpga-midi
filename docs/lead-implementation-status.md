@@ -281,3 +281,8 @@ python -m unittest test_capture_loop
 	ouch 模式要求接收器启用触控检测（gestic_set_touch_detection，2026-10-25 起默认开启）。同一音高连续按压 = 多次触发，这正是同一个音做几个短节拍的实现方式。
 
 每个事件带 gated_by 字段记录来源，便于回放核对。
+
+**触控会污染位置**：实测（capture lead_20261025-121454）接触瞬间质心向**左上**偏移 (-10071, +1433) counts，抬手后回落（20 帧后仍有 -4055）。按 2498 counts/半音计算，这是 **约 4 个半音**的假音高跳变。
+
+因此在光标层对触控帧做**冻结**：AbsoluteCursor.push(touching=True) 期间不更新光标，抬手第一帧吸附到手的真实位置并置 
+ebased（与抬手重接合同一机制），该帧在编译时被判为无效，不会形成转折。事件行增加 cursor_touch 字段。

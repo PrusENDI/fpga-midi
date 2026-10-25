@@ -23,6 +23,7 @@ from tools.synthwave_loop import (
     merge_leaps,
     extract_landmarks,
     length_from_take,
+    make_cursor,
     load_jsonl_records,
     preprocess_samples,
     project_sample,
@@ -656,6 +657,24 @@ class TouchGateTests(unittest.TestCase):
         notes = [event for event in result["events"] if event["type"] == "note_on"]
         self.assertTrue(notes)
         self.assertTrue(all(event.get("gated_by") == "bow" for event in notes))
+
+
+class TouchHoldTests(unittest.TestCase):
+    def test_cursor_holds_still_while_touching(self):
+        # Contact shifts the reported centroid about 10000 counts to the left;
+        # the cursor must not follow that shift.
+        cursor = make_cursor()
+        start = cursor.push((40000, 30000, 6000), 6000)[0]
+        held = cursor.push((30000, 30000, 6000), 6000, touching=True)[0]
+        self.assertEqual(held, start)
+
+    def test_release_snaps_and_flags_a_rebase(self):
+        cursor = make_cursor()
+        cursor.push((40000, 30000, 6000), 6000)[0]
+        cursor.push((30000, 30000, 6000), 6000, touching=True)[0]
+        released = cursor.push((30000, 30000, 6000), 6000)[0]
+        self.assertAlmostEqual(released[0], 30000 / 65535.0, places=4)
+        self.assertTrue(cursor.rebased)
 
 
 class LoopTimeMapTests(unittest.TestCase):
