@@ -1,7 +1,7 @@
 # Lead 实现状态基线（as-built）
 
-版本：2026-10-22  
-状态：实现事实基线。本文记录 Lead 链路**当前代码实际行为**，用于和设计文档对照。  
+版本：2026-10-25
+状态：实现事实基线。本文记录 Lead 链路**当前代码实际行为**，用于和设计文档对照。若本文件早期章节与第 8 节或当前代码冲突，以当前代码为准。
 角色划分：[系统设计](mgc3130-melodic-synthwave-system-design-2026-10-19.md) 定义产品意图，[Lead 意图提纯设计](pc-lead-intent-purification-design-2026-10-19.md) 与 [XYZ 去耦合设计](pc-host-only-xyz-filtering-design-2026-10-21.md) 定义目标算法，**本文定义今天的真实行为**。三者冲突时，先以本文确认"现在是什么"，再决定改代码还是改设计。
 
 ## 1. 维护规则
@@ -64,7 +64,7 @@ JSONL / live receiver
 ### 4.1 采集与缓冲
 
 - live receiver 以子进程 stdout 逐行输出 JSONL，`pump()` 线程入队，`_poll_inbox` 每 40 ms 取空。
-- Lead 录制时每帧先过流式 `LeadStartGate.push()`；只有被接受的行进入 `lead_preview_capture` 并绘制到画布。门未开时状态栏显示 `WAITING — Lead must start at the left edge and move right`。
+- Lead 录制时，UI 默认 cursor 路径先经过 `StreamingLeadFilter` 和 `AbsoluteCursor`；第一帧有效接合后进入 `lead_preview_capture`。旧的 `LeadStartGate` 左沿门控仍用于 absolute/HostProfile 编译路径，不是当前 UI 默认 cursor 路径。
 - 停止后 `current_capture` **原样**存入 `lead_samples`，门控在编译阶段由批量实现重跑，两处语义必须保持一致。
 
 ### 4.2 预处理 `preprocess_samples`
@@ -83,9 +83,9 @@ UI 的预览曲线通过 `StreamingLeadFilter` 复用同一组滤波参数（中
 
 传 `host_profile` 时另有一条链路：`filter_capture` → Z 条件 XY 去耦合 → 时间窗中值 / 时间常数低通 / slew → `b_abs` 用 profile 的 `b_min/b_max` 归一化。两条链路产出同一组字段，但**缩放来源不同**，同一份 raw 数据在两条链路上的音高结果不保证相同。
 
-### 4.3 左沿起笔门控
+### 4.3 起笔语义（按编译路径区分）
 
-Lead 是"从左向右"的开放路径。规则：
+absolute/HostProfile 路径仍把 Lead 视为"从左向右"的开放路径，规则为：
 
 ```text
 left_edge_max      = 4096 / 65535 ≈ 0.06250   （原始 X ≤ 4096 视为左边缘）
@@ -95,6 +95,8 @@ min_rightward_delta = 256 / 65535 ≈ 0.00391   （离开边缘的最小右移�
 状态机：`awaiting_left_edge → edge_candidate →（右移 ≥ 256）→ rightward_confirmation_pending →（下一帧 X 继续增大）→ accepted`。边缘区内的候选点不断被更新，最终只有**最后一个**边缘点被回溯确认为句首。未确认的帧全部 `prestart` 且无效。
 
 门控判断使用**原始传感器 X**，不是 `q_app` 投影 X——目的是避免中值/低通把边缘接触抹进工作区。这隐含"原始 X 方向即应用左方向"的假设，若校准 `R` 含 X 镜像，语义会反转。
+
+当前 GUI/`compile_loop` 默认使用 `pitch_source="cursor"`。该路径不调用上述左沿门控，而是从首个有效接合帧开始；抬手后光标保持，重新接合帧标记为 `cursor_rebased`/过渡帧，不单独成音。恢复左沿限制需要显式切换回 absolute/HostProfile 路径或另行修改 cursor 门控。
 
 ### 4.4 重采样 `resample_to_ticks`
 
@@ -204,7 +206,7 @@ speed, direction(-1/0/1), valid, engaged
 | turn 方向阈值 | 两侧 `|db| > 0.0015` | `extract_landmarks` |
 | 最小锚点间隔 | 4 tick | `compile_lead` |
 | 力度映射 | 48–118，速度驱动 | `compile_lead` |
-| 起笔门控 | 左沿 ≤ 0.0625，右移 ≥ 0.00391 | `LEAD_LEFT_EDGE_MAX` / `LEAD_MIN_RIGHTWARD_DELTA` |
+| 起笔门控 | absolute/HostProfile：左沿 ≤ 0.0625、右移 ≥ 0.00391；UI cursor：首个有效接合帧 | `LeadStartGate` / `AbsoluteCursor` |
 | 渲染 | 22050 Hz，ADSR 35/180/520 | `render_loop` |
 
 ## 6. 事件与诊断字段
@@ -219,7 +221,7 @@ Lead `note_on` 事件：`tick, duration, note, velocity, source="trajectory", so
 
 | 设计文档要求 | 当前实现 | 影响 | 处置 |
 | --- | --- | --- | --- |
-| HostCalibrationProfile 先去耦合再编译 | GUI/CLI 不传 profile，仅回放工具与测试使用 | 纯 Z 的横向漂移未被补偿 | 待定：是否让 GUI 默认加载 profile |
+| HostCalibrationProfile 先去耦合再编译 | profile/replay 路径支持；GUI/CLI 默认不传 profile | 普通 UI cursor 路径仍可能保留传感器耦合 | 保留显式 profile 回放；是否默认加载仍待定 |
 | 五类运动意图（DEPTH_ONLY/PITCH_INTENT/TREMOR/HOLD/INVALID） | 只有 move/hold/rest | 无法区分深度移动与音高意图，无 TREMOR 抑制 | 待实现 |
 | `pitch_dead_zone` = 3×MAD 且 ≥0.10 音级 | 未实现，只有 0.10 半音滞回 | 慢速小幅漂移可能连续换音 | 待实现 |
 | 每小节 ≤8 onset、全曲 ≤16 Lead 音符 | Lead 无上限，仅 4 tick 间隔 | 长句音符数远超设计 | 待实现（会改变音乐结果） |
@@ -228,7 +230,7 @@ Lead `note_on` 事件：`tick, duration, note, velocity, source="trajectory", so
 | 跨 Loop `tie/carry` | `tie` 恒 false | 第 8→1 小节无显式承接 | 待实现 |
 | LeadPatch 全链路（LP24、chorus、带限振荡器） | 简化加法合成，无滤波器 | 音色偏暗、偏单薄 | 待实现 |
 | 量化滞回 0.15–0.25（Lead 文档）/ 0.30–0.40（系统设计） | 0.10 | 两份文档本身也不一致 | 需先统一文档值 |
-| 门控按应用坐标左边缘 | 按原始传感器 X | 校准含 X 镜像时语义反转 | 待安装方向冻结后确认 |
+| 门控按应用坐标左边缘 | absolute/HostProfile 按原始传感器 X；UI cursor 不执行左沿门控 | absolute 路径在 X 镜像时语义可能反转；cursor 路径不强制左起笔 | 需决定是否把左沿限制统一接入 cursor |
 
 ## 8. 已知限制
 
@@ -252,7 +254,7 @@ cd pc_receiver
 python -m unittest test_capture_loop
 ```
 
-当前测试覆盖：左沿门控（流式与批量）、时间戳回绕（有/无 host profile）、null 有效性、显式无效帧、固定音域与地标来源、确定性、渲染输出非空、host filter 诊断透传。
+当前测试覆盖：absolute/批量左沿门控、cursor 接合与抬手、时间戳回绕（有/无 host profile）、null 有效性、显式无效帧、固定音域与地标来源、确定性、渲染输出非空、host filter 诊断透传。
 
 ## 10. 变更记录
 
@@ -266,3 +268,16 @@ python -m unittest test_capture_loop
 ### 2026-10-21 之前（已在库中）
 
 - 左沿起笔门控（流式 `LeadStartGate` + 批量 `_apply_lead_start_gate`）与对应设计文档 §9。
+
+### 4.11 门控来源 gate_source
+
+音符何时发声、发多久由门控决定，与音高分离：
+
+| 模式 | 触发 | 时值 | 静音条件 |
+| --- | --- | --- | --- |
+| ow（默认直到 2026-10-25） | X 方向往返的极值（死区 0.10） | 到下一段或下一次运弓 | 手停住 |
+| 	ouch | 触控电极接触的上升沿 | 接触持续时间，且在音级变化处截断 | 手悬空 |
+
+	ouch 模式要求接收器启用触控检测（gestic_set_touch_detection，2026-10-25 起默认开启）。同一音高连续按压 = 多次触发，这正是同一个音做几个短节拍的实现方式。
+
+每个事件带 gated_by 字段记录来源，便于回放核对。

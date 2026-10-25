@@ -829,6 +829,7 @@ def _resample_loop(rows: Sequence[Mapping[str, object]], style: SynthwaveStyle) 
                 "timestamp_ms": start + tick * ms_per_tick,
                 "b_abs": None, "c_abs": None, "q_x": None, "q_y": None, "q_z": None,
                 "position_valid": False, "out_of_range": False, "lift": False,
+                "touch_flags": 0,
             })
             continue
         result.append({
@@ -840,6 +841,7 @@ def _resample_loop(rows: Sequence[Mapping[str, object]], style: SynthwaveStyle) 
             "position_valid": valid_flag(row.get("position_valid")),
             "out_of_range": bool(row.get("out_of_range", False)),
             "lift": bool(row.get("cursor_lift", False)),
+            "touch_flags": int(row.get("touch_flags") or 0),
         })
     return _annotate_ticks(result)
 
@@ -883,6 +885,9 @@ def resample_to_ticks(samples: Sequence[Mapping[str, object]], style: SynthwaveS
         # A lifted hand is silent but is not a musical rest: keep the flag so
         # landmark extraction can tell "let go" from "bad data".
         row["lift"] = bool(left.get("cursor_lift", False) or right.get("cursor_lift", False))
+        # Touch is a binary contact, not a quantity: carry the nearer sample's
+        # value instead of interpolating it.
+        row["touch_flags"] = int(left.get("touch_flags") or 0) if ratio < 0.5 else int(right.get("touch_flags") or 0)
         result.append(row)
     return _annotate_ticks(result)
 
@@ -1185,7 +1190,8 @@ def segment_contour(values: Sequence[float], levels: Sequence[int],
 def _segment_events(ticks: Sequence[Mapping[str, object]], pitch_space: PitchSpace,
                     style: SynthwaveStyle, lam: float, min_len: int,
                     bow_deadzone: float = 0.10, leap_degrees: int = 0,
-                    leap_dwell: int = 8) -> List[Dict[str, object]]:
+                    leap_dwell: int = 8,
+                    gate_source: str = "bow") -> List[Dict[str, object]]:
     """Turn the optimal segmentation into Lead events, then articulate it.
 
     Two post-passes sit on top of the segmentation: short glances at passing
@@ -1239,15 +1245,30 @@ def _segment_events(ticks: Sequence[Mapping[str, object]], pitch_space: PitchSpa
             segments.append((run[start][0], run[end - 1][0] + 1, level))
     gap = max(1, min_len)
     events: List[Dict[str, object]] = []
+    touches = [int(row.get("touch_flags") or 0) != 0 for row in ticks]
     for segment_index, (start, end, level) in enumerate(segments):
-        bounds = [start]
-        for attack in bow_attacks(bows[start:end], bow_deadzone):
-            tick = start + attack
-            if tick - bounds[-1] >= gap and end - tick >= 2:
-                bounds.append(tick)
-        bounds.append(end)
-        for part in range(len(bounds) - 1):
-            note_start, note_end = bounds[part], bounds[part + 1]
+        if gate_source == "touch":
+            # Contact is the gate: every touch run inside the segment sounds,
+            # and its length is the note length. Hovering is silence.
+            intervals: List[Tuple[int, int]] = []
+            cursor = start
+            while cursor < end:
+                if touches[cursor]:
+                    run_start = cursor
+                    while cursor < end and touches[cursor]:
+                        cursor += 1
+                    intervals.append((run_start, cursor))
+                else:
+                    cursor += 1
+        else:
+            bounds = [start]
+            for attack in bow_attacks(bows[start:end], bow_deadzone):
+                tick = start + attack
+                if tick - bounds[-1] >= gap and end - tick >= 2:
+                    bounds.append(tick)
+            bounds.append(end)
+            intervals = [(bounds[part], bounds[part + 1]) for part in range(len(bounds) - 1)]
+        for part, (note_start, note_end) in enumerate(intervals):
             row = ticks[min(len(ticks) - 1, note_start)] if ticks else {}
             duration = max(1, note_end - note_start)
             travel = abs(bows[note_end - 1] - bows[note_start]) if note_end > note_start else 0.0
@@ -1275,7 +1296,7 @@ def _segment_events(ticks: Sequence[Mapping[str, object]], pitch_space: PitchSpa
             glide_ms=DEFAULT_LEAD_PATCH.glide_ms if note_start else 0,
             accent=round(_clamp(velocity / 127.0, 0.0, 1.0), 4),
             release_tail=DEFAULT_LEAD_PATCH.release_ms,
-            reattack=part > 0, bow_travel=round(travel, 6),
+            reattack=part > 0, bow_travel=round(travel, 6), gated_by=gate_source,
             generated_reason=f"segment:{segment_index}", segment_index=segment_index, lam=lam,
             limit=style.loop_ticks,
         ))
@@ -1294,7 +1315,7 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
                  bow_deadzone: float = 0.10,
                  leap_degrees: int = 0,
                  leap_dwell: int = 8,
-                 time_map: str = "stretch") -> Dict[str, object]:
+                 time_map: str = "stretch", gate_source: str = "bow") -> Dict[str, object]:
     host_filter = filter_capture(samples, host_profile) if host_profile is not None else None
     processed = preprocess_samples(samples, calibration, mode, host_profile, host_filter, pitch_source)
     ticks = resample_to_ticks(processed, style, time_map) if processed else []
@@ -1350,7 +1371,7 @@ def compile_lead(samples: Sequence[Mapping[str, object]], style: SynthwaveStyle 
         # The segmentation covers every tick, so landmarks stay diagnostic and
         # their rest events are not emitted.
         events = _segment_events(ticks, pitch_space, style, lam, min_segment,
-                                 bow_deadzone, leap_degrees, leap_dwell)
+                                 bow_deadzone, leap_degrees, leap_dwell, gate_source)
     events.sort(key=lambda event: (int(event["tick"]), str(event["type"])) )
     # A note may not outlast the next event. Before this, a 126 tick note
     # overlapped the 70 tick rest that followed it, so any player that honours
@@ -1494,7 +1515,7 @@ def length_from_take(samples: Sequence[Mapping[str, object]], style: SynthwaveSt
     return replace(style, loop_bars=min(max(1, int(max_bars)), bars))
 
 
-def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0, bow_deadzone: float = 0.10, leap_degrees: int = 0, leap_dwell: int = 8, time_map: str = "stretch", auto_length: bool = False, max_bars: int = 32, lead_layers: Sequence[Sequence[Mapping[str, object]]] | None = None) -> Dict[str, object]:
+def compile_loop(lead_samples: Sequence[Mapping[str, object]], track_records: Mapping[str, Sequence[Mapping[str, object]]], style: SynthwaveStyle = STYLE, mode: str = "workspace", host_profile: HostCalibrationProfile | None = None, pitch_source: str = "cursor", pitch_space: PitchSpace = DEFAULT_PITCH_SPACE, note_source: str = "anchors", lam: float = 6.0, bow_deadzone: float = 0.10, leap_degrees: int = 0, leap_dwell: int = 8, time_map: str = "stretch", auto_length: bool = False, max_bars: int = 32, lead_layers: Sequence[Sequence[Mapping[str, object]]] | None = None, gate_source: str = "bow") -> Dict[str, object]:
     if auto_length:
         style = length_from_take(lead_samples, style, max_bars)
     layers = [list(layer) for layer in (lead_layers if lead_layers is not None else [lead_samples]) if layer]

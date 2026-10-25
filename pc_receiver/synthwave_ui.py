@@ -388,6 +388,7 @@ class SynthwaveUI(tk.Tk):
         self.swing = tk.DoubleVar(value=STYLE.swing * 100.0)
         self.mapping_mode = tk.StringVar(value="workspace")
         self.note_source = tk.StringVar(value="variational")
+        self.gate_source = tk.StringVar(value="touch")
         # 0.6 maps to lambda 6.0, the value agreed for testing.
         self.density = tk.DoubleVar(value=0.6)
         self.records: Dict[str, List[dict]] = {track: [] for track in TRACKS}
@@ -489,6 +490,11 @@ class SynthwaveUI(tk.Tk):
                         variable=self.note_source).pack(anchor="w")
         ttk.Radiobutton(left, text="Variational (segments)", value="variational",
                         variable=self.note_source).pack(anchor="w")
+        ttk.Label(left, text="GATE", style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
+        ttk.Radiobutton(left, text="Touch (contact)", value="touch",
+                        variable=self.gate_source).pack(anchor="w")
+        ttk.Radiobutton(left, text="Bow (left-right)", value="bow",
+                        variable=self.gate_source).pack(anchor="w")
         ttk.Label(left, text="DENSITY", style="Muted.TLabel").pack(anchor="w", pady=(8, 0))
         ttk.Scale(left, from_=0.0, to=1.0, variable=self.density,
                   orient="horizontal").pack(fill="x")
@@ -824,7 +830,7 @@ class SynthwaveUI(tk.Tk):
             return
         lam = density_to_lambda(self.density.get())
         self.event_table = compile_loop(self.lead_samples, self.records, mode=self.mapping_mode.get(),
-                                        note_source=self.note_source.get(), lam=lam,
+                                        note_source=self.note_source.get(), lam=lam, gate_source=self.gate_source.get(),
                                         time_map="loop", auto_length=self.auto_length.get(),
                                         lead_layers=[layer for layer in self.lead_layers if layer])
         self._refresh_events()

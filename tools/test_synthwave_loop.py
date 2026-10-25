@@ -625,6 +625,39 @@ class ArticulationTests(unittest.TestCase):
         self.assertTrue(any(note.get("reattack") for note in notes))
 
 
+class TouchGateTests(unittest.TestCase):
+    def _capture(self, runs):
+        frames = []
+        for index in range(960):
+            touching = any(start <= index < end for start, end in runs)
+            row = _sample(index, x=3000 + index * 2, y=30000 + index * 10, z=6000)
+            row["touch_flags"] = 1 if touching else 0
+            frames.append(row)
+        return frames
+
+    def test_touch_gate_sounds_only_while_touching(self):
+        samples = self._capture([(100, 160), (300, 340), (500, 560)])
+        result = compile_lead(samples, pitch_source="cursor", note_source="variational",
+                              lam=5.83, time_map="loop", gate_source="touch")
+        notes = [event for event in result["events"] if event["type"] == "note_on"]
+        self.assertGreaterEqual(len(notes), 3)
+        for event in notes:
+            self.assertEqual(event["gated_by"], "touch")
+
+    def test_touch_gate_is_silent_without_contact(self):
+        samples = self._capture([])
+        result = compile_lead(samples, pitch_source="cursor", note_source="variational",
+                              lam=5.83, time_map="loop", gate_source="touch")
+        self.assertFalse([event for event in result["events"] if event["type"] == "note_on"])
+
+    def test_bow_gate_stays_the_default(self):
+        samples = self._capture([(100, 900)])
+        result = compile_lead(samples, pitch_source="cursor", note_source="variational", lam=5.83)
+        notes = [event for event in result["events"] if event["type"] == "note_on"]
+        self.assertTrue(notes)
+        self.assertTrue(all(event.get("gated_by") == "bow" for event in notes))
+
+
 class LoopTimeMapTests(unittest.TestCase):
     # _sample() advances 20 ms per frame, so 960 frames is one 19.2 s bar.
 
