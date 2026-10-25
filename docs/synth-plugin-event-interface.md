@@ -1,6 +1,6 @@
 # Synthesizer Plugin Event Interface
 
-版本：2026-10-25  
+版本：2026-10-25
 状态：独立插件第一版接口；不修改 PC Capture & Loop 主流程，也不替代现有 FPGA `performance_event_pkg`。
 
 ## 1. 目的
@@ -174,4 +174,3 @@ note_revoice  → EVENT_NOTE_REVOICE
 - STOP/Loop 边界后不残留未授权声部；
 - 频谱测试能识别多组独立频率峰值；
 - 固定点模型与未来 RTL 的差异按 LSB 范围验收。
-
