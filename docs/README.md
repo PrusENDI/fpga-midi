@@ -25,6 +25,7 @@
 | [voice-engine-design-2026-10-25.md](voice-engine-design-2026-10-25.md) | 128 算子时分复用引擎：时序预算、RAM 映射、流水级、验证方案 |
 | [synth-backend-design-2026-10-25.md](synth-backend-design-2026-10-25.md) | PC→FPGA 合成器后端接口：64-bit 事件帧、CSR 控制帧、32 声部微架构、7 天计划 |
 | [lead-articulation-and-leaps-2026-10-24.md](lead-articulation-and-leaps-2026-10-24.md) | 用 X 轴做"运弓"实现同音重复，用速度规则实现大跳；三通道演奏语言 |
+| [superpowers/plans/2026-10-25-v2-fpga-full-pipeline-implementation.md](superpowers/plans/2026-10-25-v2-fpga-full-pipeline-implementation.md) | 针对当前 RTL/协议/时钟缺口的 V2 全链路执行计划 |
 
 ## 3. 问题跟踪与采集
 
