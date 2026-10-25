@@ -701,7 +701,11 @@ class SynthwaveUI(tk.Tk):
         if value is None:
             return
         z_raw = value[2] * 65535.0
-        point, gain = self.lead_cursor.push((value[0] * 65535.0, value[1] * 65535.0), z_raw)
+        # The preview must use the same rule as the compiler, otherwise the
+        # canvas shows the contact drift that the compiled take already hides.
+        touching = bool(record.get("touch_flags") or 0)
+        point, gain = self.lead_cursor.push((value[0] * 65535.0, value[1] * 65535.0), z_raw,
+                                            touching=touching)
         z_norm = _clamp((z_raw - 4000.0) / 20000.0, 0.0, 1.0)
         self.lead_preview_capture.append({
             "cursor_x": point[0],
@@ -709,6 +713,7 @@ class SynthwaveUI(tk.Tk):
             "z_norm": z_norm,
             "cursor_gain": gain,
             "cursor_engaged": self.lead_cursor.engaged,
+            "cursor_touch": touching,
             "start_gate_state": "accepted" if self.lead_cursor.engaged else "prestart",
             "sequence": record.get("sequence"),
         })
