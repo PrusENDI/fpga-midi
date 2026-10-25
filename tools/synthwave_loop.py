@@ -604,7 +604,8 @@ class AbsoluteCursor:
                  alpha_low: float = CURSOR_ALPHA_LOW, alpha_high: float = CURSOR_ALPHA_HIGH,
                  z_low: float = 4000.0, z_high: float = 24000.0,
                  z_engage: float = CURSOR_Z_ENGAGE, z_release: float = CURSOR_Z_RELEASE,
-                 start: Tuple[float, float] = (0.5, 0.5)) -> None:
+                 start: Tuple[float, float] = (0.5, 0.5),
+                 settle_frames: int = 12, alpha_settle: float = 0.25) -> None:
         self.x_range = (float(x_range[0]), float(x_range[1]))
         self.y_range = (float(y_range[0]), float(y_range[1]))
         self.alpha_low = float(alpha_low)
@@ -613,9 +614,12 @@ class AbsoluteCursor:
         self.z_high = float(z_high)
         self.z_engage = float(z_engage)
         self.z_release = float(z_release)
+        self.settle_frames = int(settle_frames)
+        self.alpha_settle = float(alpha_settle)
         self.cursor: Tuple[float, float] = (float(start[0]), float(start[1]))
         self.engaged = True
         self.touching = False
+        self.settle = 0
         self.rebased = False
 
     def update_engagement(self, z: float) -> bool:
@@ -654,13 +658,27 @@ class AbsoluteCursor:
                 self.engaged = False
             return self.cursor, self.alpha_at(z)
         if self.touching:
-            # First frame after the finger leaves: snap to the hand, as after a
-            # lift, so the spring-back cannot be read as a turn.
+            # The finger leaving does not end the disturbance: the reported
+            # centroid climbs back over about twenty frames (measured: 8452 at
+            # release, 16082 after). Hold through that window, then snap once
+            # the reading has settled, so the spring-back neither jumps nor
+            # slides the pitch.
             self.touching = False
-            self.cursor = self.target(q)
-            self.rebased = True
+            self.settle = int(self.settle_frames)
             self.engaged = active
-            return self.cursor, self.alpha_at(z)
+            if self.settle > 0:
+                return self.cursor, self.alpha_at(z)
+        if self.settle > 0:
+            # Glide back instead of snapping: the correction is spread over the
+            # settle window, so no single frame jumps far enough to read as a
+            # turn or to move the pitch by a scale step.
+            self.settle -= 1
+            self.engaged = active
+            point = self.target(q)
+            alpha = float(self.alpha_settle)
+            self.cursor = (self.cursor[0] + alpha * (point[0] - self.cursor[0]),
+                           self.cursor[1] + alpha * (point[1] - self.cursor[1]))
+            return self.cursor, alpha
         point = self.target(q)
         alpha = self.alpha_at(z)
         if active and not was_engaged:
