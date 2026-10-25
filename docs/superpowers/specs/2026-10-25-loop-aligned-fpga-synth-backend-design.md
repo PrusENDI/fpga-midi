@@ -1,29 +1,27 @@
-# 面向 Loop 控制流的 FPGA 并行合成器后端设计
+# 面向 PC Capture & Loop 的 FPGA 并行合成器后端设计
 
-版本：2026-10-25  
-状态：依据现有 Loop 文档重新整理的后端架构  
+版本：2026-10-25
+状态：依据现有 PC Capture & Loop 文档重新整理的后端架构
 适用分支：feat/synth-plugin-fpga-baseline
 
 ## 1. 设计结论
 
-现有 Loop 系统已经具备合成器需要的时间和控制边界：
+PC Capture & Loop 已经确定了合成器需要的音乐事件和用户操作边界：
 
 - 六轨 EventTable；
-- 双 bank active/shadow 存储；
-- 128 tick Loop；
-- 每 tick 三轮 NOTE_OFF → NOTE_ON → CONTROL_POINT；
-- valid/ready 背压；
-- Loop boundary 提交；
-- STOP/flush/all-notes-off；
-- RECORD、OVERDUB、PLAY、CLEAR 和 COMMIT 操作。
+- EventTable 六轨结构；
+- 128 tick 或 auto-length Loop；
+- NOTE_OFF、NOTE_ON、NOTE_REVOICE、CONTROL_POINT 和 ALL_NOTES_OFF；
+- Lead 的固定 PitchSpace、左侧起笔和 Z 表达字段；
+- RECORD、OVERDUB、PLAY、STOP、CLEAR、COMPILE、EXPORT 和 RENDER 操作。
 
-因此合成器后端不应重新实现一个独立的 Loop 播放器。它应作为 Loop scheduler 的下游，接收已经排序和握手完成的事件，并用并行硬件过程把事件转换为 32 声部音频。
+因此合成器后端应作为 PC Capture & Loop 的独立下游插件，接收已经编译完成的 EventTable，并用可映射到 FPGA 的并行过程把事件转换为 32 声部音频。它不依赖 RTL 的 loop_event_store、loop_scheduler、UART 或 CSR；这些只属于未来的 FPGA adapter。
 
 核心数据流：
 
     Capture & Loop UI
-      → EventTable / control command
-      → loop event adapter
+      → EventTable JSON
+      → PC event adapter
       → event FIFO
       → voice manager
       → 8 synthesis lanes × 4 voice slots
@@ -32,7 +30,7 @@
       → limiter / PCM
       → mix, stems, telemetry
 
-PC 离线 renderer 使用同一套事件顺序、voice policy、lane 分配和边界语义；它不是重新分析 XYZ 或重新生成旋律。
+PC 离线 renderer 使用同一套事件顺序、voice policy、lane 分配和 Loop 边界语义；它不是重新分析 XYZ 或重新生成旋律。
 
 ## 2. 与现有 Loop 的边界
 
@@ -55,7 +53,7 @@ Capture & Loop 主流程继续负责：
 合成器负责：
 
 - 将 EventTable 适配为固定事件格式；
-- 按 scheduler 顺序处理 NOTE_OFF、NOTE_ON、CONTROL_POINT 和 ALL_NOTES_OFF；
+- 按 EventTable 的稳定顺序处理 NOTE_OFF、NOTE_ON、CONTROL_POINT 和 ALL_NOTES_OFF；
 - 分配和释放 32 个声部；
 - 运行 8 条固定合成 lane；
 - 生成 Lead 音色和其他轨道的有限 patch；
@@ -67,16 +65,16 @@ Capture & Loop 主流程继续负责：
 
 后端不再实现：
 
-- 第二套 tick 计数器；
-- 第二套 Loop boundary 提交协议；
-- 第二套 RECORD/OVERDUB 存储；
+- PC 侧第二套录音、叠录和 EventTable 编译流程；
+- 改写 Capture & Loop 已经确定的 Loop 时间轴；
+- 把 Synthesizer UI 的配置混入 Capture & Loop 的事件生成；
 - 根据 XYZ 重新猜测音符；
 - 根据 Z 自动创建新 NOTE_ON；
 - 预渲染整段 PCM 再触发播放。
 
 ## 3. 并行硬件过程
 
-这里的“多进程”指 FPGA 内部同时工作的同步硬件过程，不是操作系统线程。每个过程使用固定时钟、固定队列和明确握手。
+这里的“多进程”指后端参考模型中相互独立、可并行映射的处理阶段，以及未来 FPGA 内部同时工作的同步硬件过程，不是要求 PC 使用不可控的操作系统线程。每个阶段使用固定队列、固定顺序和明确状态转移。
 
 ### 3.1 控制过程
 
@@ -84,7 +82,7 @@ Capture & Loop 主流程继续负责：
 
 职责：
 
-- 接收 Capture & Loop UI 或未来 UART/CSR 的配置命令；
+- 接收 Synthesizer Config UI 的配置命令；
 - 保存 active/shadow 合成器配置；
 - 在安全边界应用 patch、效果和全局增益；
 - 处理 RESET、STOP、PLAY、MUTE、SOLO、RENDER_PROFILE 等命令；
@@ -98,13 +96,13 @@ Capture & Loop 主流程继续负责：
 
 职责：
 
-- 接收 scheduler 的 event_valid/event_ready；
+- 接收 PC EventTable adapter 的事件流；
 - 校验 track、type、tick、note、velocity；
 - 将事件写入有限深度 event FIFO；
 - 保留 event_id、parent_event_id、order 和 source 信息；
 - 记录 invalid_event、FIFO overflow 和 event latency。
 
-事件过程与音频 sample 过程分离。事件传输暂时背压时，Loop scheduler 保持 valid 和数据；音频过程继续消费已经进入 FIFO 的事件。
+事件过程与音频 sample 过程分离。PC renderer 用有界 FIFO 和确定性消费顺序模拟未来的 valid/ready 边界；FPGA adapter 再把同一接口连接到实际 scheduler。
 
 ### 3.3 声部管理过程
 
@@ -205,11 +203,11 @@ Capture & Loop 主流程继续负责：
 
 telemetry 不参与音频反馈，避免诊断读取改变音频时序。
 
-## 4. Loop 事件与合成器的时序关系
+## 4. PC EventTable 与合成器的时序关系
 
 ### 4.1 事件优先级
 
-合成器保持 scheduler 的顺序：
+合成器保持 Capture & Loop 导出事件的稳定顺序：
 
 1. NOTE_OFF；
 2. NOTE_ON；
@@ -217,29 +215,29 @@ telemetry 不参与音频反馈，避免诊断读取改变音频时序。
 4. LOOP_BOUNDARY；
 5. ALL_NOTES_OFF/STOP 的紧急关音路径。
 
-同一 tick 和同一类型内按槽位索引、order、event_id 稳定排序。背压时不得跳过或重排事件。
+同一 tick 和同一类型内按 order、event_id 稳定排序。PC renderer 不改变原始事件；未来 FPGA adapter 才负责把该顺序转换成 scheduler 的握手事件。
 
 ### 4.2 duration
 
-scheduler 已经根据 NOTE_ON duration 派生 NOTE_OFF。合成器不再运行另一套 duration 计时器，以免同一个音收到两次关闭。
+EventTable adapter 在输入阶段把 duration 转换为确定的 note_off 语义，合成器不再运行另一套音乐时长推断，以免同一个音收到两次关闭。
 
 duration 为零时：
 
 - 等待显式 NOTE_OFF；
-- 或在 ALL_NOTES_OFF/Loop boundary 时关闭。
+- 或在 Loop 末端的 ALL_NOTES_OFF 语义处关闭。
 
 ### 4.3 Loop boundary
 
-在 boundary 处：
+在 PC renderer 的 Loop 边界处：
 
-1. 接收 scheduler 的最后一格事件；
+1. 消费当前 Loop 的最后一格事件；
 2. 接收 ALL_NOTES_OFF；
 3. 清理尚未释放的 voice；
-4. 接收 LOOP_BOUNDARY；
+4. 标记 Loop boundary；
 5. 锁存新 bank 和新配置；
 6. 从 tick 0 重新接受事件。
 
-新 bank 的 tick 0 事件不能与旧 bank 的尾部事件混用。切换期间 voice bitmap、event FIFO 和 active bank 状态必须可被 telemetry 观察。
+下一次 Loop 的 tick 0 事件不能与上一轮的尾部事件混用。PC renderer 使用 loop index 隔离两轮；未来 FPGA adapter 再映射到 active/shadow bank。
 
 ### 4.4 STOP 和 FLUSH
 
@@ -250,26 +248,26 @@ STOP 是紧急控制路径：
 - 发送 ALL_NOTES_OFF；
 - 让所有 voice 进入 RELEASE 或 OFF；
 - 保留 active Loop 数据；
-- 禁止旧 valid 在停止后再次握手。
+- 禁止已经取消的事件再次进入渲染队列。
 
-PLAY 必须从 tick 0 重新开始，不能依赖停止时保存的 synthesis phase。
+PLAY 必须从 tick 0 重新开始；是否保留 phase 由合成器配置明确决定，默认重新初始化声部状态。
 
 ## 5. 当前 PC 操作到后端操作的映射
 
 | 当前操作 | 上游行为 | 合成器后端行为 |
 | --- | --- | --- |
-| RECORD | 准备 shadow、清空选定轨道 | 清空/静音目标 track 的新事件，等待录音提交 |
-| OVERDUB | 复制 active 到 shadow 并叠录 | 保留当前 voice 到安全边界，之后使用新 active 事件 |
-| STOP | abort/flush、停止调度 | 紧急清 FIFO、ALL_NOTES_OFF、冻结输出 |
-| PLAY | 从 tick 0 启动 scheduler | 清零 transport phase，按事件驱动 32 voice |
-| COMMIT | 在 Loop boundary 交换 bank | 在边界锁存新 patch 和新事件 bank |
-| CLEAR_TRACK | 编辑 shadow 并提交 | 下一个安全边界关闭该 track voice |
-| CLEAR_ALL | 清空 shadow 并提交 | 下一个安全边界关闭全部 voice |
-| SELECT_TRACK | 修改模式控制的目标轨道 | 改变录音/编辑目标，不改变现有发声所有权 |
-| BPM | 在启动或边界锁存 | 只改变下一 Loop 的 tick/sample 映射 |
-| Lead 旋钮 | 修改 synth shadow config | APPLY/边界时更新 Lead patch，不重写 EventTable |
-| MUTE/SOLO | 合成器控制层操作 | 只改变 track bus gain，不删除事件 |
-| RENDER | PC 离线命令 | 使用同样的 event/voice/lane 状态生成 WAV/stems |
+| RECORD | Capture & Loop UI 录制选定轨道 | 后端等待新的 EventTable，不在录音阶段读取原始 XYZ |
+| OVERDUB | UI 保留已有轨道并增加新 take | 新 EventTable 导入后按 track 合并渲染，不改写旧事件 |
+| STOP | 结束采集或停止预览 | 清空未消费事件、ALL_NOTES_OFF、停止当前渲染 |
+| PLAY | Capture & Loop UI 预览 Loop | 从 tick 0 按 EventTable 驱动 32 voice |
+| COMPILE LOOP | 生成六轨 EventTable | 后端尚未介入，等待导出或打开 |
+| EXPORT EVENT JSON | 写出 EventTable 文件 | 作为插件的稳定输入边界 |
+| CLEAR TRACK | 清除 PC 侧轨道数据 | 重新导出的 EventTable 不再含该轨道，后端不自行猜测删除范围 |
+| CLEAR ALL | 清除所有 PC 侧录音和事件 | 新导入为空时拒绝渲染或输出静音诊断 |
+| BPM / auto-length | 决定 EventTable 的 Loop 时间轴 | 读取输入配置，不在 renderer 中偷偷改变 BPM |
+| Lead 旋钮 | 修改 Synthesizer Config UI 的 patch | 只改变音色、表达和效果，不重写 EventTable |
+| MUTE/SOLO | Synthesizer Config UI 的后端操作 | 改变 track bus gain，不删除事件 |
+| RENDER MIX/STEMS | 插件离线渲染 | 使用同样的 event/voice/lane 状态生成 WAV/stems |
 
 这样用户在 Capture & Loop UI 里做的是“录什么、何时提交”，在 Synthesizer Config UI 里做的是“这些事件怎么发声”。
 
@@ -363,7 +361,7 @@ PC renderer 必须模拟以下硬件边界：
 - 8 synthesis lanes；
 - NOTE_OFF 优先于 NOTE_ON；
 - Loop boundary 和 ALL_NOTES_OFF；
-- shadow/active config 在边界切换；
+- patch config 在渲染轮次或明确 APPLY 点切换；
 - 32 voice 混音保护位；
 - 固定点 delay/echo/harmony；
 - telemetry 采样。
@@ -372,15 +370,15 @@ PC renderer 必须模拟以下硬件边界：
 
 ## 8. 验收和测试
 
-### 8.1 Loop 语义
+### 8.1 PC Loop 语义
 
-- 六轨事件按 scheduler 顺序进入 backend；
+- 六轨 EventTable 按稳定顺序进入 backend；
 - NOTE_OFF duration 只关闭拥有者；
 - boundary 不混用新旧 bank；
 - STOP 后没有旧 NOTE_ON；
 - OVERDUB 保留未编辑轨；
 - CLEAR_TRACK/CLEAR_ALL 只影响目标轨；
-- event FIFO 背压不跳 tick。
+- event FIFO 背压不跳 tick；未来 adapter 的 scheduler 背压测试单独进行。
 
 ### 8.2 并行能力
 
@@ -428,7 +426,7 @@ PC renderer 必须模拟以下硬件边界：
 - RECORD/OVERDUB/CLEAR 的后端状态映射；
 - 32 voice stress tests。
 
-### 阶段 C：RTL/FPGA adapter
+### 阶段 C：RTL/FPGA adapter（独立后续阶段）
 
 - 事件流 valid/ready；
 - lane bank；
