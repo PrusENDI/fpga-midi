@@ -605,7 +605,7 @@ class AbsoluteCursor:
                  z_low: float = 4000.0, z_high: float = 24000.0,
                  z_engage: float = CURSOR_Z_ENGAGE, z_release: float = CURSOR_Z_RELEASE,
                  start: Tuple[float, float] = (0.5, 0.5),
-                 settle_frames: int = 12, alpha_settle: float = 0.25) -> None:
+                 settle_frames: int = 0, alpha_settle: float = 0.25) -> None:
         self.x_range = (float(x_range[0]), float(x_range[1]))
         self.y_range = (float(y_range[0]), float(y_range[1]))
         self.alpha_low = float(alpha_low)
@@ -658,11 +658,11 @@ class AbsoluteCursor:
                 self.engaged = False
             return self.cursor, self.alpha_at(z)
         if self.touching:
-            # The finger leaving does not end the disturbance: the reported
-            # centroid climbs back over about twenty frames (measured: 8452 at
-            # release, 16082 after). Hold through that window, then snap once
-            # the reading has settled, so the spring-back neither jumps nor
-            # slides the pitch.
+            # No settle by default: after the finger leaves the cursor simply
+            # follows the hand again. Gliding back was worse in practice,
+            # because in touch gated playing the frames between contacts emit
+            # nothing, so a smoother path buys no music and costs latency.
+            # Set settle_frames above zero to bring the glide back.
             self.touching = False
             self.settle = int(self.settle_frames)
             self.engaged = active

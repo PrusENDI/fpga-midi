@@ -668,19 +668,16 @@ class TouchHoldTests(unittest.TestCase):
         held = cursor.push((30000, 30000, 6000), 6000, touching=True)[0]
         self.assertEqual(held, start)
 
-    def test_release_glides_back_instead_of_jumping(self):
-        # The centroid climbs back over about twenty frames after the finger
-        # leaves. The cursor must return without a single large step.
+    def test_release_resumes_following_immediately(self):
         cursor = make_cursor()
         cursor.push((40000, 30000, 6000), 6000)
         cursor.push((30000, 30000, 6000), 6000, touching=True)
-        cursors = [cursor.cursor[0]]
-        for _ in range(12):
+        held = cursor.cursor[0]
+        released = cursor.push((30000, 30000, 6000), 6000)[0]
+        self.assertNotAlmostEqual(released[0], held, places=3)
+        for _ in range(10):
             cursor.push((30000, 30000, 6000), 6000)
-            cursors.append(cursor.cursor[0])
-        steps = [abs(cursors[index + 1] - cursors[index]) for index in range(len(cursors) - 1)]
-        self.assertLess(max(steps), 0.05)
-        self.assertLess(abs(cursors[-1] - 30000 / 65535.0), 0.01)
+        self.assertLess(abs(cursor.cursor[0] - 30000 / 65535.0), 0.01)
 
 
 class LoopTimeMapTests(unittest.TestCase):
