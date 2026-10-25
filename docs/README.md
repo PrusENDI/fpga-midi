@@ -21,6 +21,7 @@
 | [lead-mapping-report-2026-10-22.md](lead-mapping-report-2026-10-22.md) | 曲线 → 音高 → 音符的量化分析：为什么直线只出 2 个音、抬手断点的成因 |
 | [curve-to-melody-algorithms-2026-10-22.md](curve-to-melody-algorithms-2026-10-22.md) | 高级算法评估、三层架构（表达 → 风格拟合 → 渲染）、自由度边界 |
 | [curve-to-melody-variational-2026-10-24.md](curve-to-melody-variational-2026-10-24.md) | 一维化 + Potts 变分分段：把旋律定义为音级格上的最优分段常值逼近 |
+| [fpga-baseline-audit-2026-10-25.md](fpga-baseline-audit-2026-10-25.md) | FPGA 现有 40 个模块的能力盘点、与目标的差距、PC 先行里程碑 |
 | [synth-backend-design-2026-10-25.md](synth-backend-design-2026-10-25.md) | PC→FPGA 合成器后端接口：64-bit 事件帧、CSR 控制帧、32 声部微架构、7 天计划 |
 | [lead-articulation-and-leaps-2026-10-24.md](lead-articulation-and-leaps-2026-10-24.md) | 用 X 轴做"运弓"实现同音重复，用速度规则实现大跳；三通道演奏语言 |
 
