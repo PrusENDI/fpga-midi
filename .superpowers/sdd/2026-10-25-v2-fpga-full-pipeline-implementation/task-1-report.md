@@ -46,3 +46,19 @@ SV compiler evidence is unavailable because neither `iverilog` nor `verilator` i
 - RED: `test_machine_contract_constants_match_sv` failed with missing `SV_CONSTANTS`; ModelSim `vlog` also failed on missing `V2_EV_NOTE_ON`/`V2_FLAG_TOUCH` before implementation.
 - GREEN: `python -m unittest tools.test_v2_contract -v` passed 6 tests. `scripts/test_v2_contract.ps1` compiled with ModelSim 10.6d, passed the normal simulation, and confirmed both layout and width mutations trigger `$fatal`. Focused `git diff --check` passed.
 - Scope: V1 and Task5 RTL were not edited. Task5 must import these constants in its next integration pass. Task3 raw-coordinate handling currently conflicts with the newly fixed 17-bit input boundary; that is documented as an integration failure to resolve and verify in Task3/4, not claimed fixed here.
+
+## Indexed-contract correction after independent review
+
+The previous `0x48..0x5C` fixed patch/gesture row could not address the parameters explicitly required by Task3/4/7/9/11. This revision uses six fixed addresses for indexed selector, shadow data, active data, status, CRC and APPLY. Four families cover per-track patch/rule values and global calibration/cursor values. Python `PATCH_PARAMETERS` holds every index, Q format, raw minimum/maximum/default and scope; corresponding family/index constants, CSR write masks, field shifts and data validation are exported by `rtl/v2_contract_pkg.sv`. The old `PATCH_GAIN`, `PATCH_BRIGHTNESS`, `GESTURE` and `FX` CSR names were removed. The documentation fixes readback and atomic APPLY at idle or Loop boundary, 128 ticks/four ticks per beat/60–240 BPM, and 1024-sample A/B/C wavetable coverage/version/CRC. ACK statuses and errors now specify interim/final APPLY replies and malformed sequence echo. Reserved event type/flag values are rejected by the Python encoder.
+
+RED: New tests for indexed CSR and reserved event values failed on missing `PATCH_SHADOW_DATA` and accepted invalid event type. New indexed codec and wavetable tests then failed on missing functions. GREEN: `python -m unittest tools.test_v2_contract -v` passed 10 tests; `scripts/test_v2_contract.ps1` compiled and ran the ModelSim testbench, then actually reordered `tick`/`duration` in a package copy and narrowed a field in another copy; both mutations produced `$fatal`. `git diff --check` passed for Task1 files. The testbench checks all defined CSR access/write masks and invalid mode/track/WT/selector/BPM values.
+
+This work defines and tests the contract and reference codec. It does not wire the indexed parameter bank, shadow/APPLY or UART control into the downstream RTL. Task5 still has duplicate event/flag/fault constants; its gate cannot pass until it imports this package. The Task3/4 raw-Z mismatch remains for their integration fix.
+
+The final indexed table also includes Task7 lambda/density/min-length/rest policy,
+fixed-scale/bend, Task11 gate/touch-bow, and Task4 alpha/Z thresholds/max-step/settle
+under RULE and CURSOR families. Loop timing is fixed at 128 ticks, four ticks per
+beat, BPM 60–240 (default 120). SV `v2_csr_data_valid` and Python validation reject
+invalid mode/track/table/family/index/BPM values in addition to reserved write bits.
+The implementation report must treat these as codec/contract/TB evidence only;
+downstream RTL consumers remain an explicit follow-up.
