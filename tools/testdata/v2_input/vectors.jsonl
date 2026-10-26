@@ -1,0 +1,6 @@
+{"name":"neutral","sequence":0,"timestamp_ticks":0,"raw":[100,-200,300],"valid_xyz":true,"saturated":false,"gap":false,"calibration_epoch":7}
+{"name":"depth","sequence":1,"timestamp_ticks":100,"raw":[110,-190,800],"valid_xyz":true,"saturated":false,"gap":false,"calibration_epoch":7}
+{"name":"workspace","sequence":2,"timestamp_ticks":200,"raw":[5000,0,0],"valid_xyz":true,"saturated":false,"gap":false,"calibration_epoch":7}
+{"name":"invalid","sequence":3,"timestamp_ticks":300,"raw":[0,0,0],"valid_xyz":false,"saturated":false,"gap":false,"calibration_epoch":7}
+{"name":"saturation","sequence":4,"timestamp_ticks":400,"raw":[32767,0,0],"valid_xyz":true,"saturated":true,"gap":false,"calibration_epoch":7}
+{"name":"gap","sequence":7,"timestamp_ticks":700,"raw":[0,0,0],"valid_xyz":true,"saturated":false,"gap":true,"calibration_epoch":7}
