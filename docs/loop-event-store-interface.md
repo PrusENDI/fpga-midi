@@ -95,3 +95,8 @@ ModelSim 测试包含 RAM 128 地址与四个 lane、两端口读写、读输出
 `write_valid/write_ready` path and boundary commit are independent of the V1
 64-bit store; abort clears only the shadow metadata and preserves the active
 bank. This module is the Task 6 V2 store and does not alter `loop_event_store`.
+PREPARE_RECORD and PREPARE_OVERDUB copy the active bank through an explicit
+busy/copy phase; record preparation clears only the selected track after the
+copy completes. `record_count` exposes six packed five-bit shadow counts and
+reads select both track and slot. The joint RTL transaction test covers the
+store-to-scheduler path; no P&R or board evidence is implied.

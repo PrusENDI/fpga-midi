@@ -85,6 +85,14 @@ ACCEPTED 只表示进入邮箱，最终还会返回 APPLIED 或失败状态。
 
 ## 状态与恢复
 
+### V2 独立底层边界
+
+Task 6 的 `v2_loop_event_store` 与 `v2_loop_scheduler` 使用 96-bit、六轨、
+双 bank 接口，未接入旧四轨控制平面。V2 store 的 shadow copy、追加写、边界
+提交和 ABORT 通过独立 valid/ready 事务完成；V2 scheduler 的输出背压不会
+推进扫描位置。当前联合证据限于 RTL store→scheduler 事务仿真，不能代表
+最终 V2 top、P&R、时序或板级播放已完成。
+
 模式值：0 IDLE、1 LIVE、2 RECORD_ARMED、3 RECORDING、4 COMMIT_PENDING、
 5 PLAY、6 OVERDUB_ARMED、7 OVERDUB；8 ERROR 保留，本实现故障关音后返回 IDLE 并锁存 fault。
 
