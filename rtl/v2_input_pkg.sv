@@ -18,6 +18,7 @@ package v2_input_pkg;
   localparam logic [7:0] V2_REASON_EPOCH=8'h08;
   localparam logic [7:0] V2_REASON_CLAMP=8'h10;
   localparam logic [7:0] V2_REASON_PROFILE=8'h20;
+  localparam logic [7:0] V2_REASON_ARITH_SAT=8'h40;
 endpackage
 
 

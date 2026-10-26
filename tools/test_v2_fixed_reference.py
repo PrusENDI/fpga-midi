@@ -1,5 +1,5 @@
 import unittest
-from tools.v2_fixed_reference import Profile, process_frame, REASON_SATURATED, REASON_GAP, REASON_CLAMP, REASON_INVALID, REASON_EPOCH, REASON_PROFILE
+from tools.v2_fixed_reference import Profile, process_frame, REASON_SATURATED, REASON_GAP, REASON_CLAMP, REASON_INVALID, REASON_EPOCH, REASON_PROFILE, REASON_ARITH_SAT
 
 class FixedInputReferenceTest(unittest.TestCase):
     def setUp(self):
@@ -41,6 +41,14 @@ class FixedInputReferenceTest(unittest.TestCase):
         self.assertFalse(mismatch["frame_valid"])
         self.assertTrue(mismatch["calibration_reason"] & REASON_EPOCH)
         self.assertTrue(mismatch["calibration_reason"] & REASON_PROFILE)
+
+    def test_arithmetic_saturation_reason(self):
+        p = self.p._replace(neutral=(-100000, 0, 0), gain=(0x7fffffff, 0x10000, 0x10000), workspace=((-2147483647, 2147483647),)*3)
+        out = process_frame(dict(sequence=1, timestamp_ticks=0, raw=(32767,0,0), valid_xyz=True,
+                                 saturated=False, gap=False, calibration_epoch=7), p)
+        self.assertFalse(out["frame_valid"])
+        self.assertEqual(out["xyz"], (0, 0, 0))
+        self.assertTrue(out["calibration_reason"] & REASON_ARITH_SAT)
 
     def test_clamp_reason(self):
         out = process_frame(dict(sequence=1, timestamp_ticks=0, raw=(2000,0,0), valid_xyz=True,

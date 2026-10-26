@@ -42,9 +42,9 @@ module v2_position_validity (
         if (!active_profile_valid) reason = reason | V2_REASON_PROFILE;
         calibration_reason <= reason;
         lost <= |(reason & V2_REASON_GAP);
-        degraded <= |(reason & (V2_REASON_GAP|V2_REASON_EPOCH|V2_REASON_CLAMP|V2_REASON_PROFILE));
-        frame_valid <= !(|(reason & (V2_REASON_INVALID|V2_REASON_SATURATED|V2_REASON_GAP|V2_REASON_EPOCH|V2_REASON_PROFILE)));
-        note_permitted <= !(|(reason & (V2_REASON_INVALID|V2_REASON_SATURATED|V2_REASON_GAP|V2_REASON_EPOCH|V2_REASON_PROFILE)));
+        degraded <= |(reason & (V2_REASON_GAP|V2_REASON_EPOCH|V2_REASON_CLAMP|V2_REASON_PROFILE|V2_REASON_ARITH_SAT));
+        frame_valid <= !(|(reason & (V2_REASON_INVALID|V2_REASON_SATURATED|V2_REASON_GAP|V2_REASON_EPOCH|V2_REASON_PROFILE|V2_REASON_ARITH_SAT)));
+        note_permitted <= !(|(reason & (V2_REASON_INVALID|V2_REASON_SATURATED|V2_REASON_GAP|V2_REASON_EPOCH|V2_REASON_PROFILE|V2_REASON_ARITH_SAT)));
         previous_sequence <= sequence_id; have_sequence <= 1'b1;
       end
     end

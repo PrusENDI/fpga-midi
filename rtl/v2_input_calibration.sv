@@ -72,34 +72,47 @@ module v2_input_calibration (
   always_comb begin : transform
     logic signed [63:0] sx, sy, sz, dx, dy, dz, qx, qy, qz, gx, gy, gz;
     logic signed [31:0] cx, cy, cz;
-    logic clamp_seen, bad_input;
+    logic clamp_seen, arith_sat_seen, bad_input;
     frame_contract.frame_sequence = sequence_id;
     frame_contract.timestamp_ticks = timestamp_ticks;
     frame_contract.raw_x = raw_x; frame_contract.raw_y = raw_y; frame_contract.raw_z = raw_z;
     frame_contract.touch = touch; frame_contract.presence = presence;
     frame_contract.valid_xyz = valid_xyz; frame_contract.saturated = saturated; frame_contract.gap = gap;
     frame_contract.calibration_epoch = calibration_epoch_in;
-    sx={{48{frame_contract.raw_x[15]}},frame_contract.raw_x};
-    sy={{48{frame_contract.raw_y[15]}},frame_contract.raw_y};
-    sz={{48{frame_contract.raw_z[15]}},frame_contract.raw_z};
-    dx=sx-n_x; dy=sy-n_y; dz=sz-n_z;
-    qx=dx-round_q16(c_x*dz); qy=dy-round_q16(c_y*dz); qz=dz;
-    gx=round_q16(qx*g_x); gy=round_q16(qy*g_y); gz=round_q16(qz*g_z);
-    cx=sat32(gx); cy=sat32(gy); cz=sat32(gz); clamp_seen=1'b0;
-    if(cx<ws_x_min) begin cx=ws_x_min; clamp_seen=1'b1; end else if(cx>ws_x_max) begin cx=ws_x_max; clamp_seen=1'b1; end
-    if(cy<ws_y_min) begin cy=ws_y_min; clamp_seen=1'b1; end else if(cy>ws_y_max) begin cy=ws_y_max; clamp_seen=1'b1; end
-    if(cz<ws_z_min) begin cz=ws_z_min; clamp_seen=1'b1; end else if(cz>ws_z_max) begin cz=ws_z_max; clamp_seen=1'b1; end
-    calibration_reason=8'd0;
-    if(!frame_contract.valid_xyz) calibration_reason |= V2_REASON_INVALID;
-    if(frame_contract.saturated) calibration_reason |= V2_REASON_SATURATED;
-    if(frame_contract.gap) calibration_reason |= V2_REASON_GAP;
-    if(frame_contract.calibration_epoch != epoch_active) calibration_reason |= V2_REASON_EPOCH | V2_REASON_PROFILE;
-    if(!active_profile_valid) calibration_reason |= V2_REASON_PROFILE;
-    bad_input = !frame_contract.valid_xyz || frame_contract.saturated || frame_contract.gap || (frame_contract.calibration_epoch != epoch_active) || !active_profile_valid;
-    if(clamp_seen && !bad_input) calibration_reason |= V2_REASON_CLAMP;
-    calibrated_x = bad_input ? 32'sd0 : cx; calibrated_y = bad_input ? 32'sd0 : cy; calibrated_z = bad_input ? 32'sd0 : cz;
-    output_valid = frame_in_valid && !bad_input;
-    output_sequence=frame_contract.frame_sequence; output_timestamp_ticks=frame_contract.timestamp_ticks; output_touch=frame_contract.touch; output_presence=frame_contract.presence;
+    calibration_reason = 8'd0;
+    if (!frame_contract.valid_xyz) calibration_reason |= V2_REASON_INVALID;
+    if (frame_contract.saturated) calibration_reason |= V2_REASON_SATURATED;
+    if (frame_contract.gap) calibration_reason |= V2_REASON_GAP;
+    if (frame_contract.calibration_epoch != epoch_active) calibration_reason |= V2_REASON_EPOCH | V2_REASON_PROFILE;
+    if (!active_profile_valid) calibration_reason |= V2_REASON_PROFILE;
+    bad_input = !frame_in_valid || !frame_contract.valid_xyz || frame_contract.saturated || frame_contract.gap ||
+                (frame_contract.calibration_epoch != epoch_active) || !active_profile_valid;
+    calibrated_x = 32'sd0; calibrated_y = 32'sd0; calibrated_z = 32'sd0;
+    output_valid = 1'b0; clamp_seen = 1'b0; arith_sat_seen = 1'b0;
+    if (!bad_input) begin
+      // Frozen order: sign extension -> neutral -> Z coupling -> gain -> clamp -> output.
+      sx={{48{frame_contract.raw_x[15]}},frame_contract.raw_x};
+      sy={{48{frame_contract.raw_y[15]}},frame_contract.raw_y};
+      sz={{48{frame_contract.raw_z[15]}},frame_contract.raw_z};
+      dx=sx-n_x; dy=sy-n_y; dz=sz-n_z;
+      qx=dx-round_q16(c_x*dz); qy=dy-round_q16(c_y*dz); qz=dz;
+      gx=round_q16(qx*g_x); gy=round_q16(qy*g_y); gz=round_q16(qz*g_z);
+      if ((gx > 64'sd2147483647) || (gx < -64'sd2147483648) ||
+          (gy > 64'sd2147483647) || (gy < -64'sd2147483648) ||
+          (gz > 64'sd2147483647) || (gz < -64'sd2147483648)) arith_sat_seen = 1'b1;
+      cx=sat32(gx); cy=sat32(gy); cz=sat32(gz);
+      if(cx<ws_x_min) begin cx=ws_x_min; clamp_seen=1'b1; end else if(cx>ws_x_max) begin cx=ws_x_max; clamp_seen=1'b1; end
+      if(cy<ws_y_min) begin cy=ws_y_min; clamp_seen=1'b1; end else if(cy>ws_y_max) begin cy=ws_y_max; clamp_seen=1'b1; end
+      if(cz<ws_z_min) begin cz=ws_z_min; clamp_seen=1'b1; end else if(cz>ws_z_max) begin cz=ws_z_max; clamp_seen=1'b1; end
+      calibrated_x=cx; calibrated_y=cy; calibrated_z=cz; output_valid=1'b1;
+      if (arith_sat_seen) begin
+        calibration_reason |= V2_REASON_ARITH_SAT;
+        calibrated_x=32'sd0; calibrated_y=32'sd0; calibrated_z=32'sd0; output_valid=1'b0;
+      end
+      if (clamp_seen) calibration_reason |= V2_REASON_CLAMP;
+    end
+    output_sequence=frame_contract.frame_sequence; output_timestamp_ticks=frame_contract.timestamp_ticks;
+    output_touch=frame_contract.touch; output_presence=frame_contract.presence;
     output_saturated=frame_contract.saturated; output_gap=frame_contract.gap; output_calibration_epoch=frame_contract.calibration_epoch;
     active_epoch=epoch_active;
   end

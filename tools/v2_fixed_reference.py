@@ -8,6 +8,7 @@ REASON_GAP = 1 << 2
 REASON_EPOCH = 1 << 3
 REASON_CLAMP = 1 << 4
 REASON_PROFILE = 1 << 5
+REASON_ARITH_SAT = 1 << 6
 
 @dataclass(frozen=True)
 class Profile:
@@ -55,32 +56,33 @@ def process_frame(frame: dict, profile: Profile, previous_sequence: int | None =
         reason |= REASON_EPOCH | REASON_PROFILE
     if not profile.active_profile_valid:
         reason |= REASON_PROFILE
-    centered = tuple(raw[i] - profile.neutral[i] for i in range(3))
-    coupling_x = round_q16(profile.coupling[0] * centered[2])
-    coupling_y = round_q16(profile.coupling[1] * centered[2])
-    decoupled = (centered[0] - coupling_x, centered[1] - coupling_y, centered[2])
-    gained = tuple(round_q16(decoupled[i] * profile.gain[i]) for i in range(3))
-    xyz = []
-    clamped = False
-    for i, value in enumerate(gained):
-        value, sat = sat32(value)
-        lo, hi = profile.workspace[i]
-        if value < lo:
-            value, clamped = lo, True
-        elif value > hi:
-            value, clamped = hi, True
-        xyz.append(value)
     bad_input = bool(reason & (REASON_INVALID | REASON_SATURATED | REASON_GAP | REASON_EPOCH | REASON_PROFILE))
-    if clamped and not bad_input:
-        reason |= REASON_CLAMP
+    centered = (0, 0, 0); decoupled = (0, 0, 0); gained = (0, 0, 0); xyz = [0, 0, 0]
+    clamped = False; arithmetic_sat = False
+    if not bad_input:
+        centered = tuple(raw[i] - profile.neutral[i] for i in range(3))
+        coupling_x = round_q16(profile.coupling[0] * centered[2])
+        coupling_y = round_q16(profile.coupling[1] * centered[2])
+        decoupled = (centered[0] - coupling_x, centered[1] - coupling_y, centered[2])
+        gained = tuple(round_q16(decoupled[i] * profile.gain[i]) for i in range(3))
+        for i, value in enumerate(gained):
+            value, sat = sat32(value)
+            arithmetic_sat |= sat
+            lo, hi = profile.workspace[i]
+            if value < lo:
+                value, clamped = lo, True
+            elif value > hi:
+                value, clamped = hi, True
+            xyz[i] = value
+        if arithmetic_sat:
+            reason |= REASON_ARITH_SAT
+        if clamped:
+            reason |= REASON_CLAMP
+        if arithmetic_sat:
+            xyz = [0, 0, 0]
     lost = bool(reason & REASON_GAP)
-    if bad_input:
-        xyz = [0, 0, 0]
-        centered = (0, 0, 0)
-        decoupled = (0, 0, 0)
-        gained = (0, 0, 0)
-    frame_valid = not bad_input
-    degraded = bool(reason & (REASON_CLAMP | REASON_GAP | REASON_EPOCH | REASON_PROFILE))
+    frame_valid = not bad_input and not arithmetic_sat
+    degraded = bool(reason & (REASON_CLAMP | REASON_ARITH_SAT | REASON_GAP | REASON_EPOCH | REASON_PROFILE))
     return {
         "sequence": seq, "timestamp_ticks": int(frame.get("timestamp_ticks", 0)) & 0xFFFFFFFF,
         "xyz": tuple(xyz), "centered": centered, "decoupled": decoupled, "gained": gained,

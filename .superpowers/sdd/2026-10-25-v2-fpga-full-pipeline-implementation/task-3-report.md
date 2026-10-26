@@ -38,3 +38,12 @@ No standalone Gowin arithmetic synthesis was run because the repository has no f
 - Updated the Python reference and tests for zeroed invalid outputs, profile/epoch reasons, modulo wrap, gap-count saturation, and clamp reasons only on otherwise valid frames.
 
 Review-fix verification: Python `python -m unittest tools.test_v2_fixed_reference tools.test_v2_input_vectors -v` — 7 passed. ModelSim V2 compile/run — 0 errors, `tb_v2_input_validity PASS`. V1 latch standalone `vlog` — 0 errors. `git diff --check` passed aside from existing dirty user-document line-ending warnings. No RTL-vs-reference equivalence claim is made; the RTL and Python suites are independently exercised.
+
+
+## Final review fix (2026-10-26)
+
+- Moved the quality gate ahead of every neutral, coupling, gain, and clamp operation in `v2_input_calibration`; no fixed-point transform is performed for a non-frame, invalid, saturated, gap, epoch-mismatched, or inactive-profile input.
+- Added `V2_REASON_ARITH_SAT` (bit 6). Q16.16 overflow is detected before `sat32`, reported separately from workspace `V2_REASON_CLAMP`, zeroes calibrated output, and blocks `output_valid`/note permission.
+- Added Python and RTL overflow vectors/assertions while retaining wrap, profile, stale-reason, invalid, saturation, and clamp coverage.
+
+Final verification: Python `python -m unittest tools.test_v2_fixed_reference tools.test_v2_input_vectors -v` — 8 passed; ModelSim V2 compile/run — 0 errors, `tb_v2_input_validity PASS`; V1 latch `vlog` — 0 errors; `git diff --check` passed with only pre-existing dirty user-document line-ending warnings.

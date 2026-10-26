@@ -42,6 +42,12 @@ module tb_v2_input_validity;
     @(negedge clk); profile_commit=1; @(negedge clk); profile_commit=0;
     send(500,0,0,1,0,0,7,7);
     if (x !== 0) $fatal(1,"committed profile neutral x=%0d",x);
+    // Gain overflow is distinct from workspace clamp and cannot become a note.
+    snx=-100000; sny=0; snz=0; sgx=32'sh7fffffff; sgy=65536; sgz=65536;
+    wxmin=-32'sd2147483647; wxmax=32'sd2147483647; wymin=-32'sd2147483647; wymax=32'sd2147483647; wzmin=-32'sd2147483647; wzmax=32'sd2147483647;
+    @(negedge clk); profile_shadow_we=1; @(negedge clk); profile_shadow_we=0; profile_commit=1; @(negedge clk); profile_commit=0;
+    send(32767,0,0,1,0,0,8,7);
+    if (x !== 0 || ov || note || !(reason & V2_REASON_ARITH_SAT)) $fatal(1,"arithmetic saturation x=%0d ov=%b note=%b reason=%h",x,ov,note,reason);
     $display("tb_v2_input_validity PASS"); $finish;
   end
 endmodule
