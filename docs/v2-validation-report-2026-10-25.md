@@ -83,4 +83,8 @@ Task 3's RTL/reference replay evidence is therefore closed for this corrective r
 
 ## Replay oracle tightening (2026-10-26)
 
-The replay test now uses an independent free-counter model for timestamp expectations; no capture timestamp is injected into the latch. It asserts latch/calibration timestamp alignment, every raw and quality field, reason equality across calibration and validity, and validity equality across both bundles. It also includes a reproducible adjacent A/B report pair with no idle edge between reports: `tb_v2_input_replay PASS frames=976 adjacent=A/B`. The synthesis resource gate remains open because the arithmetic probe is swept by Gowin; no utilization claim is made.
+The replay test now uses an independent free-counter model for timestamp expectations; no capture timestamp is injected into the latch. It asserts latch/calibration timestamp alignment, every raw and quality field, reason equality across calibration and validity, and validity equality across both bundles. It also includes a reproducible adjacent A/B report pair with no idle edge between reports: `tb_v2_input_replay PASS frames=976 adjacent=A/B`.
+
+## Synthesis-only preservation fix (2026-10-26)
+
+The arithmetic probe now exposes registered calibration/validity outputs and an observable checksum, with `keep_hierarchy` on both datapath instances. Absolute Gowin synthesis completed successfully. The report/log at `impl/v2_input_arithmetic_synth/impl/gwsynthesis/` show 72 LUT, 124 FF, 0 latch, 0 ALU, and 0 BSRAM. No DSP is inferred because the Q16.16 arithmetic maps to fabric logic. NL0002 is gone; EX2420/EX3101 remain at the calibration `always_comb` sign-extension temporary (line 140). This is synthesis-only evidence with no P&R or timing claim.

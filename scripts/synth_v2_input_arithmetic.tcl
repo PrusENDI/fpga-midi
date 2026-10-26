@@ -12,6 +12,9 @@ puts $f {</FileList></Project>}; close $f
 open_project $project
 set_option -top_module v2_input_arithmetic_probe
 set_option -verilog_std sysv2017
+# The probe exposes registered calibration/quality outputs as top-level pins
+# and marks both datapath instances with keep_hierarchy attributes.  Keep the
+# synthesis report as the preservation evidence; no P&R is requested here.
 run syn
 puts "V2_INPUT_ARITH_SYNTH_PASS: $out"
 exit

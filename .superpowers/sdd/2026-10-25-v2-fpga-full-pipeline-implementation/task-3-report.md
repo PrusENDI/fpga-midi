@@ -72,3 +72,9 @@ Open evidence: a cursor-integrated replay and non-swept arithmetic resource coun
 - Every frame asserts latch sequence, timestamp, signed17 X/Y and unsigned17 Z, `gap`, `saturated`, `report_error`, and `xyz_valid`, plus `cal_reason == validity_reason == expected_reason` and `cal_valid == frame_valid == expected_frame_valid`.
 - A back-to-back A/B report pair keeps `report_valid` high over adjacent report edges and checks both bundles before an idle cycle. ModelSim result: `tb_v2_input_replay PASS frames=976 adjacent=A/B`.
 - The arithmetic synthesis probe remains swept; no utilization or timing claim is made from it.
+
+## Synthesis-only preservation fix (2026-10-26)
+
+- Reworked `rtl/v2_input_arithmetic_probe.sv` so calibration and validity feed registered top-level outputs and an observable checksum; both datapath instances use `keep_hierarchy`.
+- Absolute Gowin synthesis completed via `C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe scripts/synth_v2_input_arithmetic.tcl`. Report/log: `impl/v2_input_arithmetic_synth/impl/gwsynthesis/v2_input_arithmetic_syn.rpt.html` and `.log`.
+- Nonzero resources are now reported: 72 LUT, 124 FF, 0 latch, 0 ALU, 0 BSRAM. No DSP is inferred because the Q16.16 arithmetic maps to fabric logic. NL0002 sweep is gone. EX2420/EX3101 remain at the calibration `always_comb` sign-extension temporary (line 140); this is documented as a remaining RTL warning. No P&R or timing claim is made.
