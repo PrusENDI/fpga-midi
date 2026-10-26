@@ -22,7 +22,13 @@ module v2_input_calibration (
   output logic [7:0] output_calibration_epoch,
   output logic [7:0] calibration_reason,
   output logic [7:0] active_epoch,
-  output logic active_profile_valid
+  output logic active_profile_valid,
+  output logic frame_output_strobe,
+  output logic signed [31:0] frame_calibrated_x, frame_calibrated_y, frame_calibrated_z,
+  output logic [15:0] frame_output_sequence,
+  output logic [31:0] frame_output_timestamp_ticks,
+  output logic [7:0] frame_output_reason,
+  output logic frame_output_valid
 );
   import v2_input_pkg::*;
   localparam signed [31:0] ONE_Q16 = 32'sd65536;
@@ -32,6 +38,8 @@ module v2_input_calibration (
   logic signed [31:0] sn_x, sn_y, sn_z, sc_x, sc_y, sg_x, sg_y, sg_z;
   logic signed [31:0] sw_x_min, sw_x_max, sw_y_min, sw_y_max, sw_z_min, sw_z_max;
   logic [7:0] epoch_shadow;
+  logic have_sequence;
+  logic [15:0] previous_sequence;
   v2_input_pkg::v2_input_frame_t frame_contract;
 
   function automatic signed [63:0] round_q16(input signed [63:0] value);
@@ -52,11 +60,24 @@ module v2_input_calibration (
       sn_x<=0; sn_y<=0; sn_z<=0; sc_x<=0; sc_y<=0; sg_x<=ONE_Q16; sg_y<=ONE_Q16; sg_z<=ONE_Q16;
       sw_x_min<=-32'sd32768; sw_x_max<=32'sd32767; sw_y_min<=-32'sd32768; sw_y_max<=32'sd32767;
       sw_z_min<=0; sw_z_max<=32'sd65535; epoch_shadow<=0;
+      have_sequence<=1'b0; previous_sequence<=16'd0;
+      frame_output_strobe<=1'b0; frame_calibrated_x<=0; frame_calibrated_y<=0; frame_calibrated_z<=0;
+      frame_output_sequence<=0; frame_output_timestamp_ticks<=0; frame_output_reason<=0; frame_output_valid<=1'b0;
     end else begin
+      frame_output_strobe <= frame_in_valid;
+      if (frame_in_valid) begin
+        frame_calibrated_x <= calibrated_x; frame_calibrated_y <= calibrated_y; frame_calibrated_z <= calibrated_z;
+        frame_output_sequence <= output_sequence; frame_output_timestamp_ticks <= output_timestamp_ticks;
+        frame_output_reason <= calibration_reason; frame_output_valid <= output_valid;
+      end
       if (profile_shadow_we) begin
         sn_x<=shadow_neutral_x; sn_y<=shadow_neutral_y; sn_z<=shadow_neutral_z; sc_x<=shadow_coupling_x; sc_y<=shadow_coupling_y;
         sg_x<=shadow_gain_x; sg_y<=shadow_gain_y; sg_z<=shadow_gain_z; sw_x_min<=shadow_ws_x_min; sw_x_max<=shadow_ws_x_max;
         sw_y_min<=shadow_ws_y_min; sw_y_max<=shadow_ws_y_max; sw_z_min<=shadow_ws_z_min; sw_z_max<=shadow_ws_z_max; epoch_shadow<=shadow_epoch;
+      end
+      if (frame_in_valid) begin
+        previous_sequence <= sequence_id;
+        have_sequence <= 1'b1;
       end
       // A write+commit in one cycle is rejected; shadow remains staged for a later atomic commit.
       if (profile_commit && !profile_shadow_we && (sw_x_min <= sw_x_max) && (sw_y_min <= sw_y_max) && (sw_z_min <= sw_z_max) &&
@@ -72,20 +93,21 @@ module v2_input_calibration (
   always_comb begin : transform
     logic signed [63:0] sx, sy, sz, dx, dy, dz, qx, qy, qz, gx, gy, gz;
     logic signed [31:0] cx, cy, cz;
-    logic clamp_seen, arith_sat_seen, bad_input;
+    logic clamp_seen, arith_sat_seen, bad_input, sequence_gap_seen;
     frame_contract.frame_sequence = sequence_id;
     frame_contract.timestamp_ticks = timestamp_ticks;
     frame_contract.raw_x = raw_x; frame_contract.raw_y = raw_y; frame_contract.raw_z = raw_z;
     frame_contract.touch = touch; frame_contract.presence = presence;
     frame_contract.valid_xyz = valid_xyz; frame_contract.saturated = saturated; frame_contract.gap = gap;
     frame_contract.calibration_epoch = calibration_epoch_in;
+    sequence_gap_seen = have_sequence && ((sequence_id - previous_sequence) > 16'd1);
     calibration_reason = 8'd0;
     if (!frame_contract.valid_xyz) calibration_reason |= V2_REASON_INVALID;
     if (frame_contract.saturated) calibration_reason |= V2_REASON_SATURATED;
-    if (frame_contract.gap) calibration_reason |= V2_REASON_GAP;
+    if (frame_contract.gap || sequence_gap_seen) calibration_reason |= V2_REASON_GAP;
     if ((frame_contract.calibration_epoch != 8'd0) && (frame_contract.calibration_epoch != epoch_active)) calibration_reason |= V2_REASON_EPOCH | V2_REASON_PROFILE;
     if (!active_profile_valid) calibration_reason |= V2_REASON_PROFILE;
-    bad_input = !frame_in_valid || !frame_contract.valid_xyz || frame_contract.saturated || frame_contract.gap ||
+    bad_input = !frame_in_valid || !frame_contract.valid_xyz || frame_contract.saturated || frame_contract.gap || sequence_gap_seen ||
                 (((frame_contract.calibration_epoch != 8'd0) && (frame_contract.calibration_epoch != epoch_active)) || !active_profile_valid);
     calibrated_x = 32'sd0; calibrated_y = 32'sd0; calibrated_z = 32'sd0;
     output_valid = 1'b0; clamp_seen = 1'b0; arith_sat_seen = 1'b0;
@@ -113,7 +135,7 @@ module v2_input_calibration (
     end
     output_sequence=frame_contract.frame_sequence; output_timestamp_ticks=frame_contract.timestamp_ticks;
     output_touch=frame_contract.touch; output_presence=frame_contract.presence;
-    output_saturated=frame_contract.saturated; output_gap=frame_contract.gap; output_calibration_epoch=frame_contract.calibration_epoch;
+    output_saturated=frame_contract.saturated; output_gap=frame_contract.gap || sequence_gap_seen; output_calibration_epoch=frame_contract.calibration_epoch;
     active_epoch=epoch_active;
   end
 endmodule
