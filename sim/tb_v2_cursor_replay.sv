@@ -35,7 +35,7 @@ module tb_v2_cursor_replay;
     fd=$fopen("../../tools/testdata/v2_input/cursor_replay_fast_01.vec","r"); if(!fd) $fatal(1,"cursor vector open failed"); n=0; have_stable=0; expected_audio_ts=0; last_stable_ts=0;
     while(!$feof(fd)) begin
       scan=$fscanf(fd,"%h %h %h %h %d %d %d %d %d %h %h %h %h %h %h %d %d %d %h %h %h %h %h %h %h %h %h %h %h %d\n",ex_seq,sensor_x,sensor_y,sensor_z,iv,isat,igap,iedge,isample,eoutx,eouty,eoutz,epitch,evel,edepth,state_i,erb,estab,pseq,pts,ereason,eax,eay,eaz,eapitch,eavel,eadepth,easeq,eats_file,eav);
-      if(scan<29) begin $display("cursor fscanf count=%0d row=%0d",scan,n); break; end
+      if(scan<30) begin $display("cursor fscanf count=%0d row=%0d",scan,n); break; end
       est = (state_i == 1) || (state_i == 2);
       expected_frame_ts=32'd2+(n*32'd4);
       if (isample && have_stable) expected_audio_ts=last_stable_ts;
