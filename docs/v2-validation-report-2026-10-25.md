@@ -112,3 +112,9 @@ backpressure, a pass-gated duration-derived NOTE_OFF, and abort preserving the
 active bank. The duration vector is checked at its end tick so it cannot be
 re-emitted by the ON or CONTROL passes. This is RTL simulation evidence only;
 no P&R or timing claim is made.
+Task 7 Potts commit evidence: the standalone fixed-point commit FSM and Python
+reference cover a 128-tick contour, A-minor pentatonic candidates, minimum
+segment length, rest masking, bounded event RAM, backtrace-valid completion,
+and held output backpressure. The measurement script reports the observed RTL
+cycle count; the 41 us design figure remains an estimate until a device-level
+timing run.
