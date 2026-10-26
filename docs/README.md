@@ -47,6 +47,19 @@
 | [loop-scheduler-interface.md](loop-scheduler-interface.md) | 调度器与扫描时序 |
 | [loop-audio-integration-interface.md](loop-audio-integration-interface.md) | 音频接线边界 |
 
+## Gowin CLI 入口
+
+Windows 上的 Gowin 命令行程序名是 `gw_sh.exe`，不是 `gw.sh`。推荐从仓库根目录
+使用 `scripts/gw.sh`（Git Bash）或 `scripts/run_gowin_cli.ps1`（PowerShell）：
+
+```bash
+./scripts/gw.sh scripts/synth_v2_voice_engine.tcl
+```
+
+两个入口都会从 `C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gwlicense.ini`
+读取许可配置，并把 CLI 的工作目录固定到 Gowin `IDE\bin`。服务器变化时可设置
+`GW_LICENSE_SERVER=host:port`，或在 PowerShell 中传 `-LicenseServer host:port`。
+
 ## 5. 历史与讨论（不作为依据）
 
 `ambient-*.md`、`mgc3130-pre-audio-feedback-discussion-2026-10-19.md`、`development-log-2026-10-18.md`、`toolchain-verification-2026-10-16.md`、`superpowers/` 下的计划与规格。这些记录了当时的取舍过程，结论已被上面的主规范取代。
