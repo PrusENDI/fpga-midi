@@ -175,7 +175,7 @@
 - [ ] 为左到右、反向拒绝、边缘最终右移点、纯 Z、touch split、bow reversal、同音 revoice、invalid gap、轨道独立写 vectors。
 - [ ] 为 tick 顺序、4 tick 间隔、边缘条件和 FIFO 背压写失败测试。
 - [ ] 实现两个显式 FSM，不用隐式共享 mode。
-- [ ] 运行 reference/RTL 对照和六轨 store 集成。
+- [ ] 运行 reference/RTL 对照和六轨写接口的背压/overflow/abort/boundary 验证；实际六轨 store 在 Task 6 创建，其 recorder/store 联合回归必须在 Task 6 关卡关闭前通过。
 - [ ] 提交 feat: add v2 live and loop rule engines。
 
 **Stop gate:** LIVE vectors 全通过后才演示 LIVE；LOOP overflow、abort、boundary vectors 全通过后才演示 LOOP。
@@ -201,6 +201,7 @@
 - [ ] 为首录、叠录保留、满轨、空 abort、STOP boundary、commit 背压、active 保留写失败测试。
 - [ ] 通过 wrapper 实现 V2，不改变 V1。
 - [ ] 运行 RTL RAM、Gowin DPB model 和独立综合，记录 BSRAM/scan cycles。
+- [ ] 接入 Task 5 recorder，运行实际六轨 store 联合回归，包括背压、overflow、abort、boundary 和 active bank 保留；接口模型测试不能代替此项。
 - [ ] 更新三份接口文档，明确 V1 与 V2 状态。
 - [ ] 提交 feat: add v2 six track loop transactions。
 
