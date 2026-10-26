@@ -57,7 +57,7 @@ Final verification: Python `python -m unittest tools.test_v2_fixed_reference too
 - Touch decoder result: `tb_v2_touch_info_decoder PASS`. Focused Python suite: 8 passed. V1 latch plus decoder compilation: 0 errors.
 - Standalone Gowin arithmetic synthesis command retained in `scripts/synth_v2_input_arithmetic.tcl`, invoked with absolute `C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe`; log/report retained under `impl/v2_input_arithmetic_synth/`. Synthesis completed and reported 0 LUT/ALU after optimization because the probe instance was swept; warnings EX2420/EX3101 identify inferred combinational latches in the current arithmetic coding and NL0002 records the sweep. No utilization or timing claim is made from this swept probe.
 
-Open evidence: a cursor-integrated replay and non-swept arithmetic resource count require Task 4/top-level integration and a follow-up synthesis probe with preserved observable hierarchy.
+Open evidence: a cursor-integrated replay remains downstream Task 4 evidence; the preserved arithmetic synthesis resource count is now available below.
 
 ## Corrective fix round (2026-10-26)
 
@@ -71,7 +71,7 @@ Open evidence: a cursor-integrated replay and non-swept arithmetic resource coun
 - The replay now models the latch's independent free-running timestamp counter and asserts `latch_ts == cal_ts == expected_latch_timestamp`; the vector's capture timestamp remains source metadata and is not injected into RTL.
 - Every frame asserts latch sequence, timestamp, signed17 X/Y and unsigned17 Z, `gap`, `saturated`, `report_error`, and `xyz_valid`, plus `cal_reason == validity_reason == expected_reason` and `cal_valid == frame_valid == expected_frame_valid`.
 - A back-to-back A/B report pair keeps `report_valid` high over adjacent report edges and checks both bundles before an idle cycle. ModelSim result: `tb_v2_input_replay PASS frames=976 adjacent=A/B`.
-- The arithmetic synthesis probe remains swept; no utilization or timing claim is made from it.
+- The arithmetic synthesis resource gate is closed for synthesis-only evidence; no P&R or timing claim is made.
 
 ## Synthesis-only preservation fix (2026-10-26)
 

@@ -71,7 +71,7 @@ timing for calibration, cursor, voice, FX or the final top.
 - Touch decoder result: `tb_v2_touch_info_decoder PASS`. Focused Python suite: 8 passed. V1 latch plus decoder compilation: 0 errors.
 - Standalone Gowin arithmetic synthesis command retained in `scripts/synth_v2_input_arithmetic.tcl`, invoked with absolute `C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe`; log/report retained under `impl/v2_input_arithmetic_synth/`. Synthesis completed and reported 0 LUT/ALU after optimization because the probe instance was swept; warnings EX2420/EX3101 identify inferred combinational latches in the current arithmetic coding and NL0002 records the sweep. No utilization or timing claim is made from this swept probe.
 
-Open evidence: a cursor-integrated replay and non-swept arithmetic resource count require Task 4/top-level integration and a follow-up synthesis probe with preserved observable hierarchy.
+Open evidence: a cursor-integrated replay remains downstream Task 4 evidence; the preserved arithmetic synthesis resource count is now available below.
 
 ## Corrective replay closure for Task 3 (2026-10-26)
 
@@ -79,7 +79,7 @@ Open evidence: a cursor-integrated replay and non-swept arithmetic resource coun
 - The replay compares all 976 rows, including invalid, saturated, explicit-gap, sequence-gap, wrap, and boundary rows. It checks aligned sequence/timestamp, signed17 X/Y and unsigned17 Z conversion, zeroed invalid outputs, quality flags, gap count, reason, note permission, and idle-cycle no-leakage. ModelSim result: `tb_v2_input_replay PASS frames=976`.
 - Focused Python result remains `8 passed`; `tb_v2_touch_info_decoder PASS`; a temporary compatibility copy of the existing V1 reader touch harness with all V2 ports explicitly declared reports `tb_reader_touch PASS`. Legacy V1 source files and user-dirty documents remain untouched. The original wildcard harness is a pre-existing harness limitation because it does not declare the V2 ports.
 
-Task 3's RTL/reference replay evidence is therefore closed for this corrective round. The arithmetic synthesis probe remains swept and provides no utilization claim; cursor-integrated replay and non-swept resource measurement remain downstream evidence.
+Task 3's RTL/reference replay and arithmetic synthesis evidence are closed for this corrective round. Cursor-integrated replay remains downstream Task 4 evidence.
 
 ## Replay oracle tightening (2026-10-26)
 
