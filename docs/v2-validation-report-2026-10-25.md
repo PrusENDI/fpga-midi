@@ -29,7 +29,7 @@ Those completion claims are superseded by this audit. Tasks 6–12 have not star
 | 4 cursor | Integrated 976-row latch → calibration → validity → cursor replay, 12 Python tests, ModelSim pass, and standalone synthesis evidence. | Accepted for its scoped gate; no whole-design timing claim. |
 | 5 rules | Separate LIVE/LOOP rule engines with backpressure, left-edge/rightward confirmation, reverse rejection and six-track recorder; Python and ModelSim suites pass. | Accepted for its scoped gate. |
 | 6–7 loop/Potts | Six-track two-bank store/scheduler transaction replay passes; bounded Potts DP replay and backpressure pass. | Accepted for scoped gates; remaining coverage and device-level cycle timing are residuals. |
-| 8 voices | 32-slot two-oscillator lifecycle, 33rd overflow, release, revoice phase preservation, detune, ADSR, saturation, valid/ready and round-robin tests pass; standalone synthesis and routed probe complete. | **Blocked:** routed probe at 100 MHz is 58.253 MHz with setup TNS -34642.668 ns and 9715 violating endpoints. The plan's 100 MHz Stop gate is not met. |
+| 8 voices | 32-slot two-oscillator lifecycle, 33rd overflow, release, revoice phase preservation, detune, ADSR, saturation, valid/ready and round-robin tests pass; explicit 240-bit/15-lane DPB state bank is synthesized and routed. | **Accepted for the scoped Task 8 gate:** fresh 100 MHz routed probe reports Fmax 101.832 MHz, setup/hold TNS 0, zero violated endpoints and +0.180 ns worst setup slack. Full V2 top and board timing remain Task 12 evidence. |
 | 9–12 | Wavetable/FX, UART/telemetry, UI and independent V2 top remain downstream. | Not started because Task 8 timing Stop gate is blocked. |
 
 ## Toolchain
@@ -59,11 +59,10 @@ Those completion claims are superseded by this audit. Tasks 6–12 have not star
 
 ## Final claims intentionally pending
 
-No final V2 bitstream, board revision/capture, trigger-to-waveform latency, 32-voice
-operation, FX level or whole-design timing has been accepted. The Task 8 voice
-lifecycle is simulation and resource/P&R proven, but its 100 MHz timing gate remains
-blocked. No board was programmed during this work. The clock-only routed probe cannot
-establish timing for calibration, cursor, FX or the final top.
+No final V2 top bitstream, board revision/capture, trigger-to-waveform latency, FX
+level or whole-design timing has been accepted. Task 8 is accepted only for its
+standalone voice-engine gate. No board was programmed during this work. The routed
+voice probe cannot establish timing for calibration, cursor, FX or the final top.
 
 
 ## Corrective replay evidence (2026-10-26)
@@ -180,3 +179,97 @@ timing run.
   repair must pipeline the state-bank read/compute/writeback or explicitly
   map a supported RAM mode; changing only constraints would conceal the real
   failure.
+
+## Task 8 timing closure attempt — 2026-10-26 (superseded)
+
+An earlier cleanpipe artifact was reported after the three-stage scan pipeline
+was added. That artifact must not be used as closure evidence for the current
+working RTL: subsequent command-boundary edits changed the inferred storage
+structure, and a fresh rebuild of the current source does not reproduce its
+resource or timing result.
+
+`tb_v2_voice_engine PASS voices=32 scan_cycles=32 release_samples=16`
+
+The reproducible current-source run is retained under
+`impl/v2_voice_synth_task8_alias_probe_20261026/`. ModelSim and the
+Python voice vectors pass, but the routed report records:
+
+- Fmax: **76.756 MHz** at a 100.000 MHz constraint.
+- Setup violating endpoints: **6,108**; setup TNS: **-7,717.888 ns**.
+- Hold violating endpoints: **0**; hold TNS: **0.000 ns**.
+- Resources: 8,820 LUT, 607 ALU, 7,241 logic FF, **0 BSRAM**.
+- Worst setup path: `active` to variable-indexed state-bank write logic,
+  approximately 16.7 ns data delay.
+
+The new root cause is storage inference, not the oscillator arithmetic alone.
+The older 100.021 MHz artifact used 8 SDPB blocks for the state arrays. The
+current source is functionally equivalent at the interface but Gowin expands
+the arrays into logic registers; the resulting high-fanout state write-enable
+network fails timing. Removing event aliases does not change this result. The
+next repair must make the state-bank RAM template deterministic, preserve the
+registered scan stages, and then repeat the full 100 MHz P&R gate. Task 8
+therefore remains **blocked** until a fresh run has zero setup and hold
+violations.
+
+## Task 8 BSRAM architecture experiment — 2026-10-26
+
+The local Gowin installation was used through `scripts/run_gowin_cli.ps1` with the configured license server. The installed references are `UG285-1.4E_Gowin BSRAM & SSRAM User Guide.pdf`, `SUG550-2.4E_GowinSynthesis User Guide.pdf`, `prim_syn.v`, and the `RAM_SDPB` HTML guide under `C:\Gowin\Gowin_V1.9.12.04_x64\IDE`.
+
+The minimal explicit `DPB` bank in `rtl/v2_voice_state_bank.sv` is 32 words deep and uses 16-bit lanes. Its routed probe under `impl/v2_voice_state_bank_probe_20261026c/` preserves 13 `DPB` lanes and has 0 setup and 0 hold violations at 100 MHz. This isolates the previous failure to inferred storage and shows that the device can meet the clock with an explicit state bank.
+
+The exploratory banked voice engine in `rtl/v2_voice_engine_banked.sv` has a focused ModelSim test and a routed result under `impl/v2_voice_synth_banked_20261026/`: 11 BSRAM, actual Fmax 100.002 MHz, setup TNS 0, hold TNS 0. It is not yet Task 8 closure because target-frequency metadata is still inferred as RAMREG and the critical setup slack is 0.000 ns. The next implementation step is to pack target state into the deterministic bank and rerun the full voice regression and P&R gate.
+
+Running the current unbanked source at a 20 ns constraint is a useful diagnostic fallback because its measured Fmax is above 50 MHz, but it does not satisfy the V2 contract. The V2 clock architecture remains a 50 MHz board input through the GW5A PLL to a 100 MHz system clock, with 48 kHz generated by sample enable; no second free-running audio clock is introduced.
+
+### Banked voice replay and latest timing evidence
+
+The banked experiment now has an independent file-driven replay generated by `tools/generate_v2_voice_replay.py`. `scripts/test_v2_voice_banked.ps1` runs 1,827 rows / 1,784 audio samples against both the RTL memory fallback and the installed GW5A `prim_sim.v` model; both runs report `tb_v2_voice_replay PASS` with a one-LSB sample tolerance and no simulator errors. The replay covers non-multiple-of-512 glide targets, ADSR attack saturation, full 32-slot allocation and overflow, scan-boundary event holding, release, all-notes-off, and slot reuse.
+
+After correcting fixed-width attack saturation and bounded glide, the reproducible banked P&R run is `impl/v2_voice_synth_banked_20261026c/`. It reports actual Fmax 100.004 MHz, setup TNS 0, hold TNS 0, 11 DPB/BSRAM, 2,568 FF, 2,009 LUT and 819 ALU. The netlist retains eleven explicit DPB lanes. The reported worst setup slack is 0.000 ns on the remaining metadata target array write-enable path, so this is functional/timing evidence for the banked architecture but still requires margin improvement before it is accepted as the final Task 8 implementation.
+
+The diagnostic unbanked 20 ns run is retained under `impl/v2_voice_synth_50m_diag_20261026/`: actual Fmax 53.660 MHz with setup/hold TNS 0. It demonstrates that 50 MHz is a temporary fallback, not a solution to the V2 requirement, because it leaves the state arrays in logic and retains the large resource footprint.
+
+The device-specific official reference is the installed Arora V guide
+`C:\Gowin\Gowin_V1.9.12.04_x64\IDE\doc\EN\UG300-1.3.6E_Arora V BSRAM & SSRAM User Guide.pdf`.
+UG300 Section 3.1 defines DPB's 16-bit port and address/write-enable behavior;
+Section 3.3 documents SDPB widths and address mapping. SUG550 Section 4.2 and
+Section 5.16 cover one-read/one-write RAM inference and `syn_ramstyle`. The
+repository's `rtl/loop_event_ram.sv` is an additional project-local DPB lane
+example. Applying `syn_ramstyle="block_ram"` to the current target arrays
+produces Gowin IF0007 (attribute not applicable), so the final fix must keep
+single-write arbitration and explicit DPB mapping rather than rely on an
+attribute over a multi-write array.
+
+## Task 8 closure — explicit target bank and 100 MHz margin (2026-10-26)
+
+The final repair packs both glide targets into the same 240-bit state word as
+phase, increment, envelope and mix metadata. `rtl/v2_voice_state_bank.sv`
+maps that word to fifteen explicit 16-bit GW5A DPB lanes. The former
+variable-indexed `target_a/target_b` arrays are gone from the hot state path;
+the synthesis log only reports the small note metadata array and reports no
+`IF0007` RAM-style warning for the state bank.
+
+REVOICE is now a one-entry pending command. Its note and two target values are
+accepted only when the scan is idle, captured into the registered read stage,
+and written back through the same serialized DPB port as the normal scan. A
+second REVOICE is back-pressured while the mailbox is occupied. This removes
+the event-side multi-write hazard while preserving phase and the reference
+model's bounded glide behavior.
+
+The fresh source-matched run is `impl/v2_voice_synth_task8_targetbank_100m_20261026/`,
+reproduced by `scripts/synth_v2_voice_engine_task8_targetbank_100m_20261026.tcl`
+through the licensed Gowin CLI wrapper. The routed report records:
+
+- constraint: `clk_sys_100m`, 10.000 ns;
+- actual Fmax: **101.832 MHz**;
+- setup violated endpoints: **0**, setup TNS **0.000 ns**;
+- hold violated endpoints: **0**, hold TNS **0.000 ns**;
+- worst setup slack: **+0.180 ns**;
+- resources: **15 DPB/BSRAM**, 3,060 logic, 977 FF, 0 SSRAM/RAM16.
+
+The complete replay remains green after the target-bank change: 1,827 vector
+rows and 1,784 samples pass against both the RTL memory fallback and the GW5A
+`prim_sim.v` model, including REVOICE, 32-slot allocation, 33rd overflow,
+release, ALL_NOTES_OFF, scan-boundary backpressure and slot reuse. This closes
+the Task 8 standalone stop gate. It does not close the final V2 top or board
+gate.
