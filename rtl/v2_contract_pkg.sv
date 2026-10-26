@@ -8,8 +8,22 @@ package v2_contract_pkg;
 
   typedef enum logic [2:0] { IDLE, LIVE, RECORD, COMMIT, PLAY, ERROR } v2_mode_e;
 
-  // The leading reserved bit is explicit so the ten specified fields occupy 95 bits.
-  typedef logic [95:0] v2_event_t;
+  // Packed MSB-first layout: reserved[95], then the named fields through sequence[15:0].
+  // The reserved bit is frozen at zero by serializers; the named fields are directly accessible.
+  typedef struct packed {
+    logic        reserved;
+    logic [3:0]  type;
+    logic [2:0]  track;
+    logic [7:0]  tick;
+    logic [7:0]  duration;
+    logic [7:0]  note;
+    logic [7:0]  velocity;
+    logic signed [15:0] pitch_mod;
+    logic [15:0] timbre_mod;
+    logic [7:0]  flags;
+    logic [15:0] sequence;
+  } v2_event_t;
+
   typedef struct packed {
     logic [7:0]  op;
     logic [7:0]  address;
@@ -56,7 +70,25 @@ package v2_contract_pkg;
             (address >= V2_ADDR_TEST_FIRST && address <= V2_ADDR_TEST_LAST));
   endfunction
 
-  function automatic bit v2_contract_widths_ok();
-    return ($bits(v2_event_t) == 96 && $bits(v2_cmd_t) == 56 && $bits(v2_telemetry_t) == 136);
-  endfunction
+  // Elaboration-time checks: a violated contract makes an illegal negative-width typedef.
+  localparam int V2_EVENT_WIDTH_CHECK = ($bits(v2_event_t) == V2_EVENT_BITS) ? 1 : -1;
+  localparam int V2_CMD_WIDTH_CHECK = ($bits(v2_cmd_t) == 56) ? 1 : -1;
+  localparam int V2_TELEMETRY_WIDTH_CHECK = ($bits(v2_telemetry_t) == 136) ? 1 : -1;
+  localparam int V2_CONTROL_LENGTH_CHECK = (V2_CONTROL_BYTES == 11) ? 1 : -1;
+  localparam int V2_TELEMETRY_LENGTH_CHECK = (V2_TELEMETRY_BYTES == 22) ? 1 : -1;
+  localparam int V2_ADDRESS_MAP_CHECK =
+      (v2_address_valid(8'h00) && v2_address_valid(8'h44) &&
+       v2_address_valid(8'h48) && v2_address_valid(8'h5C) &&
+       v2_address_valid(8'h60) && v2_address_valid(8'h7C) &&
+       v2_address_valid(8'h80) && v2_address_valid(8'h9C) &&
+       v2_address_valid(8'hA0) && v2_address_valid(8'hAF) &&
+       !v2_address_valid(8'h45) && !v2_address_valid(8'h5D) &&
+       !v2_address_valid(8'h7D) && !v2_address_valid(8'h9D) &&
+       !v2_address_valid(8'hB0)) ? 1 : -1;
+  typedef logic [V2_EVENT_WIDTH_CHECK-1:0] v2_event_width_assert_t;
+  typedef logic [V2_CMD_WIDTH_CHECK-1:0] v2_cmd_width_assert_t;
+  typedef logic [V2_TELEMETRY_WIDTH_CHECK-1:0] v2_telemetry_width_assert_t;
+  typedef logic [V2_CONTROL_LENGTH_CHECK-1:0] v2_control_length_assert_t;
+  typedef logic [V2_TELEMETRY_LENGTH_CHECK-1:0] v2_telemetry_length_assert_t;
+  typedef logic [V2_ADDRESS_MAP_CHECK-1:0] v2_address_map_assert_t;
 endpackage
