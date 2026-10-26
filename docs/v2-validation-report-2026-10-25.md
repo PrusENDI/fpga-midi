@@ -19,7 +19,8 @@ are different kinds of evidence and must not be substituted for each other.
 ## Gate audit
 
 Initial scoped reviews accepted code fixes without enforcing all plan evidence gates.
-Those completion claims are superseded by this audit. Tasks 6–12 have not started.
+Those completion claims are superseded by this audit. Tasks 6–7 and 8–9 now have
+scoped evidence; the final V2 top and board gates remain open.
 
 | Task | Implementation / evidence | Gate status |
 | --- | --- | --- |
@@ -30,7 +31,9 @@ Those completion claims are superseded by this audit. Tasks 6–12 have not star
 | 5 rules | Separate LIVE/LOOP rule engines with backpressure, left-edge/rightward confirmation, reverse rejection and six-track recorder; Python and ModelSim suites pass. | Accepted for its scoped gate. |
 | 6–7 loop/Potts | Six-track two-bank store/scheduler transaction replay passes; bounded Potts DP replay and backpressure pass. | Accepted for scoped gates; remaining coverage and device-level cycle timing are residuals. |
 | 8 voices | 32-slot two-oscillator lifecycle, 33rd overflow, release, revoice phase preservation, detune, ADSR, saturation, valid/ready and round-robin tests pass; explicit 240-bit/15-lane DPB state bank is synthesized and routed. | **Accepted for the scoped Task 8 gate:** fresh 100 MHz routed probe reports Fmax 101.832 MHz, setup/hold TNS 0, zero violated endpoints and +0.180 ns worst setup slack. Full V2 top and board timing remain Task 12 evidence. |
-| 9–12 | Wavetable/FX, UART/telemetry, UI and independent V2 top remain downstream. | Not started because Task 8 timing Stop gate is blocked. |
+| 9 wavetable/FX | Explicit DPB-backed wavetable, patch and reduced FX path; ModelSim and Gowin resource/P&R probes. | **Accepted for scoped Task 9 storage/FX gate.** Final top timing and board evidence remain open. |
+| 10 UART/telemetry | Byte-level control parser, CRC/version/op/access/data checks, duplicate replay, TX backpressure, double-buffer telemetry and CRC tests. | **Accepted for scoped Task 10 byte/snapshot gate.** Physical UART baud and CSR/top integration remain Task 11–12 evidence. |
+| 11–12 | PC parameter/telemetry UI, independent V2 top and board validation. | Not started. |
 
 ## Toolchain
 
@@ -53,6 +56,35 @@ Those completion claims are superseded by this audit. Tasks 6–12 have not star
 3. An 11-byte control frame and address ranges alone do not freeze a usable register
    interface. Exact CSR addresses, access, fields, operations and response semantics are
    required before later modules can consume the contract.
+
+## Task 10 UART/telemetry evidence (2026-10-26)
+
+`rtl/v2_uart_link.sv` is the sole V2 byte-level protocol endpoint. It accepts the
+11-byte control frame and exposes a ready/valid CSR command; replies are emitted as
+the frozen 22-byte telemetry-shaped ACK/NACK frame. The parser is independent of
+`sample_ce`. It caches all 22 reply bytes for exact duplicate replay, reports the
+current reject reason instead of a stale registered error, and distinguishes
+BAD_ADDRESS from BAD_DATA after CRC/version/op checks. PATCH shadow data remains
+accepted at this boundary and is range-checked by the selected CSR bank.
+
+`rtl/v2_telemetry_snapshot.sv` uses two banks. A capture is copied into the inactive
+bank with CRC calculated over the 20-byte body before publication. TX backpressure
+holds the selected byte; a capture coincident with the final byte handshake becomes
+the next active frame without tearing. If both banks are occupied, the capture is
+dropped and counted.
+
+Reproducible command:
+
+```powershell
+.\scripts\test_v2_uart.ps1
+```
+
+The ModelSim run reports `tb_v2_uart_link PASS` and `tb_v2_telemetry PASS`. Coverage
+includes valid PING/ACK, exact duplicate replay, sequence conflict, bad CRC,
+bad-data mode write, TX backpressure, atomic field packing, CRC, full double-buffer
+occupancy, dropped capture accounting, and simultaneous final-byte/capture handoff.
+This is byte-level evidence only; physical 115200/1 Mbaud sampling, CSR-side
+application, and top-level pin integration remain later gates.
 4. `V2_SIM` bypass has no frequency multiplication. Testbenches using it must drive a
    100 MHz simulated system clock. The hardware primitive path is tested separately
    with the actual 50 MHz board clock.
