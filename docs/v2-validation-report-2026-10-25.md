@@ -145,11 +145,26 @@ timing run.
 - Python and ModelSim were rerun after the recompose attempt: 6 Python tests
   passed; `tb_v2_voice_engine PASS voices=32 scan_cycles=32 release_samples=16`,
   with zero compile warnings and zero simulation errors.
-- A new Gowin P&R run could not be started in the current environment. The
-  installed `gw_sh.exe` exits before opening Tcl, and `gwlicense.ini` points to
-  `106.55.34.119:10559`; a direct TCP probe to that license endpoint failed.
-  Therefore no new P&R numbers are claimed. The latest valid routed report
-  remains the 58.253 MHz / -34642.668 ns result above.
+- The License Manager GUI reports `Server is OK`, server
+  `106.55.34.119:10559`, and expiry `2027-10-19`. A normal Codex-sandbox
+  process cannot open the license-server socket, so `gw_sh.exe` exits before
+  Tcl with code 1 and no stdout/stderr. This is an execution-environment
+  network restriction, not evidence that the license is invalid.
+- Running the same signed `C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe`
+  through an external-network-enabled CLI process enters Tcl, completes
+  synthesis and P&R, and emits `V2_VOICE_SYNTH_PASS` and
+  `V2_VOICE_PNR_PASS`. The reproducible wrapper is
+  `scripts/run_gowin_cli.ps1`; it sets the Gowin installation and license
+  environment without modifying the installed `gwlicense.ini`.
+- Fresh CLI evidence is under `impl/v2_voice_synth_cli_20261026/`. The new
+  routed report records Fmax 58.253 MHz, setup TNS -34642.668 ns over 9715
+  endpoints, hold TNS 0, and the same worst data delay of 17.134 ns. The new
+  probe bitstream is `impl/v2_voice_synth_cli_20261026/impl/pnr/v2_voice.fs`
+  with SHA-256
+  `7AE9CACD8016E1E42D34DC4EC38807B48A0DEB25804DA095C11851293D8FDAD7`.
+- The wrapper probe entered the Gowin Tcl console and returned
+  `GW_WRAPPER_TCL_OK` with exit code 0; the fresh ModelSim voice regression
+  also passed with zero compile warnings and zero simulation errors.
 - The valid routed timing paths identify the implementation root cause. The
   worst path launches from `engine/scan_slot_*` and terminates in
   `mixed_sample` or the variable-indexed `phase/step/target` RAM writeback,
