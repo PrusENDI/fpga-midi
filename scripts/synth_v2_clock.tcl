@@ -7,7 +7,7 @@ puts $f {<?xml version="1.0" encoding="UTF-8"?>}
 puts $f {<!DOCTYPE gowin-fpga-project>}
 puts $f {<Project><Template>FPGA</Template><Version>5</Version>}
 puts $f {<Device name="GW5A-25A" pn="GW5A-LV25MG121NES">gw5a25a-000</Device><FileList>}
-foreach source {v2_clock_gen v2_sample_scheduler} {
+foreach source {v2_clock_gen v2_reset_sync v2_sample_scheduler} {
     puts $f "<File path=\"../../rtl/$source.sv\" type=\"file.verilog\" enable=\"1\"/>"
 }
 puts $f {<File path="../../sim/v2_clock_sample_probe.sv" type="file.verilog" enable="1"/>}

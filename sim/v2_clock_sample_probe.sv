@@ -4,13 +4,15 @@ module v2_clock_sample_probe (
   input logic rst_n,
   output logic clk_sys_100m,
   output logic pll_locked,
+  output logic rst_sys_n,
   output logic sample_ce,
   output logic [31:0] sample_index
 );
   v2_clock_gen u_clock (.*);
+  v2_reset_sync u_reset (.*);
   v2_sample_scheduler u_scheduler (
     .clk_sys(clk_sys_100m),
-    .rst_n(rst_n & pll_locked),
+    .rst_n(rst_sys_n),
     .sample_ce(sample_ce),
     .sample_index(sample_index)
   );

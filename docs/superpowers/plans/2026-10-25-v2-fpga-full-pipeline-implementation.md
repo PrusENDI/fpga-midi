@@ -107,6 +107,7 @@
 - [ ] PLL 使用 Gowin 原语，V2_SIM 下旁路；实现 scheduler。
 - [ ] 独立综合并记录 PLL lock、Fmax、时钟名。
 - [ ] 增加 100 MHz、I2S/BCLK 约束，运行 git diff --check。
+- Task 2 实际可约束的端口只有 50 MHz 输入和 PLL 产生的 100 MHz 系统时钟；当前 SDC 只约束这两个真实时钟。I2S BCLK 是同步输出，须等 Task 12 的 V2 transmitter/top 端口存在后加入并验证输出时序约束；不得用虚拟异步 clock group 切断内部路径。Task 2 不宣称 I2S I/O 约束已完成。
 - [ ] 提交 feat: add verified v2 clock and sample scheduler。
 
 **Stop gate:** 没有综合报告和 scheduler 仿真通过，不能声称 48 kHz 或计算声部预算。
@@ -341,6 +342,7 @@
 - [ ] 建独立 top 和仿真 MGC3130 source；断言不实例化 V1 top。
 - [ ] 顶层测试左到右 LIVE、纯 Z、invalid/gap、六轨 record/overdub/commit/play、STOP、CRC/APPLY、1/8/32 voice、33rd overflow、I2S sample count、telemetry。
 - [ ] V2 synthesis/P&R/timing，记录 logic/FF/DSP/BSRAM/Fmax/slack/sample cycles/FIFO/FX level。
+- [ ] 对实际 V2 I2S/BCLK 端口加入同步输出时序约束，检查端口路径、时钟关系和板级波形；不得把 Task 2 的系统时钟 SDC 当作完整 I2S I/O 约束。
 - [ ] 独立 bitstream 板测：参数帧、telemetry、I2S、GPIO trigger latency。
 - [ ] 运行 python -m unittest discover -s tools -p 'test_*.py' 和全部 V2 PowerShell scripts，日志放 impl/v2_top/validation。
 - [ ] 填 validation report：command、commit、bitstream hash、board revision、measured values、每条 acceptance pass/fail。
