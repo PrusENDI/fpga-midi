@@ -25,10 +25,12 @@ Those completion claims are superseded by this audit. Tasks 6–12 have not star
 | --- | --- | --- |
 | 1 contract | Corrections `097ff47`, `fe3ab72`, `4325d2f` add four indexed parameter families, concrete CSR/access/op/ACK/event definitions, signed two's-complement writes, Python/SV Q/scope/range metadata parity, and runnable SV width/layout assertions with mutation checks. | Contract/codec gate accepted by independent scoped review. Downstream RTL consumers and Task5 constant imports remain later gates. |
 | 2 clock | Corrections `dfbf4ae`, `e18a68d` use GW5A `PLLA`: 50 MHz / 1 × 1 × 20 / 10 = 100 MHz. Manufacturer-model lock/reset/relock, injected unlock, two-edge reset release and 10 ns period tests pass. Scheduler counted 48,000 enables in 100,000,000 cycles with 2083/2084 intervals. Clock/scheduler/reset probe P&R: Fmax 194.654 MHz, setup/hold TNS 0, PLLA 1/6. | Clock/scheduler gate accepted after scoped independent review. I2S output constraints require the actual V2 transmitter/top ports at Task 12. This probe does not establish whole-design timing. |
-| 3 input | Calibration/validity and latch extension; eight focused Python tests and ModelSim assertions. | Open: unsigned sensor boundary correction, integer/reason RTL-reference replay and arithmetic synthesis required. |
-| 4 cursor | Twelve Python tests, ModelSim assertions, standalone synthesis: 947 registers, 692 ALUs, 10,613 LUTs, 14 DSPs for revision `6a6821c`. | Open: exact RTL-reference replay and integration with corrected sensor coordinates required. No 100 MHz timing claim for this module. |
-| 5 rules | Candidate `97e5808`: separate LIVE and LOOP modules, six Python tests and two RTL smoke tests. | Not accepted: final review and backpressure, arm/rightward-motion, note-spacing corrections required. |
-| 6–12 | No accepted six-track bank transactions, Potts, 32-voice engine, wavetable/FX, UART, UI or V2 integration yet. | Not started. |
+| 3 input | Corrected latch → calibration → validity replay covers 976 frames, including signed17 X/Y, unsigned17 Z, gaps, saturation and invalid metadata; focused Python and ModelSim suites pass. | Accepted for its scoped gate; no whole-design timing claim. |
+| 4 cursor | Integrated 976-row latch → calibration → validity → cursor replay, 12 Python tests, ModelSim pass, and standalone synthesis evidence. | Accepted for its scoped gate; no whole-design timing claim. |
+| 5 rules | Separate LIVE/LOOP rule engines with backpressure, left-edge/rightward confirmation, reverse rejection and six-track recorder; Python and ModelSim suites pass. | Accepted for its scoped gate. |
+| 6–7 loop/Potts | Six-track two-bank store/scheduler transaction replay passes; bounded Potts DP replay and backpressure pass. | Accepted for scoped gates; remaining coverage and device-level cycle timing are residuals. |
+| 8 voices | 32-slot two-oscillator lifecycle, 33rd overflow, release, revoice phase preservation, detune, ADSR, saturation, valid/ready and round-robin tests pass; standalone synthesis and routed probe complete. | **Blocked:** routed probe at 100 MHz is 58.253 MHz with setup TNS -34642.668 ns and 9715 violating endpoints. The plan's 100 MHz Stop gate is not met. |
+| 9–12 | Wavetable/FX, UART/telemetry, UI and independent V2 top remain downstream. | Not started because Task 8 timing Stop gate is blocked. |
 
 ## Toolchain
 
@@ -58,9 +60,10 @@ Those completion claims are superseded by this audit. Tasks 6–12 have not star
 ## Final claims intentionally pending
 
 No final V2 bitstream, board revision/capture, trigger-to-waveform latency, 32-voice
-operation, Potts cycle budget, FX level or whole-design timing has been accepted.
-No board was programmed during this work. The clock-only routed probe cannot establish
-timing for calibration, cursor, voice, FX or the final top.
+operation, FX level or whole-design timing has been accepted. The Task 8 voice
+lifecycle is simulation and resource/P&R proven, but its 100 MHz timing gate remains
+blocked. No board was programmed during this work. The clock-only routed probe cannot
+establish timing for calibration, cursor, FX or the final top.
 
 
 ## Corrective replay evidence (2026-10-26)
@@ -118,3 +121,21 @@ segment length, rest masking, bounded event RAM, backtrace-valid completion,
 and held output backpressure. The measurement script reports the observed RTL
 cycle count; the 41 us design figure remains an estimate until a device-level
 timing run.
+
+## Task 8 voice-engine evidence (2026-10-26)
+
+- `python -m unittest tools.test_v2_voice_vectors -v`: 6 tests passed. Vectors
+  cover 1, 8 and 32 allocations, 33rd overflow without changing existing slots,
+  release/all-notes-off, revoice phase preservation, bounded detune targets,
+  attack/decay/sustain, two-oscillator saturation and round-robin scan order.
+- Fresh ModelSim compile has zero errors and zero warnings. `tb_v2_voice_engine`
+  reports `PASS voices=32 scan_cycles=32 release_samples=16`.
+- The routed Gowin probe uses GW5A-25A and an explicit 10 ns `clk_sys_100m`
+  constraint. The latest report records 8,982 LUT + 687 ALU, 6,855 logic FF
+  plus 18 I/O FF, 0 BSRAM and 0 DSP. P&R completes and generates a probe
+  bitstream, but timing reports actual Fmax 58.253 MHz versus the 100 MHz
+  constraint, setup TNS -34642.668 ns over 9,715 endpoints, and hold TNS 0.
+- This is a real timing failure, not an estimate. The Task 8 Stop gate remains
+  closed and Task 9 is intentionally not started. The probe is evidence for the
+  engine's current critical path only; it is not the final V2 top or an I2S or
+  board result.
