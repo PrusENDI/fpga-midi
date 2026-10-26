@@ -88,3 +88,10 @@ ModelSim 测试包含 RAM 128 地址与四个 lane、两端口读写、读输出
 首次独立综合资源：586 LUT（报告 Logic 栏）、61 寄存器、4/56 BSRAM、无 latch。
 这是综合结果，尚不是集成后的布局布线时序结果。
 模块已加入工程文件，但尚未实例化进演奏顶层；不表示六轨 Loop 已可上板演奏。
+
+### V2 independent store
+
+`v2_loop_event_store` provides two banks × six tracks × 16 96-bit slots. Its
+`write_valid/write_ready` path and boundary commit are independent of the V1
+64-bit store; abort clears only the shadow metadata and preserves the active
+bank. This module is the Task 6 V2 store and does not alter `loop_event_store`.

@@ -100,3 +100,9 @@ Task 4 standalone synthesis is reproducible with `C:\Gowin\Gowin_V1.9.12.04_x64\
 The validity alignment was then tightened: the cursor now consumes the registered `v2_position_validity` outputs for the same calibrated frame through an explicit delayed strobe and metadata bundle. Strict replay still reports `tb_v2_cursor_replay PASS rows=976`, and the Python suite remains 12 passed. This closes the prior cursor validity bypass concern without changing the expected vector semantics.
 
 The replay also latches `left_edge` at the report boundary and carries it through the same staged transport. A centered-coordinate explicit-arm vector passes with `ENGAGED` and no `REBASED` pulse, so initial arm evidence does not depend on mapped-X edge detection. The adjacent A/B transport check remains enabled.
+
+Task 6 adds independent `v2_loop_event_store` and `v2_loop_scheduler` RTL. The
+store uses two banks, six tracks, sixteen 96-bit slots per track, explicit
+shadow commit at `loop_boundary`, and abort/overflow metadata. The scheduler
+uses held ready/valid events and STOP/FLUSH cancellation. These modules compile
+with ModelSim; no P&R or timing claim is made.

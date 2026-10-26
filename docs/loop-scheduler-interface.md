@@ -108,3 +108,10 @@ STOP 后即使 run 仍高也不会自动重播，需要新 PLAY 上升沿。
 Gowin V1.9.12.04 独立综合退出码 0：Logic 356（284 LUT + 72 ALU）、
 182 寄存器、1 个 MULTALU27X18 DSP、0 BSRAM、0 latch。
 这是 scheduler 单模块资源，不是六轨系统的最终总资源。
+
+### V2 scheduler boundary
+
+`v2_loop_scheduler` is a standalone 96-bit event path for the V2 store. It holds
+`event_valid/event_data` through downstream backpressure and cancels pending
+output on STOP or FLUSH. V1 scheduler timing and duration derivation remain
+unchanged.
