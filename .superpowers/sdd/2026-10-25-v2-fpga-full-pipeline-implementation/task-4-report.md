@@ -92,3 +92,11 @@ git diff --check HEAD^ HEAD -- <task files>
 ```
 
 Final standalone Gowin rerun: `GowinSynthesis finish`; HTML resource report is 947 registers, 692 ALUs, 10,613 LUTs, and 14 DSPs. The synthesis log contains only unused `calibration_reason[7]` and `[4]` warnings. No P&R/Fmax claim is made.
+
+## Corrective gate closure (2026-10-26)
+
+- `sim/tb_v2_cursor_replay.sv` now drives the real Task 3 latch, calibration, and validity stages into `v2_cursor_filter`. It compares 976 file rows from `capture_fast_01.csv` plus the eight Task 3 synthetic provenance rows, including cursor X/Y/Z, normalized pitch, velocity, depth, state, point/stable validity, rebased, sequence, aligned free-counter timestamp, and audio snapshots.
+- `tools/generate_v2_cursor_replay.py` produces `tools/testdata/v2_input/cursor_replay_fast_01.vec`. The source capture timestamp is retained as metadata only; the TB independently models the latch free-running counter and checks the hardware timestamp schedule. Synthetic rows remain explicitly marked by the Task 3 generator.
+- The cursor motion alpha now uses filtered Z for the motion stage, matching the Python two-stage IIR during rising/falling Z motion. The replay covers startup median windows, negative/positive motion, high-Z release/rebase, invalid/gap/saturation/degraded recovery, pure-Z behavior, u16 saturation, adjacent registered stages, idle cycles, and simultaneous `sample_ce` snapshots. Initial left-edge input only arms the cursor; it does not emit a rebase pulse.
+- Verification: `tb_v2_cursor_replay PASS rows=976`; existing RTL smoke `tb_v2_cursor_filter PASS`; Python `python -m unittest tools.test_v2_cursor_reference -v` — 12 passed.
+- Reproducible standalone synthesis: `C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe scripts/synth_v2_cursor_filter.tcl`. Report `impl/v2_cursor_synth/impl/gwsynthesis/v2_cursor_syn.rpt.html` records 10,613 LUT + 692 ALU, 947 FF, 14 DSP, 0 latch, and 0 BSRAM. Warnings are limited to unused `calibration_reason[7]` and `[4]`; no P&R/Fmax claim is made.

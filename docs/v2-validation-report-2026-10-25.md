@@ -88,3 +88,11 @@ The replay test now uses an independent free-counter model for timestamp expecta
 ## Synthesis-only preservation fix (2026-10-26)
 
 The arithmetic probe now exposes registered calibration/validity outputs and an observable checksum, with `keep_hierarchy` on both datapath instances. Absolute Gowin synthesis completed successfully. The report/log at `impl/v2_input_arithmetic_synth/impl/gwsynthesis/` show 72 LUT, 124 FF, 0 latch, 0 ALU, and 0 BSRAM. No DSP is inferred because the Q16.16 arithmetic maps to fabric logic. NL0002 is gone; EX2420/EX3101 remain at the calibration `always_comb` sign-extension temporary (line 140). This is synthesis-only evidence with no P&R or timing claim.
+
+## Task 4 corrective gate closure (2026-10-26)
+
+The file-driven cursor replay is now an end-to-end latch → calibration → validity → cursor test. `sim/tb_v2_cursor_replay.sv` compares all 976 rows, including real `capture_fast_01.csv` data and eight synthetic boundary/quality rows, for cursor coordinates, pitch, velocity, depth, state, point/stable validity, rebase pulse, sequence, independently modeled free-counter timestamp, and audio snapshots. The source capture timestamp in the cursor vector is metadata only and is never injected as the RTL latch timestamp. Result: `tb_v2_cursor_replay PASS rows=976`.
+
+The replay includes adjacent registered stages, idle cycles, simultaneous sample capture, startup median sizes, filtered-Z motion alpha, negative fixed-point paths, u16 saturation, high-Z release/rebase/settle, pure-Z motion, invalid/gap/saturation/degraded recovery, and explicit initial left-edge arm semantics. Python result: 12 tests passed; existing cursor smoke: `tb_v2_cursor_filter PASS`.
+
+Task 4 standalone synthesis is reproducible with `C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe scripts/synth_v2_cursor_filter.tcl`. Its report at `impl/v2_cursor_synth/impl/gwsynthesis/v2_cursor_syn.rpt.html` records 10,613 LUT + 692 ALU, 947 FF, 14 DSP, 0 latch, and 0 BSRAM. Only unused calibration reason bits are warned. This is synthesis-only evidence; no P&R/Fmax claim is made.

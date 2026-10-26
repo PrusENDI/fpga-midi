@@ -175,6 +175,10 @@ module v2_cursor_filter #(
             ny = filt_y + dy[31:0];
             nz = filt_z + dz[31:0];
           end
+          // Motion follows the filtered Z estimate.  The median Z selects
+          // the current IIR coefficient; using it again for cursor motion
+          // diverges from the scalar two-stage reference during Z ramps.
+          a = alpha_for_z(nz);
           filt_x <= nx; filt_y <= ny; filt_z <= nz; last_raw_x <= frame_x; last_raw_y <= frame_y; cursor_z <= nz;
           if (hist_count < 5) hist_count <= hist_count + 1'b1;
           hist_x[0] <= frame_x; hist_y[0] <= frame_y; hist_z[0] <= frame_z;
