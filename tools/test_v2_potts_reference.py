@@ -7,4 +7,9 @@ class PottsTests(unittest.TestCase):
   x=[57]*64+[67]*64; e=solve(x,lambda_q16=0,min_length=4); self.assertEqual([(a.tick,a.duration,a.note) for a in e],[(0,64,57),(64,64,67)])
   e=solve([57]*128,rest_mask=(1<<64)-1,lambda_q16=0,min_length=4); self.assertEqual(e[0].tick,64); self.assertEqual(e[0].duration,64)
  def test_bounded_input(self): self.assertLessEqual(len(solve([i%5+57 for i in range(128)])),32)
+ def test_full_rest_and_lambda(self):
+  self.assertEqual(solve([57]*128,rest_mask=(1<<128)-1),[])
+  self.assertLessEqual(len(solve([57 if i%2==0 else 67 for i in range(128)],lambda_q16=65536)),len(solve([57 if i%2==0 else 67 for i in range(128)],lambda_q16=0)))
+ def test_tie_prefers_low_degree(self):
+  e=solve([58]*128,lambda_q16=0); self.assertEqual(e[0].note,57)
 if __name__=='__main__': unittest.main()

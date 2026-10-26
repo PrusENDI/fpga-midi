@@ -1,29 +1,32 @@
-// V2 fixed-point Potts commit engine. One contour tick is evaluated per cycle;
-// the bounded event RAM is emitted after the pass. This is a COMMIT-only block.
+// Bounded fixed-point Potts DP: one (end,start,degree) cell is evaluated per
+// clock. Costs saturate at 63'h3fff...; ties prefer longer segments then lower
+// degree. Backpointers are traced before the held event stream is published.
 module v2_potts_commit_fsm #(parameter integer MAX_EVENTS=32, parameter integer MIN_LENGTH=4)(
  input logic clk,rst_n,input logic start,input logic [15:0] lambda_q16,input logic [127:0] rest_mask,
  input logic signed [15:0] contour [0:127], output logic busy,output logic [7:0] progress,
- output logic done,output logic overflow,output logic backtrace_valid,
- output logic event_valid,input logic event_ready,output logic [95:0] event_data,output logic [5:0] event_count);
- localparam [3:0] S_IDLE=0,S_SCAN=1,S_EMIT=2; logic [1:0] state; logic [7:0] tick; logic [7:0] seg_start,seg_len; logic [7:0] seg_note; logic [95:0] events[0:MAX_EVENTS-1]; logic [5:0] wr,rd; integer i; logic signed [15:0] best,cur; integer d,delta;
- function automatic [7:0] nearest(input logic signed [15:0] v); integer j,dd,bd; begin nearest=8'd57;bd=1<<30;for(j=0;j<5;j=j+1)begin case(j)0:cur=57;1:cur=60;2:cur=62;3:cur=64;default:cur=67;endcase dd=(v>cur)?v-cur:cur-v;if(dd<bd)begin bd=dd;nearest=cur[7:0];end end end endfunction
- assign busy=state!=S_IDLE; assign event_valid=state==S_EMIT&&rd<wr; assign event_data=event_valid?events[rd]:96'd0;
+ output logic done,output logic overflow,output logic backtrace_valid,output logic event_valid,
+ input logic event_ready,output logic [95:0] event_data,output logic [5:0] event_count);
+ localparam [2:0] IDLE=0,CELL=1,TRACE=2,EMIT=3; logic [2:0] state; integer e,s,d,t; integer signed cost,err,sum; integer trace_end,trace_start,trace_deg; logic [31:0] dp[0:128]; logic [7:0] bp_s[0:128],bp_d[0:128]; logic [95:0] events[0:MAX_EVENTS-1]; logic [5:0] wr,rd; logic [95:0] temp_event;
+ function automatic integer note(input integer k); case(k)0:note=57;1:note=60;2:note=62;3:note=64;default:note=67;endcase endfunction
+ function automatic integer sat(input integer v); if(v>32'sh3fffffff)sat=32'sh3fffffff; else if(v<0)sat=0; else sat=v; endfunction
+ assign busy=state!=IDLE; assign event_valid=state==EMIT&&rd<wr; assign event_data=event_valid?events[rd]:96'd0;
  always_ff @(posedge clk or negedge rst_n) begin
-  if(!rst_n)begin state<=S_IDLE;tick<=0;progress<=0;done<=0;overflow<=0;backtrace_valid<=0;wr<=0;rd<=0;event_count<=0;seg_start<=0;seg_len<=0;seg_note<=0;end
-  else begin done<=0;
+  if(!rst_n)begin state<=IDLE;done<=0;overflow<=0;backtrace_valid<=0;progress<=0;e<=0;s<=0;d<=0;wr<=0;rd<=0;event_count<=0;end else begin done<=0;
    case(state)
-    S_IDLE: if(start)begin state<=S_SCAN;tick<=0;progress<=0;wr<=0;rd<=0;overflow<=0;backtrace_valid<=0;seg_start<=0;seg_len<=0;seg_note<=nearest(contour[0]);end
-    S_SCAN: begin
-      progress<=tick;
-      if(tick==0)seg_len<=1;
-      else if(((rest_mask[tick] && seg_note==0) || (!rest_mask[tick] && nearest(contour[tick])==seg_note) || (lambda_q16>16'd0 && seg_len<MIN_LENGTH)) && seg_len<255)seg_len<=seg_len+1'b1;
-      else if(seg_len<MIN_LENGTH)seg_len<=seg_len+1'b1;
-      else begin if(wr<MAX_EVENTS)begin events[wr]<={1'b0,4'd1,3'd0,seg_start,seg_len,seg_note,8'd100,16'd0,16'd0,8'd0,16'd0};wr<=wr+1'b1;end else overflow<=1;seg_start<=tick;seg_len<=1;seg_note<=nearest(contour[tick]);end
-      if(tick==127)begin if(wr<MAX_EVENTS && seg_note!=0)begin events[wr]<={1'b0,4'd1,3'd0,seg_start,seg_len,seg_note,8'd100,16'd0,16'd0,8'd0,16'd0};wr<=wr+1'b1;end else if(wr>=MAX_EVENTS)overflow<=1;state<=S_EMIT;backtrace_valid<=1;event_count<=wr+1'b1;end else tick<=tick+1'b1;
+    IDLE: if(start)begin state<=CELL;e<=1;s<=0;d<=0;dp[0]<=0;for(t=1;t<=128;t=t+1)dp[t]<=32'h3fffffff;wr<=0;rd<=0;overflow<=0;backtrace_valid<=0;progress<=0;end
+    CELL: begin
+      err=0; sum=0; for(t=s;t<e;t=t+1) if(!rest_mask[t])begin sum=sum+contour[t]; err=err+(contour[t]-note(d))*(contour[t]-note(d)); end
+      if(err>32'sh3fffffff)err=32'sh3fffffff;
+      cost=dp[s]+err+((s==0)?0:lambda_q16); if((e-s)>=MIN_LENGTH || s==0)begin if(cost<dp[e] || (cost==dp[e]&&((e-s)>=(e-bp_s[e]))))begin dp[e]<=sat(cost);bp_s[e]<=s[7:0];bp_d[e]<=d[7:0];end end
+      if(d==4)begin d<=0;if(s==e-1)begin s<=0;e<=e+1;progress<=e;end else s<=s+1;end else d<=d+1;
+      if(e==128&&s==127&&d==4)begin state<=TRACE;trace_end<=128;wr<=0;end
     end
-    S_EMIT: if(event_valid&&event_ready)begin if(rd+1>=wr)begin state<=S_IDLE;done<=1;end else rd<=rd+1'b1;end
+    TRACE: begin
+      if(trace_end==0)begin backtrace_valid<=1;event_count<=wr;state<=EMIT;rd<=0;end
+      else begin trace_start=bp_s[trace_end];trace_deg=bp_d[trace_end];if(!rest_mask[trace_start]&&wr<MAX_EVENTS)begin temp_event=0;temp_event[94:91]=4'd1;temp_event[87:80]=trace_start;temp_event[79:72]=trace_end-trace_start;temp_event[71:64]=note(trace_deg);temp_event[63:56]=8'd100;events[wr]<=temp_event;wr<=wr+1;end else if(wr>=MAX_EVENTS)overflow<=1;trace_end<=trace_start;end
+    end
+    EMIT: if(event_valid&&event_ready)begin if(rd+1>=wr)begin state<=IDLE;done<=1;end else rd<=rd+1;end
    endcase
   end
  end
 endmodule
-
