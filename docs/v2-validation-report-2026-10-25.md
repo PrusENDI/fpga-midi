@@ -80,3 +80,7 @@ Open evidence: a cursor-integrated replay and non-swept arithmetic resource coun
 - Focused Python result remains `8 passed`; `tb_v2_touch_info_decoder PASS`; a temporary compatibility copy of the existing V1 reader touch harness with all V2 ports explicitly declared reports `tb_reader_touch PASS`. Legacy V1 source files and user-dirty documents remain untouched. The original wildcard harness is a pre-existing harness limitation because it does not declare the V2 ports.
 
 Task 3's RTL/reference replay evidence is therefore closed for this corrective round. The arithmetic synthesis probe remains swept and provides no utilization claim; cursor-integrated replay and non-swept resource measurement remain downstream evidence.
+
+## Replay oracle tightening (2026-10-26)
+
+The replay test now uses an independent free-counter model for timestamp expectations; no capture timestamp is injected into the latch. It asserts latch/calibration timestamp alignment, every raw and quality field, reason equality across calibration and validity, and validity equality across both bundles. It also includes a reproducible adjacent A/B report pair with no idle edge between reports: `tb_v2_input_replay PASS frames=976 adjacent=A/B`. The synthesis resource gate remains open because the arithmetic probe is swept by Gowin; no utilization claim is made.
