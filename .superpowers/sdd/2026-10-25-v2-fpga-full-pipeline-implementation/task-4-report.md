@@ -100,3 +100,8 @@ Final standalone Gowin rerun: `GowinSynthesis finish`; HTML resource report is 9
 - The cursor motion alpha now uses filtered Z for the motion stage, matching the Python two-stage IIR during rising/falling Z motion. The replay covers startup median windows, negative/positive motion, high-Z release/rebase, invalid/gap/saturation/degraded recovery, pure-Z behavior, u16 saturation, adjacent registered stages, idle cycles, and simultaneous `sample_ce` snapshots. Initial left-edge input only arms the cursor; it does not emit a rebase pulse.
 - Verification: `tb_v2_cursor_replay PASS rows=976`; existing RTL smoke `tb_v2_cursor_filter PASS`; Python `python -m unittest tools.test_v2_cursor_reference -v` — 12 passed.
 - Reproducible standalone synthesis: `C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe scripts/synth_v2_cursor_filter.tcl`. Report `impl/v2_cursor_synth/impl/gwsynthesis/v2_cursor_syn.rpt.html` records 10,613 LUT + 692 ALU, 947 FF, 14 DSP, 0 latch, and 0 BSRAM. Warnings are limited to unused `calibration_reason[7]` and `[4]`; no P&R/Fmax claim is made.
+
+## Validity-stage alignment fix (2026-10-26)
+
+- The cursor replay no longer bypasses the registered validity result. The TB delays the cursor strobe through the validity register boundary and feeds the cursor the corresponding `vvalid`, `vdegraded`, `vreason`, and latch gap/saturation metadata captured for that same calibrated bundle.
+- Strict 30-field parsing and the independent free-counter timestamp model remain enabled. Replayed semantics are unchanged: `tb_v2_cursor_replay PASS rows=976`; Python remains 12 passed; no vector regeneration was needed.
