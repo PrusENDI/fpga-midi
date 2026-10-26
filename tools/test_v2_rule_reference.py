@@ -3,11 +3,12 @@ from tools.v2_rule_reference import *
 
 
 class LiveRuleTests(unittest.TestCase):
-    def test_left_edge_then_four_tick_revoice(self):
+    def test_left_edge_then_right_confirm_then_four_tick_revoice(self):
         f = LiveRuleEngine(min_event_ticks=4)
-        self.assertEqual(f.push(LiveFrame(0, tick=0, left_edge=True, bow=True))[0].type, EVENT_NOTE_ON)
-        self.assertEqual(f.push(LiveFrame(5000, y=10000, tick=1, bow=True)), [])
-        self.assertEqual(f.push(LiveFrame(6000, y=12000, tick=4, bow=True))[0].type, EVENT_NOTE_REVOICE)
+        self.assertEqual(f.push(LiveFrame(0, tick=0, left_edge=True, bow=True)), [])
+        self.assertEqual(f.push(LiveFrame(5000, y=0, tick=1, bow=True))[0].type, EVENT_NOTE_ON)
+        self.assertEqual(f.push(LiveFrame(5000, y=10000, tick=2, bow=True)), [])
+        self.assertEqual(f.push(LiveFrame(6000, y=12000, tick=5, bow=True))[0].type, EVENT_NOTE_REVOICE)
 
     def test_reverse_approach_does_not_arm(self):
         f = LiveRuleEngine()
@@ -17,9 +18,10 @@ class LiveRuleTests(unittest.TestCase):
 
     def test_touch_split_and_pure_z(self):
         f = LiveRuleEngine(gate_source="touch", min_event_ticks=0)
-        self.assertEqual(f.push(LiveFrame(0, z=100, tick=0, left_edge=True, touch=True))[0].type, EVENT_NOTE_ON)
-        self.assertEqual(f.push(LiveFrame(0, z=200, tick=1, touch=True))[0].type, EVENT_CONTROL)
-        self.assertEqual(f.push(LiveFrame(0, z=200, tick=2, touch=False))[0].type, EVENT_NOTE_OFF)
+        self.assertEqual(f.push(LiveFrame(0, z=100, tick=0, left_edge=True, touch=True)), [])
+        self.assertEqual(f.push(LiveFrame(3000, z=100, tick=1, touch=True))[0].type, EVENT_NOTE_ON)
+        self.assertEqual(f.push(LiveFrame(3000, z=200, tick=2, touch=True))[0].type, EVENT_CONTROL)
+        self.assertEqual(f.push(LiveFrame(3000, z=200, tick=3, touch=False))[0].type, EVENT_NOTE_OFF)
 
     def test_invalid_rebase_never_creates_note(self):
         f = LiveRuleEngine()

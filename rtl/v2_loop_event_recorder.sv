@@ -19,7 +19,7 @@ module v2_loop_event_recorder #(
   output logic left_edge_armed, output logic gate_state,
   output logic recording
 );
-  localparam logic [7:0] ERR_TICK=8'd4, ERR_OVERFLOW=8'd5, ERR_ABORT=8'd6;
+  import v2_contract_pkg::*;
   logic [95:0] mem [0:TRACKS-1][0:DEPTH-1];
   integer wr_ptr [0:TRACKS-1];
   logic [31:0] last_tick;
@@ -29,7 +29,9 @@ module v2_loop_event_recorder #(
   wire [7:0] input_flags = event_data[23:16];
   wire bad_track = (input_track >= TRACKS);
   wire monotonic = !have_tick || (event_tick >= last_tick);
-  assign event_ready = recording && write_ready && !bad_track && monotonic &&
+  // One-entry output holding register: input and downstream write handshakes
+  // are independent, and the output remains stable while write_ready=0.
+  assign event_ready = recording && !loop_write_valid && !bad_track && monotonic &&
                        (wr_ptr[input_track] < DEPTH) && (fault_code == 0);
 
   always_ff @(posedge clk or negedge rst_n) begin : recorder_state
@@ -39,7 +41,7 @@ module v2_loop_event_recorder #(
       loop_write_data<=0; read_valid<=0; read_data<=0;
       for (i=0;i<TRACKS;i=i+1) begin wr_ptr[i]<=0; track_event_count[i]<=0; end
     end else begin
-      loop_write_valid <= 1'b0;
+      if (loop_write_valid && write_ready) loop_write_valid <= 1'b0;
       read_valid <= 1'b0;
       if (record_start) begin
         recording<=1'b1; event_count<=0; fault_code<=0; have_tick<=0;
@@ -47,11 +49,11 @@ module v2_loop_event_recorder #(
         for (i=0;i<TRACKS;i=i+1) begin wr_ptr[i]<=0; track_event_count[i]<=0; end
       end
       if (record_stop) recording<=1'b0;
-      if (abort) begin recording<=1'b0; fault_code<=ERR_ABORT; end
+      if (abort) begin recording<=1'b0; fault_code<=V2_FAULT_ABORT; end
       if (event_valid && recording && !bad_track && !monotonic)
-        fault_code<=ERR_TICK;
+        fault_code<=V2_FAULT_TICK;
       else if (event_valid && recording && !bad_track && (wr_ptr[input_track] >= DEPTH))
-        fault_code<=ERR_OVERFLOW;
+        fault_code<=V2_FAULT_OVERFLOW;
       if (event_valid && event_ready) begin
         mem[input_track][wr_ptr[input_track]] <= event_data;
         wr_ptr[input_track] <= wr_ptr[input_track] + 1;

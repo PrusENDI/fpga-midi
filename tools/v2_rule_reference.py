@@ -74,6 +74,7 @@ class LiveRuleEngine:
         self.x_edge, self.hysteresis = x_edge, max(0, hysteresis)
         self.min_event_ticks, self.gate_source = max(0, min_event_ticks), gate_source
         self.armed = False
+        self.edge_pending = False
         self.active = False
         self.note: Optional[int] = None
         self.prev_x: Optional[int] = None
@@ -119,12 +120,20 @@ class LiveRuleEngine:
             return []
         x = int(frame.x)
         if not self.armed:
-            # A right-to-left approach cannot arm on an edge crossing.
+            # Edge observation arms only after a final rightward confirmation.
             reverse = self.prev_x is not None and x < self.prev_x
-            if reverse and (frame.left_edge or x <= self.x_edge):
-                self.fault_code = FAULT_REVERSE
-            elif frame.left_edge or x <= self.x_edge:
-                self.armed = True
+            if not self.edge_pending and (frame.left_edge or x <= self.x_edge):
+                if reverse:
+                    self.fault_code = FAULT_REVERSE
+                else:
+                    self.edge_pending = True
+            elif self.edge_pending:
+                if x > self.x_edge and not reverse:
+                    self.armed = True
+                    self.edge_pending = False
+                elif reverse:
+                    self.edge_pending = False
+                    self.fault_code = FAULT_REVERSE
         candidate = self._note(frame.y)
         edge_cross = self.prev_x is not None and ((self.prev_x <= self.x_edge < x) or
                                                   (self.prev_x > self.x_edge >= x))

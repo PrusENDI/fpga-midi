@@ -37,3 +37,22 @@ and `vsim.wlf` files were removed after verification.
 The rule engines are standalone V2 blocks.  They do not alter V1 top-level or
 legacy EventTable/PCM paths.  Integration into a future V2 top should connect
 the LIVE and LOOP ready/valid interfaces independently.
+
+## Corrective gate closure (2026-10-26)
+
+- LIVE imports frozen constants from `v2_contract_pkg`. A left-edge observation
+  creates a pending arm; only a final rightward confirmation sets
+  `left_edge_armed`. Reverse approach remains disarmed and reports
+  `V2_FAULT_REVERSE`. `NOTE_OFF` obeys `MIN_EVENT_TICKS`.
+- LIVE ready/valid holds the event word and state while `event_valid && !event_ready`.
+  The Python model mirrors the pending-arm rule.
+- LOOP uses an independent one-entry `loop_write_valid/data` holding register.
+  `event_ready` is low while occupied, and output data remains stable until
+  `write_ready`; contract duration is stored unchanged. Fault constants are
+  imported from the contract package. The recorder remains six tracks with
+  configurable default `DEPTH=64`; Task 6's store depth-16 policy is separate.
+- Fresh verification: Python `tools.test_v2_rule_reference` — 6 passed;
+  ModelSim `tb_v2_live_rule_engine PASS`; ModelSim
+  `tb_v2_loop_event_recorder PASS`. Benches cover rightward arm confirmation,
+  minimum-spacing NOTE_OFF, pure-Z control, held output under backpressure,
+  six-track readback, stop, overflow, and abort paths.

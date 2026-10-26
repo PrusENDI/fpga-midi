@@ -26,11 +26,7 @@ module v2_live_rule_engine #(
   output logic left_edge_armed, output logic gate_state,
   output logic active, output logic [7:0] active_note
 );
-  localparam logic [3:0] EV_NOTE_ON=4'd1, EV_NOTE_OFF=4'd2,
-                         EV_NOTE_REVOICE=4'd3, EV_CONTROL=4'd4;
-  localparam logic [7:0] FL_TOUCH=8'h01, FL_BOW=8'h02,
-                         FL_Z=8'h04, FL_REBASED=8'h08;
-  localparam logic [7:0] ERR_INVALID=8'd1, ERR_REVERSE=8'd2, ERR_FIFO=8'd3;
+  import v2_contract_pkg::*;
 
   logic [15:0] prev_x, prev_z;
   logic prev_valid, have_last_event;
@@ -41,7 +37,7 @@ module v2_live_rule_engine #(
   logic [7:0] candidate_note, candidate_velocity, candidate_flags;
   logic [15:0] candidate_timbre;
   logic candidate_due, bad_frame, gate_now, edge_cross;
-  logic arm_now;
+  logic edge_pending, arm_now;
   logic note_change_ok;
 
   function automatic [7:0] map_note(input logic [15:0] value);
@@ -59,13 +55,13 @@ module v2_live_rule_engine #(
     candidate_note = map_note(y);
     candidate_velocity = velocity_in;
     candidate_timbre = brightness_in;
-    candidate_type = EV_CONTROL;
-    candidate_flags = FL_Z | (touch ? FL_TOUCH : FL_BOW);
+    candidate_type = V2_EV_CONTROL;
+    candidate_flags = V2_FLAG_Z | (touch ? V2_FLAG_TOUCH : V2_FLAG_BOW);
     candidate_valid = 1'b0;
     candidate_due = !have_last_event || ((tick - last_event_tick) >= MIN_EVENT_TICKS);
     edge_cross = prev_valid && (((prev_x <= X_EDGE) && (x > X_EDGE)) ||
                                 ((prev_x > X_EDGE) && (x <= X_EDGE)));
-    arm_now = left_edge_armed || (left_edge || x <= X_EDGE) && (!prev_valid || x >= prev_x);
+    arm_now = left_edge_armed || (edge_pending && x > X_EDGE && (!prev_valid || x >= prev_x));
     note_change_ok = 1'b1;
     if (active && (candidate_note != active_note)) begin
       integer boundary;
@@ -76,20 +72,20 @@ module v2_live_rule_engine #(
     end
     if (frame_in_valid && !bad_frame) begin
       if (!active && arm_now && gate_now && candidate_due) begin
-        candidate_valid=1'b1; candidate_type=EV_NOTE_ON;
-        candidate_flags = touch ? FL_TOUCH : FL_BOW;
-      end else if (active && !gate_now) begin
-        candidate_valid=1'b1; candidate_type=EV_NOTE_OFF;
+        candidate_valid=1'b1; candidate_type=V2_EV_NOTE_ON;
+        candidate_flags = touch ? V2_FLAG_TOUCH : V2_FLAG_BOW;
+      end else if (active && !gate_now && candidate_due) begin
+        candidate_valid=1'b1; candidate_type=V2_EV_NOTE_OFF;
         candidate_note=active_note; candidate_flags=0;
       end else if (active && gate_now && (candidate_note != active_note) && note_change_ok && candidate_due) begin
-        candidate_valid=1'b1; candidate_type=EV_NOTE_REVOICE;
-        candidate_flags = touch ? FL_TOUCH : FL_BOW;
+        candidate_valid=1'b1; candidate_type=V2_EV_REVOICE;
+        candidate_flags = touch ? V2_FLAG_TOUCH : V2_FLAG_BOW;
       end else if (active && gate_now && edge_cross && (candidate_note == active_note) && candidate_due) begin
-        candidate_valid=1'b1; candidate_type=EV_NOTE_REVOICE;
-        candidate_flags = (touch ? FL_TOUCH : FL_BOW) | FL_REBASED;
+        candidate_valid=1'b1; candidate_type=V2_EV_REVOICE;
+        candidate_flags = (touch ? V2_FLAG_TOUCH : V2_FLAG_BOW) | V2_FLAG_REBASED;
       end else if (prev_valid && (z != prev_z)) begin
         // Depth is expression; pure Z never creates a note event.
-        candidate_valid=1'b1; candidate_type=EV_CONTROL;
+        candidate_valid=1'b1; candidate_type=V2_EV_CONTROL;
       end
     end
   end
@@ -103,23 +99,33 @@ module v2_live_rule_engine #(
     logic [95:0] packed_event;
     if (!rst_n) begin
       event_valid<=0; event_data<=0; event_count<=0; fault_code<=0;
-      left_edge_armed<=0; gate_state<=0; active<=0; active_note<=0;
+      left_edge_armed<=0; edge_pending<=0; gate_state<=0; active<=0; active_note<=0;
       prev_x<=0; prev_z<=0; prev_valid<=0; have_last_event<=0;
       last_event_tick<=0; event_seq<=0;
     end else begin
       if (event_valid && event_ready) event_valid <= 1'b0;
       gate_state <= gate_now;
-      if (frame_in_valid && !bad_frame) begin
-        // Arm only from the left.  A reverse approach is diagnosed and stays disarmed.
-        if (!left_edge_armed && (left_edge || x <= X_EDGE) && (!prev_valid || x >= prev_x))
-          left_edge_armed <= 1'b1;
-        else if (!left_edge_armed && (left_edge || x <= X_EDGE) && prev_valid && x < prev_x)
-          fault_code <= ERR_REVERSE;
+      // A stalled output freezes the rule state.  This keeps the pending
+      // event and its metadata stable until the ready handshake.
+      if (frame_in_valid && !bad_frame && !(event_valid && !event_ready)) begin
+        // The edge sample only starts arming; a final rightward sample commits it.
+        if (!left_edge_armed && !edge_pending && (left_edge || x <= X_EDGE)) begin
+          if (!prev_valid || x >= prev_x) edge_pending <= 1'b1;
+          else fault_code <= V2_FAULT_REVERSE;
+        end else if (!left_edge_armed && edge_pending) begin
+          if (x > X_EDGE && (!prev_valid || x >= prev_x)) begin
+            left_edge_armed <= 1'b1;
+            edge_pending <= 1'b0;
+          end else if (x < prev_x) begin
+            edge_pending <= 1'b0;
+            fault_code <= V2_FAULT_REVERSE;
+          end
+        end
         prev_x <= x; prev_z <= z; prev_valid <= 1'b1;
       end else if (frame_in_valid && bad_frame) begin
-        fault_code <= ERR_INVALID;
+        fault_code <= V2_FAULT_INVALID;
       end
-      if (candidate_valid) begin
+      if (candidate_valid && !(event_valid && !event_ready)) begin
         packed_event = 96'd0;
         packed_event[94:91] = candidate_type;
         packed_event[90:88] = TRACK[2:0];
@@ -135,11 +141,9 @@ module v2_live_rule_engine #(
           event_data <= packed_event; event_valid <= 1'b1;
           event_count <= event_count + 1'b1; event_seq <= event_seq + 1'b1;
           have_last_event <= 1'b1; last_event_tick <= tick;
-          if (candidate_type == EV_NOTE_ON) begin active<=1'b1; active_note<=candidate_note; end
-          else if (candidate_type == EV_NOTE_OFF) active<=1'b0;
-          else if (candidate_type == EV_NOTE_REVOICE) begin active<=1'b1; active_note<=candidate_note; end
-        end else begin
-          fault_code <= ERR_FIFO;
+          if (candidate_type == V2_EV_NOTE_ON) begin active<=1'b1; active_note<=candidate_note; end
+          else if (candidate_type == V2_EV_NOTE_OFF) active<=1'b0;
+          else if (candidate_type == V2_EV_REVOICE) begin active<=1'b1; active_note<=candidate_note; end
         end
       end
     end

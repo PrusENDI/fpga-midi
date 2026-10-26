@@ -14,13 +14,14 @@ module tb_v2_live_rule_engine;
   endtask
   initial begin
     repeat(2) @(posedge clk); rst_n=1;
-    send(0,0,100,0,1,1); if(!event_valid||event_type!==1) $fatal(1,"left edge note on");
+    send(0,0,100,0,1,1); if(event_valid||left_edge_armed) $fatal(1,"left edge must wait for right confirmation");
+    send(6000,0,100,1,0,1); if(!event_valid||event_type!==1||!left_edge_armed) $fatal(1,"right confirm note on");
     @(posedge clk); #1; if(event_valid) $fatal(1,"event did not drain");
     send(1000,10000,100,1,0,1); if(event_valid) $fatal(1,"minimum tick violated");
-    send(6000,12000,100,4,0,1); if(!event_valid||event_type!==3) $fatal(1,"revoice");
+    send(6000,12000,100,5,0,1); if(!event_valid||event_type!==3) $fatal(1,"revoice");
     @(posedge clk); #1;
-    send(6000,12000,200,5,0,1); if(!event_valid||event_type!==4) $fatal(1,"pure z control");
-    @(posedge clk); #1; send(6000,12000,200,6,0,0); if(!event_valid||event_type!==2) $fatal(1,"touch off");
+    send(6000,12000,200,6,0,1); if(!event_valid||event_type!==4) $fatal(1,"pure z control");
+    @(posedge clk); #1; send(6000,12000,200,10,0,0); if(!event_valid||event_type!==2) $fatal(1,"touch off");
     @(posedge clk); #1; frame_valid=0; send(20000,30000,100,7,0,1); if(event_valid) $fatal(1,"invalid note event");
     $display("tb_v2_live_rule_engine PASS"); $finish;
   end
