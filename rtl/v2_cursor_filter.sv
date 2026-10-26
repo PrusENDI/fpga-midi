@@ -45,6 +45,10 @@ module v2_cursor_filter #(
   logic signed [31:0] previous_target_x, previous_target_y;
   logic signed [31:0] anchor_x, anchor_y;
   logic anchor_valid, engaged, have_frame;
+  logic [15:0] stable_sequence;
+  logic [31:0] stable_timestamp;
+  logic signed [31:0] stable_cursor_x, stable_cursor_y, stable_cursor_z;
+  logic [15:0] stable_pitch, stable_velocity, stable_depth;
   integer settle_remaining;
 
   function automatic signed [31:0] median5(
@@ -100,11 +104,19 @@ module v2_cursor_filter #(
     end
   endfunction
 
+  function automatic [15:0] q16_u16(input signed [31:0] value);
+    begin
+      if (value <= 0) q16_u16 = 16'd0;
+      else if (value >= 32'sd65535) q16_u16 = 16'hffff;
+      else q16_u16 = value[15:0];
+    end
+  endfunction
+
   always_ff @(posedge clk or negedge rst_n) begin : filter_proc
     reg signed [31:0] mx, my, mz, tx, ty, a;
     reg signed [31:0] nx, ny, nz;
     reg signed [63:0] dx, dy, dz, sx, sy, prod_x, prod_y, prod_z;
-    reg signed [31:0] step_x, step_y;
+    reg signed [31:0] step_x, step_y, cursor_next_x, cursor_next_y;
     reg signed [31:0] depth, proximity, speed, velocity;
     reg bad, was_hidden, left_arm;
     if (!rst_n) begin
@@ -115,6 +127,9 @@ module v2_cursor_filter #(
       cursor_x <= 32'sd32768; cursor_y <= 32'sd32768; cursor_z <= 0;
       normalized_pitch <= 16'd32768; velocity_control <= 0; depth_control <= 0;
       state <= STATE_DISENGAGED; point_valid <= 0; rebased <= 0; stable_valid <= 0;
+      stable_sequence <= 0; stable_timestamp <= 0;
+      stable_cursor_x <= 0; stable_cursor_y <= 0; stable_cursor_z <= 0;
+      stable_pitch <= 0; stable_velocity <= 0; stable_depth <= 0;
       audio_cursor_x <= 0; audio_cursor_y <= 0; audio_cursor_z <= 0; audio_pitch <= 0;
       audio_velocity <= 0; audio_depth <= 0; audio_valid <= 0; audio_sequence <= 0; audio_timestamp <= 0;
       hist_x[0]<=0;hist_x[1]<=0;hist_x[2]<=0;hist_x[3]<=0;hist_x[4]<=0;
@@ -124,12 +139,12 @@ module v2_cursor_filter #(
       rebased <= 1'b0;
       point_valid <= 1'b0;
       if (sample_ce && stable_valid) begin
-        audio_cursor_x <= cursor_x; audio_cursor_y <= cursor_y; audio_cursor_z <= cursor_z;
-        audio_pitch <= normalized_pitch; audio_velocity <= velocity_control; audio_depth <= depth_control;
-        audio_sequence <= frame_sequence; audio_timestamp <= frame_timestamp; audio_valid <= 1'b1;
+        audio_cursor_x <= stable_cursor_x; audio_cursor_y <= stable_cursor_y; audio_cursor_z <= stable_cursor_z;
+        audio_pitch <= stable_pitch; audio_velocity <= stable_velocity; audio_depth <= stable_depth;
+        audio_sequence <= stable_sequence; audio_timestamp <= stable_timestamp; audio_valid <= 1'b1;
       end
       if (frame_in_valid) begin
-        bad = !frame_valid || frame_saturated || frame_gap ||
+        bad = !frame_valid || frame_saturated || frame_gap || frame_degraded ||
               ((calibration_reason & (V2_REASON_INVALID|V2_REASON_SATURATED|V2_REASON_GAP|V2_REASON_EPOCH|V2_REASON_PROFILE|V2_REASON_ARITH_SAT)) != 0);
         if (bad) begin
           state <= STATE_DEGRADED;
@@ -142,9 +157,9 @@ module v2_cursor_filter #(
             my = median5(frame_y,hist_y[0],hist_y[1],hist_y[2],hist_y[3],hist_count+1);
             mz = median5(frame_z,hist_z[0],hist_z[1],hist_z[2],hist_z[3],hist_count+1);
           end else begin
-            mx = median5(frame_x,hist_x[1],hist_x[2],hist_x[3],hist_x[4],5);
-            my = median5(frame_y,hist_y[1],hist_y[2],hist_y[3],hist_y[4],5);
-            mz = median5(frame_z,hist_z[1],hist_z[2],hist_z[3],hist_z[4],5);
+            mx = median5(frame_x,hist_x[0],hist_x[1],hist_x[2],hist_x[3],5);
+            my = median5(frame_y,hist_y[0],hist_y[1],hist_y[2],hist_y[3],5);
+            mz = median5(frame_z,hist_z[0],hist_z[1],hist_z[2],hist_z[3],5);
           end
           tx = map_axis(mx); ty = map_axis(my); a = alpha_for_z(mz);
           if (hist_count == 0) begin nx=tx; ny=ty; nz=mz; end
@@ -171,7 +186,7 @@ module v2_cursor_filter #(
           prod_z = prod_z / ((Z_HIGH>Z_LOW) ? (Z_HIGH-Z_LOW) : 1); depth = prod_z[31:0];
           if (depth < 0) depth=0; else if (depth>65536) depth=65536;
           proximity = 65536-depth; speed=0; velocity = 32768 + ((proximity*7)>>>4);
-          if (velocity>65536) velocity=65536; velocity_control <= velocity[15:0]; depth_control <= depth[15:0];
+          if (velocity>65536) velocity=65536; velocity_control <= q16_u16(velocity); depth_control <= q16_u16(depth);
           was_hidden = have_frame && !anchor_valid;
           if (engaged && (frame_z > Z_RELEASE)) begin
             engaged <= 1'b0; anchor_valid <= 1'b0; state <= STATE_DISENGAGED;
@@ -180,20 +195,31 @@ module v2_cursor_filter #(
             engaged <= 1'b1; anchor_valid <= 1'b1; anchor_x <= nx; anchor_y <= ny;
             previous_target_x <= nx; previous_target_y <= ny; settle_remaining <= SETTLE_TICKS;
             state <= was_hidden ? STATE_REBASED : STATE_ENGAGED; rebased <= was_hidden; point_valid <= 1'b1;
-            if (was_hidden) stable_valid <= stable_valid;
+            if (was_hidden) stable_valid <= 1'b0;
           end else if (engaged) begin
             dx = nx - previous_target_x; dy = ny - previous_target_y;
             sx = dx * a; sy = dy * a; sx = sx >>> 16; sy = sy >>> 16;
             if (settle_remaining > 0) begin sx=0; sy=0; settle_remaining <= settle_remaining-1; end
             step_x = clamp_step(sx); step_y = clamp_step(sy);
-            if (cursor_x + step_x < 0) cursor_x <= 0; else if (cursor_x + step_x > 65536) cursor_x <= 65536; else cursor_x <= cursor_x + step_x;
-            if (cursor_y + step_y < 0) cursor_y <= 0; else if (cursor_y + step_y > 65536) cursor_y <= 65536; else cursor_y <= cursor_y + step_y;
+            cursor_next_x = cursor_x + step_x; cursor_next_y = cursor_y + step_y;
+            if (cursor_next_x < 0) cursor_next_x = 0; else if (cursor_next_x > 65536) cursor_next_x = 65536;
+            if (cursor_next_y < 0) cursor_next_y = 0; else if (cursor_next_y > 65536) cursor_next_y = 65536;
+            cursor_x <= cursor_next_x; cursor_y <= cursor_next_y;
             previous_target_x <= nx; previous_target_y <= ny; point_valid <= 1'b1; stable_valid <= 1'b1;
+            stable_sequence <= frame_sequence; stable_timestamp <= frame_timestamp;
+            normalized_pitch <= q16_u16(cursor_next_y);
+            if (step_x < 0) speed = -step_x; else speed = step_x;
+            if (step_y < 0 && -step_y > speed) speed = -step_y; else if (step_y > speed) speed = step_y;
+            velocity = 32768 + ((proximity*7)>>>4) + ((speed*3)>>>4);
+            if (velocity > 65536) velocity=65536;
+            velocity_control <= q16_u16(velocity);
+            stable_cursor_x <= cursor_next_x; stable_cursor_y <= cursor_next_y; stable_cursor_z <= nz;
+            stable_pitch <= q16_u16(cursor_next_y); stable_velocity <= q16_u16(velocity); stable_depth <= q16_u16(depth);
             state <= frame_degraded ? STATE_DEGRADED : STATE_ENGAGED;
           end else begin
             state <= STATE_DISENGAGED; point_valid <= 1'b0;
           end
-          normalized_pitch <= cursor_y[15:0]; have_frame <= 1'b1;
+          have_frame <= 1'b1;
         end
       end
     end

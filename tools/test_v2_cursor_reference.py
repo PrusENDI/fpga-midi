@@ -80,6 +80,47 @@ class CursorReferenceTests(unittest.TestCase):
         self.assertIsNotNone(point)
         self.assertEqual(point.timestamp_ticks, 5678)
         self.assertEqual(point.sequence, 8)
+        f.push(CursorFrame(x=-20000, y=3000, z=40000, sequence=9, timestamp_ticks=9000))
+        f.push(CursorFrame(x=-20000, y=3000, z=20000, sequence=10, timestamp_ticks=10000))
+        stable_after_rebase = f.sample_ce()
+        self.assertIsNone(stable_after_rebase)
+        f.push(CursorFrame(x=-19000, y=4000, z=20000, sequence=11, timestamp_ticks=11000))
+        stable = f.sample_ce()
+        self.assertEqual((stable.sequence, stable.timestamp_ticks), (11, 11000))
+        held = f.push(CursorFrame(x=30000, y=30000, z=40000, valid=False,
+                                  reason=REASON_INVALID, sequence=12, timestamp_ticks=9999))
+        self.assertEqual(held.state, DEGRADED)
+        stable = f.sample_ce()
+        self.assertEqual((stable.sequence, stable.timestamp_ticks), (11, 11000))
+
+    def test_degraded_input_does_not_update_filter(self):
+        f = CursorFilter(settle_ticks=0)
+        f.push(CursorFrame(x=-32768, y=0, z=1000, left_edge=True, sequence=0))
+        good = f.push(CursorFrame(x=-10000, y=10000, z=1000, sequence=1))
+        bad = f.push(CursorFrame(x=32767, y=32767, z=1000, degraded=True, sequence=2))
+        self.assertEqual(bad.state, DEGRADED)
+        self.assertEqual((bad.cursor_x_q16, bad.cursor_y_q16), (good.cursor_x_q16, good.cursor_y_q16))
+
+    def test_normalized_pitch_saturates_at_u16_max(self):
+        f = CursorFilter(max_step_q16=Q16_ONE, settle_ticks=0)
+        f.push(CursorFrame(x=-32768, y=-32768, z=1000, left_edge=True, sequence=0))
+        point = f.push(CursorFrame(x=32767, y=32767, z=1000, sequence=1))
+        self.assertEqual(point.cursor_y_q16, Q16_ONE)
+        self.assertEqual(point.normalized_pitch_q16, 0xFFFF)
+
+    def test_velocity_includes_slew_speed_term(self):
+        f = CursorFilter(max_step_q16=Q16_ONE // 8, settle_ticks=0)
+        f.push(CursorFrame(x=-32768, y=0, z=1000, left_edge=True, sequence=0))
+        point = f.push(CursorFrame(x=32767, y=32767, z=1000, sequence=1))
+        self.assertEqual(point.cursor_y_q16, 40960)
+        self.assertEqual(point.velocity_q16, 62976)
+
+    def test_changing_samples_use_latest_five_window(self):
+        f = CursorFilter(max_step_q16=Q16_ONE, settle_ticks=0)
+        xs = [-32768, -20000, -10000, 0, 10000, 20000]
+        out = [f.push(CursorFrame(x=x, y=0, z=1000, left_edge=(i == 0), sequence=i))
+               for i, x in enumerate(xs)]
+        self.assertEqual(out[-1].cursor_x_q16, Q16_ONE)
 
 if __name__ == '__main__':
     unittest.main()

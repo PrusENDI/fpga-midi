@@ -56,13 +56,39 @@ Ran the standalone Gowin synthesis project with absolute `gw_sh.exe`:
 C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe scripts/tmp_synth_v2_cursor.tcl
 ```
 
-Result: `GowinSynthesis finish`, generated `impl/v2_cursor_synth/impl/gwsynthesis/v2_cursor_syn.rpt.html` and netlist. The resource report records 928 registers, 758 ALUs, 10,156 LUTs, and 13 DSPs for `v2_cursor_filter`. No P&R/Fmax claim is made; this was standalone synthesis only.
+Result: `GowinSynthesis finish`, generated `impl/v2_cursor_synth/impl/gwsynthesis/v2_cursor_syn.rpt.html` and netlist. The current post-review resource report records 947 registers, 692 ALUs, 10,613 LUTs, and 14 DSPs for `v2_cursor_filter`. (The intermediate post-review report before stable-point storage recorded 10,220 LUTs; this report uses the final rerun.) No P&R/Fmax claim is made; this was standalone synthesis only.
 
 ## Verification limits / concerns
 
 - The RTL and Python reference are independently exercised; no full RTL/Python bit-for-bit replay harness is claimed.
-- Gowin parser reports warnings for expression-width truncation in fixed-point arithmetic and unused `calibration_reason` bits 7 and 4; ModelSim is clean. The Q16 products use explicit 64-bit temporaries for the IIR, depth, and slew paths. A future integration review should decide whether to silence the remaining tool warnings with additional casts.
+- Gowin synthesis log reports only unused `calibration_reason[7]` and `[4]` inputs; ModelSim is clean. The Q16 products use explicit 64-bit temporaries for the IIR, depth, and slew paths.
 - The standalone synthesis output is ignored under `impl/`; no generated report was added to the commit.
 - No event-rule engine is changed here, so the stop-gate property is represented by cursor semantics: a rebase frame is zero-displacement and `DEGRADED`/`REBASED` are explicit for downstream event gating.
 
 `git diff --check` was run on the task files before commit.
+
+
+## Review blocker fixes (2026-10-26)
+
+Fixed in follow-up commit `fix: close cursor filter review blockers`:
+
+1. Full-window median now uses `{current, hist[0], hist[1], hist[2], hist[3]}` after startup. History shifts newest-to-oldest, so the previous implementation incorrectly discarded the newest prior sample (`hist[0]`). Added a six-sample changing-X vector that distinguishes latest-five from stale-window behavior.
+2. Added stable cursor/control/sequence/timestamp registers. `sample_ce` now snapshots that stable record; high-Z freeze, REBASED, invalid, and degraded frames cannot publish new audio metadata/control points. REBASED clears `stable_valid` until the next ordinary engaged point. Python's `_latest_stable` regression covers the same behavior.
+3. Normalized pitch is assigned from the computed next cursor Y, avoiding the old-cursor nonblocking-assignment lag. Q16.16 values saturate to `16'hffff` at the 16-bit output boundary. RTL/Python tests cover both next-value pitch and saturation.
+4. RTL velocity includes the Python reference slew-speed term: `base + proximity term + 3/16 * min(speed,Q16_ONE)`. Independent `frame_degraded` input is a bad frame and cannot update filter state. Changing-frame vectors assert the expected 62976 Q16 control.
+
+Review verification:
+
+```text
+python -m unittest tools.test_v2_cursor_reference -v
+Ran 12 tests ... OK
+
+C:\modeltech64_10.6d\win64\vlog.exe -sv rtl/v2_input_pkg.sv rtl/v2_cursor_filter.sv sim/tb_v2_cursor_filter.sv
+C:\modeltech64_10.6d\win64\vsim.exe -c -do "run -all; quit -f" tb_v2_cursor_filter
+# tb_v2_cursor_filter PASS; vlog errors 0
+
+git diff --check HEAD^ HEAD -- <task files>
+# no whitespace errors
+```
+
+Final standalone Gowin rerun: `GowinSynthesis finish`; HTML resource report is 947 registers, 692 ALUs, 10,613 LUTs, and 14 DSPs. The synthesis log contains only unused `calibration_reason[7]` and `[4]` warnings. No P&R/Fmax claim is made.

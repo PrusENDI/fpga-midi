@@ -37,6 +37,11 @@ def clamp(value: int, low: int, high: int) -> int:
     return low if value < low else high if value > high else value
 
 
+def q16_to_u16(value: int) -> int:
+    """Saturate Q16.16 normalized controls to their 16-bit wire range."""
+    return clamp(int(value), 0, 0xFFFF)
+
+
 def median(values: Sequence[int]) -> int:
     if not values:
         raise ValueError("median requires at least one value")
@@ -82,7 +87,7 @@ class CursorFrame:
     @property
     def bad(self) -> bool:
         reason = int(self.reason)
-        return (not self.valid or not self.valid_xyz or self.saturated or self.gap or bool(reason & BAD_REASONS))
+        return (not self.valid or not self.valid_xyz or self.saturated or self.gap or self.degraded or bool(reason & BAD_REASONS))
 
 
 @dataclass(frozen=True)
@@ -151,7 +156,7 @@ class CursorFilter:
         self._have_frame = False
         self._latest_stable: Optional[CursorPoint] = None
         self._last = CursorPoint(self.cursor_x_q16, self.cursor_y_q16, 0,
-                                 self.cursor_y_q16, 0, 0, DISENGAGED, False,
+                                 q16_to_u16(self.cursor_y_q16), 0, 0, DISENGAGED, False,
                                  False, 0, 0)
 
     def _filtered(self, frame: CursorFrame) -> Tuple[int, int, int]:
@@ -188,12 +193,12 @@ class CursorFilter:
         # Low/near hand is louder; movement contributes a bounded extra term.
         proximity = Q16_ONE - depth
         velocity = clamp((Q16_ONE // 2) + ((proximity * 7) // 16) + ((min(Q16_ONE, speed_q16) * 3) // 16), 0, Q16_ONE)
-        return velocity, depth
+        return q16_to_u16(velocity), q16_to_u16(depth)
 
     def push(self, frame: CursorFrame) -> CursorPoint:
         if frame.bad:
             self._last = CursorPoint(self.cursor_x_q16, self.cursor_y_q16, self.cursor_z,
-                                     self.cursor_y_q16, self._last.velocity_q16,
+                                     self._last.normalized_pitch_q16, self._last.velocity_q16,
                                      self._last.depth_q16, DEGRADED, False, False,
                                      int(frame.sequence) & 0xFFFF, int(frame.timestamp_ticks) & 0xFFFFFFFF,
                                      int(frame.reason))
@@ -212,7 +217,7 @@ class CursorFilter:
             self._settle_remaining = 0
             vx, _ = self._controls(fz, 0)
             self._last = CursorPoint(self.cursor_x_q16, self.cursor_y_q16, self.cursor_z,
-                                     self.cursor_y_q16, vx, depth, DISENGAGED, False,
+                                     q16_to_u16(self.cursor_y_q16), vx, depth, DISENGAGED, False,
                                      False, int(frame.sequence) & 0xFFFF,
                                      int(frame.timestamp_ticks) & 0xFFFFFFFF)
             return self._last
@@ -229,8 +234,10 @@ class CursorFilter:
                 self._previous_target_x_q16, self._previous_target_y_q16 = fx, fy
                 self._settle_remaining = self.settle_ticks
                 vx, _ = self._controls(fz, 0)
+                if was_hidden:
+                    self._latest_stable = None
                 self._last = CursorPoint(self.cursor_x_q16, self.cursor_y_q16, self.cursor_z,
-                                         self.cursor_y_q16, vx, depth, REBASED if was_hidden else ENGAGED,
+                                         q16_to_u16(self.cursor_y_q16), vx, depth, REBASED if was_hidden else ENGAGED,
                                          was_hidden, False, int(frame.sequence) & 0xFFFF,
                                          int(frame.timestamp_ticks) & 0xFFFFFFFF)
                 # Initial left-edge arm is an engage, not a rebase pulse.
@@ -239,7 +246,7 @@ class CursorFilter:
             self._have_frame = True
             vx, _ = self._controls(fz, 0)
             self._last = CursorPoint(self.cursor_x_q16, self.cursor_y_q16, self.cursor_z,
-                                     self.cursor_y_q16, vx, depth, DISENGAGED, False,
+                                     q16_to_u16(self.cursor_y_q16), vx, depth, DISENGAGED, False,
                                      False, int(frame.sequence) & 0xFFFF,
                                      int(frame.timestamp_ticks) & 0xFFFFFFFF)
             return self._last
@@ -264,7 +271,7 @@ class CursorFilter:
         velocity, depth = self._controls(fz, speed)
         self._have_frame = True
         self._last = CursorPoint(self.cursor_x_q16, self.cursor_y_q16, self.cursor_z,
-                                 self.cursor_y_q16, velocity, depth, ENGAGED, False,
+                                 q16_to_u16(self.cursor_y_q16), velocity, depth, ENGAGED, False,
                                  True, int(frame.sequence) & 0xFFFF,
                                  int(frame.timestamp_ticks) & 0xFFFFFFFF)
         self._latest_stable = self._last
