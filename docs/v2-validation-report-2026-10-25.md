@@ -145,6 +145,8 @@ warnings. The netlist contains `v2_touch_info_decoder`, `mgc3130_input_latch`,
 - setup/hold TNS **0.000 ns**;
 - 5,890 logic (26%), 3,027 logic FF (13%), 17 DPB/BSRAM (31%), 18 DSP (65%),
   and 18 I/O ports (21%).
+- Generated structural-probe bitstream SHA-256:
+  `FEF5C1326F8831DFF4D64ED61BDE51F7D064A32209AF818279ADE19DB0BE346A`.
 
 For comparison, enabling the real MGC reader with the same loop-preservation probe
 produced 93.434 MHz and 48 setup violations, while a reader-stub probe with valid
