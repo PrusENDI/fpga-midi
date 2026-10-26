@@ -54,5 +54,8 @@ the LIVE and LOOP ready/valid interfaces independently.
 - Fresh verification: Python `tools.test_v2_rule_reference` — 6 passed;
   ModelSim `tb_v2_live_rule_engine PASS`; ModelSim
   `tb_v2_loop_event_recorder PASS`. Benches cover rightward arm confirmation,
-  minimum-spacing NOTE_OFF, pure-Z control, held output under backpressure,
-  six-track readback, stop, overflow, and abort paths.
+  minimum-spacing NOTE_OFF, pure-Z control, held LIVE event/state under
+  `event_ready=0`, held LOOP write data under downstream backpressure,
+  six-track readback, stop, per-track overflow, and abort paths. Invalid
+  frames are also ignored while a LIVE event is stalled, preserving the
+  pending event state and diagnostics.

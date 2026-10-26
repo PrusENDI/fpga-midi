@@ -1,5 +1,6 @@
 `timescale 1ns/1ps
 module tb_v2_loop_event_recorder;
+  import v2_contract_pkg::*;
   logic clk=0,rst_n=0,record_start=0,record_stop=0,abort=0,event_valid=0,event_ready;
   logic [95:0] event_data=0; logic [31:0] event_tick=0; logic write_ready=1;
   logic loop_write_valid; logic [95:0] loop_write_data;
@@ -30,6 +31,14 @@ module tb_v2_loop_event_recorder;
     @(negedge clk); event_data=0; event_data[90:88]=1; event_tick=9; event_valid=1;
     #1; if(event_ready) begin $display("stop debug recording=%b stop=%b ready=%b valid=%b",recording,record_stop,event_ready,event_valid); $fatal(1,"stopped recorder accepted event"); end @(posedge clk); #1; @(negedge clk); event_valid=0;
     if(event_count!==3) $fatal(1,"stopped recorder accepted event");
+    // A fresh recording must report per-track overflow and preserve abort fault.
+    @(negedge clk); record_start=1; @(posedge clk); #1; @(negedge clk); record_start=0; @(posedge clk); #1;
+    push(1,10,1); @(posedge clk); #1; push(1,11,2); @(posedge clk); #1;
+    @(negedge clk); event_data=0; event_data[90:88]=1; event_data[94:91]=1; event_tick=12; event_valid=1;
+    #1; if(event_ready) $fatal(1,"overflow event incorrectly ready"); @(posedge clk); #1; @(negedge clk); event_valid=0;
+    if(fault_code!==V2_FAULT_OVERFLOW) $fatal(1,"overflow fault=%h",fault_code);
+    @(negedge clk); abort=1; @(posedge clk); #1; @(negedge clk); abort=0;
+    if(fault_code!==V2_FAULT_ABORT || recording) $fatal(1,"abort fault=%h recording=%b",fault_code,recording);
     $display("tb_v2_loop_event_recorder PASS"); $finish;
   end
 endmodule

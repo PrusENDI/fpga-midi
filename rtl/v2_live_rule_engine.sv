@@ -104,7 +104,7 @@ module v2_live_rule_engine #(
       last_event_tick<=0; event_seq<=0;
     end else begin
       if (event_valid && event_ready) event_valid <= 1'b0;
-      gate_state <= gate_now;
+      if (!(event_valid && !event_ready)) gate_state <= gate_now;
       // A stalled output freezes the rule state.  This keeps the pending
       // event and its metadata stable until the ready handshake.
       if (frame_in_valid && !bad_frame && !(event_valid && !event_ready)) begin
@@ -122,7 +122,7 @@ module v2_live_rule_engine #(
           end
         end
         prev_x <= x; prev_z <= z; prev_valid <= 1'b1;
-      end else if (frame_in_valid && bad_frame) begin
+      end else if (frame_in_valid && bad_frame && !(event_valid && !event_ready)) begin
         fault_code <= V2_FAULT_INVALID;
       end
       if (candidate_valid && !(event_valid && !event_ready)) begin
