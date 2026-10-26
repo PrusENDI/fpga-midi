@@ -35,6 +35,6 @@ No standalone Gowin arithmetic synthesis was run because the repository has no f
 - Added explicit active epoch/profile-valid outputs and used the packaged `v2_input_frame_t` plus reason constants in RTL. Shadow write plus commit is rejected atomically; a later commit activates the staged profile.
 - Corrected validity sequence arithmetic to 16-bit modulo subtraction, with saturating 16-bit `gap_count`; `0xffff -> 0` is a delta of one.
 - Expanded `sim/tb_v2_input_validity.sv` to assert stale-reason recovery, invalid/saturation gating, clamp reason, sequence wrap, gap count, epoch/profile mismatch, commit isolation, and profile activation.
-- Updated the Python reference and tests for zeroed invalid outputs, profile/epoch reasons, modulo wrap, and gap-count saturation.
+- Updated the Python reference and tests for zeroed invalid outputs, profile/epoch reasons, modulo wrap, gap-count saturation, and clamp reasons only on otherwise valid frames.
 
 Review-fix verification: Python `python -m unittest tools.test_v2_fixed_reference tools.test_v2_input_vectors -v` — 7 passed. ModelSim V2 compile/run — 0 errors, `tb_v2_input_validity PASS`. V1 latch standalone `vlog` — 0 errors. `git diff --check` passed aside from existing dirty user-document line-ending warnings. No RTL-vs-reference equivalence claim is made; the RTL and Python suites are independently exercised.

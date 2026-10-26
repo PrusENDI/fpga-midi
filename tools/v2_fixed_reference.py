@@ -70,10 +70,10 @@ def process_frame(frame: dict, profile: Profile, previous_sequence: int | None =
         elif value > hi:
             value, clamped = hi, True
         xyz.append(value)
-    if clamped:
+    bad_input = bool(reason & (REASON_INVALID | REASON_SATURATED | REASON_GAP | REASON_EPOCH | REASON_PROFILE))
+    if clamped and not bad_input:
         reason |= REASON_CLAMP
     lost = bool(reason & REASON_GAP)
-    bad_input = bool(reason & (REASON_INVALID | REASON_SATURATED | REASON_GAP | REASON_EPOCH | REASON_PROFILE))
     if bad_input:
         xyz = [0, 0, 0]
         centered = (0, 0, 0)

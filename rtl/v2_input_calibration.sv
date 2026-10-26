@@ -95,8 +95,8 @@ module v2_input_calibration (
     if(frame_contract.gap) calibration_reason |= V2_REASON_GAP;
     if(frame_contract.calibration_epoch != epoch_active) calibration_reason |= V2_REASON_EPOCH | V2_REASON_PROFILE;
     if(!active_profile_valid) calibration_reason |= V2_REASON_PROFILE;
-    if(clamp_seen) calibration_reason |= V2_REASON_CLAMP;
     bad_input = !frame_contract.valid_xyz || frame_contract.saturated || frame_contract.gap || (frame_contract.calibration_epoch != epoch_active) || !active_profile_valid;
+    if(clamp_seen && !bad_input) calibration_reason |= V2_REASON_CLAMP;
     calibrated_x = bad_input ? 32'sd0 : cx; calibrated_y = bad_input ? 32'sd0 : cy; calibrated_z = bad_input ? 32'sd0 : cz;
     output_valid = frame_in_valid && !bad_input;
     output_sequence=frame_contract.frame_sequence; output_timestamp_ticks=frame_contract.timestamp_ticks; output_touch=frame_contract.touch; output_presence=frame_contract.presence;
