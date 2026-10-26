@@ -2,7 +2,7 @@
 module v2_input_calibration (
   input logic clk, input logic rst_n,
   input logic frame_in_valid,
-  input logic signed [15:0] raw_x, raw_y, raw_z,
+  input logic signed [16:0] raw_x, raw_y, input logic [16:0] raw_z,
   input logic [15:0] sequence_id, input logic [31:0] timestamp_ticks,
   input logic valid_xyz, input logic saturated, input logic gap,
   input logic [7:0] calibration_epoch_in,
@@ -48,10 +48,10 @@ module v2_input_calibration (
     if (!rst_n) begin
       n_x<=0; n_y<=0; n_z<=0; c_x<=0; c_y<=0; g_x<=ONE_Q16; g_y<=ONE_Q16; g_z<=ONE_Q16;
       ws_x_min<=-32'sd32768; ws_x_max<=32'sd32767; ws_y_min<=-32'sd32768; ws_y_max<=32'sd32767;
-      ws_z_min<=-32'sd32768; ws_z_max<=32'sd32767; epoch_active<=0; active_profile_valid<=1'b0;
+      ws_z_min<=0; ws_z_max<=32'sd65535; epoch_active<=0; active_profile_valid<=1'b0;
       sn_x<=0; sn_y<=0; sn_z<=0; sc_x<=0; sc_y<=0; sg_x<=ONE_Q16; sg_y<=ONE_Q16; sg_z<=ONE_Q16;
       sw_x_min<=-32'sd32768; sw_x_max<=32'sd32767; sw_y_min<=-32'sd32768; sw_y_max<=32'sd32767;
-      sw_z_min<=-32'sd32768; sw_z_max<=32'sd32767; epoch_shadow<=0;
+      sw_z_min<=0; sw_z_max<=32'sd65535; epoch_shadow<=0;
     end else begin
       if (profile_shadow_we) begin
         sn_x<=shadow_neutral_x; sn_y<=shadow_neutral_y; sn_z<=shadow_neutral_z; sc_x<=shadow_coupling_x; sc_y<=shadow_coupling_y;
@@ -59,13 +59,13 @@ module v2_input_calibration (
         sw_y_min<=shadow_ws_y_min; sw_y_max<=shadow_ws_y_max; sw_z_min<=shadow_ws_z_min; sw_z_max<=shadow_ws_z_max; epoch_shadow<=shadow_epoch;
       end
       // A write+commit in one cycle is rejected; shadow remains staged for a later atomic commit.
-      if (profile_commit && !profile_shadow_we) begin
+      if (profile_commit && !profile_shadow_we && (sw_x_min <= sw_x_max) && (sw_y_min <= sw_y_max) && (sw_z_min <= sw_z_max) &&
+          (sg_x >= 0) && (sg_y >= 0) && (sg_z >= 0)) begin
         n_x<=sn_x; n_y<=sn_y; n_z<=sn_z; c_x<=sc_x; c_y<=sc_y; g_x<=sg_x; g_y<=sg_y; g_z<=sg_z;
         ws_x_min<=sw_x_min; ws_x_max<=sw_x_max; ws_y_min<=sw_y_min; ws_y_max<=sw_y_max; ws_z_min<=sw_z_min; ws_z_max<=sw_z_max;
         epoch_active<=epoch_shadow; active_profile_valid<=1'b1;
-      end else if (profile_commit && profile_shadow_we) begin
-        active_profile_valid<=1'b0;
       end
+      // Simultaneous shadow-write/commit or invalid profile leaves the active bank untouched.
     end
   end
 
@@ -83,17 +83,17 @@ module v2_input_calibration (
     if (!frame_contract.valid_xyz) calibration_reason |= V2_REASON_INVALID;
     if (frame_contract.saturated) calibration_reason |= V2_REASON_SATURATED;
     if (frame_contract.gap) calibration_reason |= V2_REASON_GAP;
-    if (frame_contract.calibration_epoch != epoch_active) calibration_reason |= V2_REASON_EPOCH | V2_REASON_PROFILE;
+    if ((frame_contract.calibration_epoch != 8'd0) && (frame_contract.calibration_epoch != epoch_active)) calibration_reason |= V2_REASON_EPOCH | V2_REASON_PROFILE;
     if (!active_profile_valid) calibration_reason |= V2_REASON_PROFILE;
     bad_input = !frame_in_valid || !frame_contract.valid_xyz || frame_contract.saturated || frame_contract.gap ||
-                (frame_contract.calibration_epoch != epoch_active) || !active_profile_valid;
+                (((frame_contract.calibration_epoch != 8'd0) && (frame_contract.calibration_epoch != epoch_active)) || !active_profile_valid);
     calibrated_x = 32'sd0; calibrated_y = 32'sd0; calibrated_z = 32'sd0;
     output_valid = 1'b0; clamp_seen = 1'b0; arith_sat_seen = 1'b0;
     if (!bad_input) begin
       // Frozen order: sign extension -> neutral -> Z coupling -> gain -> clamp -> output.
-      sx={{48{frame_contract.raw_x[15]}},frame_contract.raw_x};
-      sy={{48{frame_contract.raw_y[15]}},frame_contract.raw_y};
-      sz={{48{frame_contract.raw_z[15]}},frame_contract.raw_z};
+      sx={{47{frame_contract.raw_x[16]}},frame_contract.raw_x};
+      sy={{47{frame_contract.raw_y[16]}},frame_contract.raw_y};
+      sz={{47{frame_contract.raw_z[16]}},frame_contract.raw_z};
       dx=sx-n_x; dy=sy-n_y; dz=sz-n_z;
       qx=dx-round_q16(c_x*dz); qy=dy-round_q16(c_y*dz); qz=dz;
       gx=round_q16(qx*g_x); gy=round_q16(qy*g_y); gz=round_q16(qz*g_z);

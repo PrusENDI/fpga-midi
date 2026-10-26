@@ -47,3 +47,14 @@ Review-fix verification: Python `python -m unittest tools.test_v2_fixed_referenc
 - Added Python and RTL overflow vectors/assertions while retaining wrap, profile, stale-reason, invalid, saturation, and clamp coverage.
 
 Final verification: Python `python -m unittest tools.test_v2_fixed_reference tools.test_v2_input_vectors -v` — 8 passed; ModelSim V2 compile/run — 0 errors, `tb_v2_input_validity PASS`; V1 latch `vlog` — 0 errors; `git diff --check` passed with only pre-existing dirty user-document line-ending warnings.
+
+
+## Corrective replay evidence (2026-10-26)
+
+- V2 raw boundary is now signed17 centered X/Y (`sensor_count - 32768`) and unsigned17 Z (`0..65535`), with default Z workspace `0..65535`. Synthetic vectors cover sensor 0, 32767, 32768, 65535 and Z 40000/65535; source provenance is recorded in `tools/testdata/v2_input/README.txt`.
+- Latch timestamps are free-running and latched only on `report_valid`; frame transport strobe includes invalid/error reports. Epoch zero is the unqualified/default frame epoch and nonzero APPLY epochs are checked by calibration/validity. Explicit `v2_touch_info_decoder` decodes low-five electrode bits; zero, tap-only, absent and error fields do not assert touch or presence.
+- `tools/generate_v2_input_replay.py` replays `tools/capture_fast_01.csv` (hex XYZ) and appends eight synthetic boundary/quality rows to `tools/testdata/v2_input/replay_fast_01.vec` (976 frames). `sim/tb_v2_input_replay.sv` compares every frame's sequence, timestamp, XYZ when valid, valid/lost/degraded, gap count, reason and note permission. ModelSim result: `tb_v2_input_replay PASS frames=976`.
+- Touch decoder result: `tb_v2_touch_info_decoder PASS`. Focused Python suite: 8 passed. V1 latch plus decoder compilation: 0 errors.
+- Standalone Gowin arithmetic synthesis command retained in `scripts/synth_v2_input_arithmetic.tcl`, invoked with absolute `C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe`; log/report retained under `impl/v2_input_arithmetic_synth/`. Synthesis completed and reported 0 LUT/ALU after optimization because the probe instance was swept; warnings EX2420/EX3101 identify inferred combinational latches in the current arithmetic coding and NL0002 records the sweep. No utilization or timing claim is made from this swept probe.
+
+Open evidence: a cursor-integrated replay and non-swept arithmetic resource count require Task 4/top-level integration and a follow-up synthesis probe with preserved observable hierarchy.

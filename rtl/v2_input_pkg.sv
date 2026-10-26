@@ -2,9 +2,9 @@ package v2_input_pkg;
   typedef struct packed {
     logic [15:0] frame_sequence;
     logic [31:0] timestamp_ticks;
-    logic signed [15:0] raw_x;
-    logic signed [15:0] raw_y;
-    logic signed [15:0] raw_z;
+    logic signed [16:0] raw_x;
+    logic signed [16:0] raw_y;
+    logic [16:0] raw_z;
     logic touch;
     logic presence;
     logic valid_xyz;

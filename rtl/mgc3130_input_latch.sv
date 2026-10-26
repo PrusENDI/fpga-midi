@@ -1,6 +1,5 @@
-// Capture one complete MGC3130 report in the 50 MHz FPGA clock domain.
-// Legacy ports and pulse semantics are preserved; v2_* outputs expose a signed,
-// sequenced raw frame for the V2 calibration boundary.
+// V1-compatible report latch plus V2 raw-frame boundary.
+// X/Y are centered signed17 (unsigned sensor count minus 32768); Z is unsigned17.
 module mgc3130_input_latch (
     input wire clk, input wire rst_n,
     input wire report_valid, input wire xyz_valid, input wire report_error,
@@ -13,42 +12,58 @@ module mgc3130_input_latch (
     output reg report_valid_latched, output reg report_error_latched,
     output reg touch_valid_latched, output reg [31:0] touch_info_latched,
     output reg [15:0] v2_sequence, output reg [31:0] v2_timestamp_ticks,
-    output reg signed [15:0] v2_raw_x, output reg signed [15:0] v2_raw_y,
-    output reg signed [15:0] v2_raw_z, output reg v2_frame_valid,
+    output reg signed [16:0] v2_raw_x, output reg signed [16:0] v2_raw_y,
+    output reg [16:0] v2_raw_z, output reg v2_frame_valid,
     output reg v2_gap, output reg v2_saturated, output reg [7:0] v2_calibration_epoch,
-    output reg v2_touch, output reg v2_presence
+    output reg v2_touch, output reg v2_presence,
+    output reg v2_xyz_valid, output reg v2_report_error,
+    output reg v2_touch_field_valid, output reg [31:0] v2_touch_info
 );
     reg [15:0] sequence_counter;
+    reg [31:0] free_timestamp_ticks;
+    // GestIC TouchInfo low five bits are S/W/N/E/center electrode state.
+    wire [4:0] decoded_electrodes;
+    wire decoded_touch;
+    v2_touch_info_decoder u_touch_decoder(.field_valid(touch_valid && !report_error), .touch_info(touch_info), .electrode_mask(decoded_electrodes), .touch_state(decoded_touch));
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            input_valid <= 1'b0; xyz_valid_latched <= 1'b0;
-            x_latched <= 16'd0; y_latched <= 16'd0; z_latched <= 16'd0; gesture_latched <= 8'd0;
-            report_valid_latched <= 0; report_error_latched <= 0;
-            touch_valid_latched <= 0; touch_info_latched <= 0;
-            v2_sequence <= 0; v2_timestamp_ticks <= 0; sequence_counter <= 0;
-            v2_raw_x <= 0; v2_raw_y <= 0; v2_raw_z <= 0; v2_frame_valid <= 0;
-            v2_gap <= 0; v2_saturated <= 0; v2_calibration_epoch <= 0; v2_touch <= 0; v2_presence <= 0;
+            input_valid<=0; xyz_valid_latched<=0; x_latched<=0; y_latched<=0; z_latched<=0; gesture_latched<=0;
+            report_valid_latched<=0; report_error_latched<=0; touch_valid_latched<=0; touch_info_latched<=0;
+            sequence_counter<=0; free_timestamp_ticks<=0; v2_sequence<=0; v2_timestamp_ticks<=0;
+            v2_raw_x<=0; v2_raw_y<=0; v2_raw_z<=0; v2_frame_valid<=0; v2_gap<=0; v2_saturated<=0;
+            v2_calibration_epoch<=0; v2_touch<=0; v2_presence<=0; v2_xyz_valid<=0; v2_report_error<=0;
+            v2_touch_field_valid<=0; v2_touch_info<=0;
         end else begin
-            v2_timestamp_ticks <= v2_timestamp_ticks + 1'b1;
-            input_valid <= 1'b0; xyz_valid_latched <= 1'b0;
-            report_valid_latched <= report_valid; report_error_latched <= report_valid && report_error;
-            touch_valid_latched <= 0; v2_frame_valid <= 0; v2_gap <= 0; v2_saturated <= 0; v2_touch <= 0;
+            free_timestamp_ticks <= free_timestamp_ticks + 1'b1;
+            input_valid<=0; xyz_valid_latched<=0;
+            report_valid_latched<=report_valid; report_error_latched<=report_valid && report_error;
+            touch_valid_latched<=0; touch_info_latched<=0;
+            v2_frame_valid<=0; v2_gap<=0; v2_saturated<=0; v2_touch<=0; v2_presence<=0;
+            v2_xyz_valid<=0; v2_report_error<=0; v2_touch_field_valid<=0; v2_touch_info<=0;
+            // v2_frame_valid is a transport strobe: every report, including invalid/error, is emitted.
             if (report_valid) begin
                 sequence_counter <= sequence_counter + 1'b1;
                 v2_sequence <= sequence_counter;
-                v2_raw_x <= x_position; v2_raw_y <= y_position; v2_raw_z <= z_position;
-                v2_frame_valid <= xyz_valid && !report_error;
-                v2_touch <= touch_valid && !report_error; v2_presence <= xyz_valid && !report_error;
-                // The reader exposes report_error as the loss boundary; no raw value is guessed.
+                v2_timestamp_ticks <= free_timestamp_ticks;
+                v2_raw_x <= $signed({1'b0,x_position}) - 17'sd32768;
+                v2_raw_y <= $signed({1'b0,y_position}) - 17'sd32768;
+                v2_raw_z <= {1'b0,z_position};
+                v2_frame_valid <= 1'b1;
                 v2_gap <= report_error;
-                v2_saturated <= (x_position == 16'h7fff) || (x_position == 16'h8000) ||
-                                (y_position == 16'h7fff) || (y_position == 16'h8000) ||
-                                (z_position == 16'h7fff) || (z_position == 16'h8000);
-                touch_valid_latched <= touch_valid && !report_error; touch_info_latched <= (touch_valid && !report_error) ? touch_info : 32'd0;
+                v2_xyz_valid <= xyz_valid && !report_error;
+                v2_report_error <= report_error;
+                v2_presence <= xyz_valid && !report_error;
+                v2_touch_field_valid <= touch_valid && !report_error;
+                v2_touch_info <= (touch_valid && !report_error) ? touch_info : 32'd0;
+                v2_touch <= decoded_touch;
+                // Sensor saturation is an explicit input policy; endpoint values are valid coordinates.
+                v2_saturated <= 1'b0;
+                touch_valid_latched <= touch_valid && !report_error;
+                touch_info_latched <= (touch_valid && !report_error) ? touch_info : 32'd0;
             end
             if (report_valid && xyz_valid && !report_error) begin
-                x_latched <= x_position; y_latched <= y_position; z_latched <= z_position; gesture_latched <= gesture_code;
-                input_valid <= 1'b1; xyz_valid_latched <= 1'b1;
+                x_latched<=x_position; y_latched<=y_position; z_latched<=z_position; gesture_latched<=gesture_code;
+                input_valid<=1'b1; xyz_valid_latched<=1'b1;
             end
         end
     end

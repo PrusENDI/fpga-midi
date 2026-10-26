@@ -15,7 +15,7 @@ class Profile:
     neutral: Tuple[int, int, int] = (0, 0, 0)
     coupling: Tuple[int, int] = (0, 0)       # Q16.16 x/z and y/z
     gain: Tuple[int, int, int] = (1 << 16, 1 << 16, 1 << 16)
-    workspace: Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]] = ((-32768, 32767),) * 3
+    workspace: Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]] = ((-32768, 32767), (-32768, 32767), (0, 65535))
     epoch: int = 0
     active_profile_valid: bool = True
     def _replace(self, **kwargs):
@@ -35,7 +35,11 @@ def round_q16(value: int) -> int:
 
 def process_frame(frame: dict, profile: Profile, previous_sequence: int | None = None,
                   gap_count: int = 0) -> dict:
-    raw = tuple(sign_extend(v) for v in frame.get("raw", (0, 0, 0)))
+    if "sensor_raw" in frame:
+        sensor = tuple(int(v) & 0xffff for v in frame.get("sensor_raw", (0, 0, 0)))
+        raw = (sensor[0] - 32768, sensor[1] - 32768, sensor[2])
+    else:
+        raw = tuple(sign_extend(v) for v in frame.get("raw", (0, 0, 0)))
     reason = 0
     seq = int(frame.get("sequence", 0)) & 0xFFFF
     seq_gap = 0
@@ -52,7 +56,8 @@ def process_frame(frame: dict, profile: Profile, previous_sequence: int | None =
         reason |= REASON_INVALID
     if frame.get("saturated", False):
         reason |= REASON_SATURATED
-    if int(frame.get("calibration_epoch", profile.epoch)) != profile.epoch:
+    frame_epoch = int(frame.get("calibration_epoch", profile.epoch)) & 0xff
+    if frame_epoch != 0 and frame_epoch != profile.epoch:
         reason |= REASON_EPOCH | REASON_PROFILE
     if not profile.active_profile_valid:
         reason |= REASON_PROFILE
