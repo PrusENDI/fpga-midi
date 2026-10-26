@@ -139,3 +139,29 @@ timing run.
   closed and Task 9 is intentionally not started. The probe is evidence for the
   engine's current critical path only; it is not the final V2 top or an I2S or
   board result.
+
+## Task 8 recompose/root-cause audit (2026-10-26)
+
+- Python and ModelSim were rerun after the recompose attempt: 6 Python tests
+  passed; `tb_v2_voice_engine PASS voices=32 scan_cycles=32 release_samples=16`,
+  with zero compile warnings and zero simulation errors.
+- A new Gowin P&R run could not be started in the current environment. The
+  installed `gw_sh.exe` exits before opening Tcl, and `gwlicense.ini` points to
+  `106.55.34.119:10559`; a direct TCP probe to that license endpoint failed.
+  Therefore no new P&R numbers are claimed. The latest valid routed report
+  remains the 58.253 MHz / -34642.668 ns result above.
+- The valid routed timing paths identify the implementation root cause. The
+  worst path launches from `engine/scan_slot_*` and terminates in
+  `mixed_sample` or the variable-indexed `phase/step/target` RAM writeback,
+  with roughly 17 ns data delay under a 10 ns constraint. Synthesis extracts
+  the unpacked per-voice arrays into many RAM/REG banks, while the report uses
+  0 BSRAM; the variable scan address fans into RAM CE/D selection and the same
+  cycle also performs two oscillator contributions, accumulation and output
+  saturation. This is an architectural single-cycle read/compute/writeback
+  path, not a missing-clock or bad-SDC issue.
+- The previous two optimizations (registered `scan_slot`, synchronous local
+  reset and bounded 512-step glide) reduced the critical path from the first
+  38.678 MHz result to 58.253 MHz, but did not close 100 MHz. The next valid
+  repair must pipeline the state-bank read/compute/writeback or explicitly
+  map a supported RAM mode; changing only constraints would conceal the real
+  failure.
