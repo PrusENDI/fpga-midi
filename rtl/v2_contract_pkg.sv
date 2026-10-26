@@ -12,7 +12,7 @@ package v2_contract_pkg;
   // The reserved bit is frozen at zero by serializers; the named fields are directly accessible.
   typedef struct packed {
     logic        reserved;
-    logic [3:0]  type;
+    logic [3:0]  event_type;
     logic [2:0]  track;
     logic [7:0]  tick;
     logic [7:0]  duration;
@@ -21,18 +21,18 @@ package v2_contract_pkg;
     logic signed [15:0] pitch_mod;
     logic [15:0] timbre_mod;
     logic [7:0]  flags;
-    logic [15:0] sequence;
+    logic [15:0] event_sequence;
   } v2_event_t;
 
   typedef struct packed {
     logic [7:0]  op;
     logic [7:0]  address;
-    logic [7:0]  sequence;
+    logic [7:0]  event_sequence;
     logic [31:0] data;
   } v2_cmd_t;
   typedef struct packed {
-    logic [7:0]  type;
-    logic [15:0] sequence;
+    logic [7:0]  event_type;
+    logic [15:0] event_sequence;
     logic signed [15:0] x;
     logic signed [15:0] y;
     logic signed [15:0] z;
@@ -73,7 +73,7 @@ package v2_contract_pkg;
   // Elaboration-time checks: a violated contract makes an illegal negative-width typedef.
   localparam int V2_EVENT_WIDTH_CHECK = ($bits(v2_event_t) == V2_EVENT_BITS) ? 1 : -1;
   localparam int V2_CMD_WIDTH_CHECK = ($bits(v2_cmd_t) == 56) ? 1 : -1;
-  localparam int V2_TELEMETRY_WIDTH_CHECK = ($bits(v2_telemetry_t) == 136) ? 1 : -1;
+  localparam int V2_TELEMETRY_WIDTH_CHECK = ($bits(v2_telemetry_t) == 144) ? 1 : -1;
   localparam int V2_CONTROL_LENGTH_CHECK = (V2_CONTROL_BYTES == 11) ? 1 : -1;
   localparam int V2_TELEMETRY_LENGTH_CHECK = (V2_TELEMETRY_BYTES == 22) ? 1 : -1;
   localparam int V2_ADDRESS_MAP_CHECK =

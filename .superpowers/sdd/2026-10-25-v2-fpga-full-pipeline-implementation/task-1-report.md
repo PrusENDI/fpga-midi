@@ -31,3 +31,9 @@ SV compiler evidence is unavailable because neither `iverilog` nor `verilator` i
 - Added elaboration-time negative-width typedef checks at `rtl/v2_contract_pkg.sv:59-82` for event/command/telemetry widths, 11/22-byte lengths, and every accepted/rejected address boundary. Any violation produces a compile-time error in standard SV elaboration. The address predicate remains available for runtime decode checks.
 - Focused Python tests: `python -m unittest tools.test_v2_contract -v` — 5 passed.
 - `git diff --check` passed. No SV compiler is installed in this environment, so external syntax compilation remains unavailable.
+
+## Follow-up fix (2026-10-26)
+
+- Corrected `V2_TELEMETRY_WIDTH_CHECK` to require `$bits(v2_telemetry_t) == 144`, matching all packed telemetry fields. The wire serializer remains `V2_TELEMETRY_BYTES == 22`.
+- ModelSim syntax evidence: `C:\modeltech64_10.6d\win64\vlog.exe -sv -work work rtl/v2_contract_pkg.sv` completed with 0 errors and 0 warnings.
+- Python focused suite: 5 tests passed. `git diff --check` passed.
