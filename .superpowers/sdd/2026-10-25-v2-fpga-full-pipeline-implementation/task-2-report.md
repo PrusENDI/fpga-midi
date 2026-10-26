@@ -27,3 +27,7 @@ ERROR (RP0008) : There is no PLL resource in current device, please change devic
 ```
 
 The project device is the repository's existing `GW5A-25A / GW5A-LV25MG121NES` declaration. Therefore no PLL lock, Fmax, or post-route timing result is claimed; the installed Gowin database reports no PLL resource for this selected device/package. P&R was not run after this synthesis stop.
+
+## Review correction
+
+The I2S transmitter's `bit_count` spans 0 through 63, so the interface clock is 48 kHz x 64 = 3.072 MHz. `mgc3130_v2.sdc` now constrains `i2s_bclk` at 325.520833 ns with a 162.760417 ns high time.
