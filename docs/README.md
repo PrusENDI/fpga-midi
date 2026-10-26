@@ -6,6 +6,8 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [v2-fpga-contract-2026-10-25.md](v2-fpga-contract-2026-10-25.md) | V2 FPGA 模式、事件、控制/遥测包和统一 CSR 地址空间冻结契约 |
+
 | [mgc3130-melodic-synthwave-system-design-2026-10-19.md](mgc3130-melodic-synthwave-system-design-2026-10-19.md) | 唯一的产品与算法主规范：六轨语义、风格冻结、EventTable 契约 |
 | [pc-lead-intent-purification-design-2026-10-19.md](pc-lead-intent-purification-design-2026-10-19.md) | Lead 曲线 → 旋律的完整设计，含固定 PitchSpace 契约 |
 | [mgc3130-coordinate-calibration-spec.md](mgc3130-coordinate-calibration-spec.md) | 三层坐标语义、生命周期、验收不变量 |
