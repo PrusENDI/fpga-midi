@@ -16,7 +16,14 @@ module mgc3130_v2_top #(
     // probe keeps it out of Gowin's 2000-iteration parser limit; a final build
     // must enable it after replacing the unbounded combinational scan with the
     // measured bounded implementation.
-    parameter integer USE_POTTS = 0
+    parameter integer USE_POTTS = 0,
+    // Timing-only structural probe option. Production/board builds leave it
+    // disabled, so UART mode control remains the sole LOOP run source.
+    parameter integer PRESERVE_LOOP_PLANE = 0,
+    // Timing-only deterministic sensor activity. Production/board builds
+    // leave this disabled and use the actual MGC3130 reader.
+    parameter integer PRESERVE_INPUT_PLANE = 0,
+    parameter integer PRESERVE_INPUT_VALID = 0
 ) (
     input  wire clk_50m,
     inout  wire mgc_sda,
@@ -70,11 +77,27 @@ module mgc3130_v2_top #(
             );
         end else begin : g_sensor_stub
             assign mgc_sda = 1'bz; assign mgc_scl = 1'bz; assign mgc_ts = 1'bz;
-            assign report_valid = 1'b0; assign xyz_valid = 1'b0;
-            assign touch_valid = 1'b0; assign report_error = 1'b0;
-            assign touch_info = 32'd0; assign x_position = 16'd0;
-            assign y_position = 16'd0; assign z_position = 16'd0;
-            assign gesture_code = 8'd0; assign reader_error_code = 8'd0;
+            if (PRESERVE_INPUT_PLANE) begin : g_input_probe
+                assign report_valid = (sample_index[2:0] == 3'd0);
+                // Exercise transport/touch metadata. The structural timing
+                // probe normally keeps this invalid; a separate valid-input
+                // diagnostic can enable the parameter explicitly.
+                assign xyz_valid = PRESERVE_INPUT_VALID ? 1'b1 : 1'b0;
+                assign touch_valid = report_valid;
+                assign report_error = 1'b0;
+                assign touch_info = {28'd0, sample_index[3:0]};
+                assign x_position = 16'h8000 + sample_index[15:0];
+                assign y_position = 16'h8000 + {8'd0, sample_index[7:0]};
+                assign z_position = 16'h4000 + {8'd0, sample_index[7:0]};
+                assign gesture_code = sample_index[7:0];
+            end else begin : g_input_idle
+                assign report_valid = 1'b0; assign xyz_valid = 1'b0;
+                assign touch_valid = 1'b0; assign report_error = 1'b0;
+                assign touch_info = 32'd0; assign x_position = 16'd0;
+                assign y_position = 16'd0; assign z_position = 16'd0;
+                assign gesture_code = 8'd0;
+            end
+            assign reader_error_code = 8'd0;
             assign reader_busy = 1'b0; assign reader_debug_context = 32'd0;
             assign reader_debug_mask = 16'd0; assign reader_debug_size = 8'd0;
         end
@@ -179,7 +202,8 @@ module mgc3130_v2_top #(
     logic [15:0] audio_pitch, audio_velocity, audio_depth, audio_sequence;
     logic audio_cursor_valid;
     logic [31:0] audio_timestamp;
-    v2_cursor_filter u_cursor (
+    logic cursor_frame_done;
+    v2_cursor_filter_timed u_cursor (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .frame_in_valid(calibration_strobe),
         .frame_x(frame_cal_x), .frame_y(frame_cal_y), .frame_z(frame_cal_z),
         .frame_valid(valid_frame), .frame_saturated(calibrated_saturated), .frame_gap(calibrated_gap),
@@ -191,12 +215,14 @@ module mgc3130_v2_top #(
         .rebased(cursor_rebased), .stable_valid(cursor_stable_valid), .audio_cursor_x(audio_cursor_x),
         .audio_cursor_y(audio_cursor_y), .audio_cursor_z(audio_cursor_z), .audio_pitch(audio_pitch),
         .audio_velocity(audio_velocity), .audio_depth(audio_depth), .audio_valid(audio_cursor_valid),
-        .audio_sequence(audio_sequence), .audio_timestamp(audio_timestamp)
+        .audio_sequence(audio_sequence), .audio_timestamp(audio_timestamp), .frame_output_valid(cursor_frame_done)
     );
 
-    logic [95:0] live_event_data, record_event_data;
+    logic [95:0] live_event_data, record_event_data /* synthesis syn_keep=1 */;
     logic voice_event_ready;
-    logic live_event_valid, live_event_ready, record_event_ready;
+    logic live_event_valid /* synthesis syn_keep=1 */;
+    logic live_event_ready;
+    logic record_event_ready /* synthesis syn_keep=1 */;
     logic [3:0] live_event_type; logic [7:0] live_event_note, live_event_velocity;
     logic [15:0] live_event_count; logic [7:0] live_fault;
     logic live_left_edge, live_gate, live_active; logic [7:0] live_active_note;
@@ -204,10 +230,10 @@ module mgc3130_v2_top #(
     wire mode_live = (mode_reg == LIVE);
     wire mode_record = (mode_reg == RECORD);
     wire mode_play = (mode_reg == PLAY);
-    v2_live_rule_engine u_live (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n), .frame_in_valid(calibration_strobe),
-        .frame_valid(valid_frame && note_permitted), .frame_degraded(degraded_frame),
-        .frame_gap(calibrated_gap), .rebased(cursor_rebased), .left_edge(1'b1),
+    v2_live_rule_engine #(.PIPELINE_NOTE(1)) u_live (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .frame_in_valid(cursor_frame_done),
+        .frame_valid(cursor_frame_done && cursor_point_valid && (cursor_state != 2'd3)), .frame_degraded(1'b0),
+        .frame_gap(1'b0), .rebased(cursor_rebased), .left_edge(1'b1),
         .x(audio_cursor_x[15:0]), .y(audio_cursor_y[15:0]), .z(audio_cursor_z[15:0]),
         .touch(calibrated_touch), .bow(calibrated_presence), .tick(sample_index),
         .velocity_in(audio_velocity[7:0]), .brightness_in(audio_depth), .gain_in(16'hffff),
@@ -217,13 +243,36 @@ module mgc3130_v2_top #(
         .gate_state(live_gate), .active(live_active), .active_note(live_active_note)
     );
 
-    logic record_start, record_stop, record_abort, record_write_valid, record_write_ready;
-    logic [15:0] record_count; logic [15:0] record_track_count [0:5];
-    logic [7:0] record_fault; logic record_left_edge, record_gate, recording;
+    logic record_start, record_stop, record_abort;
+    logic record_write_valid /* synthesis syn_keep=1 */;
+    logic record_write_ready /* synthesis syn_keep=1 */;
+    logic [15:0] record_count /* synthesis syn_keep=1 */;
+    logic [15:0] record_track_count [0:5] /* synthesis syn_keep=1 */;
+    logic [7:0] record_fault /* synthesis syn_keep=1 */;
+    logic record_left_edge, record_gate;
+    logic recording /* synthesis syn_keep=1 */;
+    logic [2:0] selected_track;
+    logic loop_ctrl_valid, loop_ctrl_ready, loop_ctrl_done;
+    logic [2:0] loop_ctrl_op, loop_ctrl_track;
+    logic loop_ctrl_pending;
+    logic [2:0] loop_ctrl_pending_op;
+    wire loop_probe_run = (PRESERVE_LOOP_PLANE != 0) ? sample_index[0] : mode_play;
+    wire loop_probe_record_start = (PRESERVE_LOOP_PLANE != 0) && (sample_index == 32'd16);
+    wire loop_probe_record_stop = (PRESERVE_LOOP_PLANE != 0) && (sample_index == 32'd32);
+    logic [95:0] recorder_event_data;
+    logic [3:0] recorder_write_slot;
+    assign recorder_event_data = {live_event_data[95:91], selected_track,
+                                  live_event_data[87:0]};
+    // The recorder increments track_event_count when it fills its holding
+    // register. The store still needs the pre-increment slot number.
+    assign recorder_write_slot = record_track_count[record_event_data[90:88]][3:0]
+                               - (record_write_valid ? 4'd1 : 4'd0);
+    (* keep_hierarchy = "yes" *)
+    (* syn_noprune = 1 *)
     v2_loop_event_recorder u_recorder (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .record_start(record_start),
         .record_stop(record_stop), .abort(record_abort), .event_valid(live_event_valid),
-        .event_ready(record_event_ready), .event_data(live_event_data),
+        .event_ready(record_event_ready), .event_data(recorder_event_data),
         .event_tick(sample_index), .write_ready(record_write_ready),
         .loop_write_valid(record_write_valid), .loop_write_data(record_event_data),
         .read_req(1'b0), .read_track(3'd0), .read_index(16'd0), .read_valid(), .read_data(),
@@ -233,31 +282,67 @@ module mgc3130_v2_top #(
     );
     assign live_event_ready = mode_live ? voice_event_ready : mode_record ? record_event_ready : 1'b0;
 
-    logic [95:0] loop_event_data; logic loop_event_valid, loop_event_ready;
-    logic loop_read_enable, loop_read_valid, loop_read_slot_valid;
+    logic [95:0] loop_event_data /* synthesis syn_keep=1 */;
+    logic loop_event_valid /* synthesis syn_keep=1 */;
+    logic loop_event_ready;
+    logic loop_read_enable /* synthesis syn_keep=1 */;
+    logic loop_read_valid /* synthesis syn_keep=1 */;
+    logic loop_read_slot_valid /* synthesis syn_keep=1 */;
     logic [2:0] loop_read_track; logic [3:0] loop_read_index;
     logic [95:0] loop_read_data;
-    logic loop_boundary, loop_ctrl_done, loop_commit_pending, loop_commit_ack, loop_busy;
-    logic [29:0] loop_record_count; logic [5:0] loop_overflow;
+    logic loop_boundary /* synthesis syn_keep=1 */;
+    logic loop_commit_pending /* synthesis syn_keep=1 */;
+    logic loop_commit_ack, loop_busy;
+    logic [29:0] loop_record_count /* synthesis syn_keep=1 */;
+    logic [5:0] loop_overflow /* synthesis syn_keep=1 */;
+    logic loop_active_valid /* synthesis syn_keep=1 */;
+    (* keep_hierarchy = "yes" *)
     v2_loop_event_store u_store (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .abort(record_abort), .loop_boundary(loop_boundary),
-        .ctrl_valid(1'b0), .ctrl_ready(), .ctrl_op(3'd0), .ctrl_track(3'd0), .ctrl_done(loop_ctrl_done),
+        .ctrl_valid(loop_ctrl_valid), .ctrl_ready(loop_ctrl_ready), .ctrl_op(loop_ctrl_op),
+        .ctrl_track(loop_ctrl_track), .ctrl_done(loop_ctrl_done),
         .write_valid(record_write_valid), .write_ready(record_write_ready),
-        .write_track(record_event_data[90:88]), .write_slot(record_count[3:0]),
+        .write_track(record_event_data[90:88]),
+        .write_slot(recorder_write_slot),
         .write_data(record_event_data), .read_enable(loop_read_enable), .read_track(loop_read_track),
         .read_index(loop_read_index), .read_valid(loop_read_valid), .read_slot_valid(loop_read_slot_valid),
         .read_data(loop_read_data), .active_bank(), .shadow_bank(), .commit_pending(loop_commit_pending),
         .commit_ack(loop_commit_ack), .busy(loop_busy), .record_count(loop_record_count),
-        .overflow(loop_overflow), .active_valid()
+        .overflow(loop_overflow), .active_valid(loop_active_valid)
     );
+    (* keep_hierarchy = "yes" *)
     v2_loop_scheduler u_loop_sched (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n), .run(mode_play), .stop(!mode_play), .flush(1'b0),
-        .selected_track(3'd0), .loop_tick(sample_index[6:0]), .read_valid(loop_read_valid),
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .run(loop_probe_run), .stop(!loop_probe_run), .flush(1'b0),
+        .selected_track(selected_track), .loop_tick(sample_index[6:0]), .read_valid(loop_read_valid),
         .read_slot_valid(loop_read_slot_valid), .read_data(loop_read_data),
         .read_enable(loop_read_enable), .read_track(loop_read_track), .read_index(loop_read_index),
         .event_valid(loop_event_valid), .event_ready(loop_event_ready), .event_data(loop_event_data),
         .fault_valid(), .loop_boundary(loop_boundary)
     );
+
+    // Keep a narrow, low-fanout observability point for the independent V2
+    // loop plane.  The production top does not route this signature to a
+    // board pin; the timing probe observes it hierarchically.  Registering
+    // the signature makes the recorder/store/scheduler state part of the
+    // retained sequential cone without preserving the wide mode/control
+    // buses that caused the timed19 fanout regression.
+    (* keep = "true", syn_keep = 1, syn_noprune = 1 *)
+    logic [17:0] v2_loop_debug_signature;
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) begin
+            v2_loop_debug_signature <= 18'd0;
+        end else begin
+            v2_loop_debug_signature <= {
+                loop_ctrl_pending, loop_ctrl_valid, loop_ctrl_ready,
+                loop_busy, loop_commit_pending, loop_active_valid,
+                loop_boundary, loop_event_valid, loop_read_valid,
+                loop_read_slot_valid, loop_read_enable,
+                recording, record_write_valid, record_write_ready,
+                record_left_edge, record_gate, (|record_count),
+                (|loop_record_count), (|loop_overflow)
+            };
+        end
+    end
 
     logic signed [15:0] potts_contour [0:127];
     logic potts_start, potts_busy, potts_done, potts_overflow, potts_backtrace_valid;
@@ -279,8 +364,8 @@ module mgc3130_v2_top #(
         assign potts_event_data = 96'd0; assign potts_event_count = 6'd0;
     end endgenerate
 
-    logic voice_event_valid, voice_overflow;
-    logic [95:0] voice_event_data;
+    logic voice_event_valid /* synthesis syn_keep=1 */, voice_overflow;
+    logic [95:0] voice_event_data /* synthesis syn_keep=1 */;
     logic signed [15:0] voice_sample; logic voice_sample_valid;
     logic [31:0] voice_bitmap; logic [5:0] active_voice_count; logic [7:0] revoice_count;
     assign voice_event_valid = mode_live ? live_event_valid : mode_play ? loop_event_valid : potts_event_valid;
@@ -326,26 +411,79 @@ module mgc3130_v2_top #(
         .rsp_terminal(rsp_terminal), .tx_valid(v2_tx_valid), .tx_ready(v2_tx_ready), .tx_byte(v2_tx_byte),
         .rx_busy(), .tx_busy(), .protocol_error(protocol_error)
     );
-    assign cmd_ready = 1'b1;
+    assign cmd_ready = !loop_ctrl_pending;
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
         if (!rst_sys_n) begin
             mode_reg <= IDLE; rsp_valid <= 0; rsp_sequence <= 0; rsp_status <= 0;
             rsp_error <= V2_ERR_NONE; rsp_data <= 0; rsp_terminal <= 1'b1;
             record_start <= 0; record_stop <= 0; record_abort <= 0; potts_start <= 0;
+            selected_track <= 3'd0;
+            loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
+            loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;
         end else begin
             rsp_valid <= 1'b0; record_start <= 1'b0; record_stop <= 1'b0;
             record_abort <= 1'b0; potts_start <= 1'b0;
+            loop_ctrl_valid <= loop_ctrl_pending;
+            if (loop_probe_record_start) record_start <= 1'b1;
+            if (loop_probe_record_stop) record_stop <= 1'b1;
+            if (loop_ctrl_pending && loop_ctrl_ready) begin
+                loop_ctrl_pending <= 1'b0;
+                loop_ctrl_valid <= 1'b1;
+            end
+            if (loop_ctrl_done && (loop_ctrl_pending_op == 3'd5)) begin
+                record_start <= 1'b1;
+                mode_reg <= RECORD;
+            end
             if (cmd_valid && cmd_ready) begin
                 rsp_valid <= 1'b1; rsp_sequence <= cmd_sequence; rsp_status <= V2_ACK_ACCEPTED;
                 rsp_error <= V2_ERR_NONE; rsp_data <= (cmd_address == V2_CSR_STATUS) ? mode_reg : 0;
                 rsp_terminal <= 1'b1;
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_TRACK)
+                    selected_track <= cmd_data[2:0];
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_MODE) begin
                     mode_reg <= cmd_data[2:0];
                     if (cmd_data[2:0] == RECORD) record_start <= 1'b1;
                     if (cmd_data[2:0] != RECORD) record_stop <= 1'b1;
                 end
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_RECORD) begin
+                    loop_ctrl_op <= 3'd5;
+                    loop_ctrl_track <= selected_track;
+                    loop_ctrl_pending_op <= 3'd5;
+                    loop_ctrl_pending <= 1'b1;
+                    record_stop <= 1'b1;
+                end
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_OVERDUB) begin
+                    loop_ctrl_op <= 3'd0;
+                    loop_ctrl_track <= selected_track;
+                    loop_ctrl_pending_op <= 3'd0;
+                    loop_ctrl_pending <= 1'b1;
+                    record_stop <= 1'b1;
+                end
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_CLEAR_TRACK) begin
+                    loop_ctrl_op <= 3'd1;
+                    loop_ctrl_track <= cmd_data[2:0];
+                    loop_ctrl_pending_op <= 3'd1;
+                    loop_ctrl_pending <= 1'b1;
+                end
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_CLEAR_ALL) begin
+                    loop_ctrl_op <= 3'd2;
+                    loop_ctrl_track <= 3'd0;
+                    loop_ctrl_pending_op <= 3'd2;
+                    loop_ctrl_pending <= 1'b1;
+                end
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_COMMIT) begin
+                    loop_ctrl_op <= 3'd3;
+                    loop_ctrl_track <= 3'd0;
+                    loop_ctrl_pending_op <= 3'd3;
+                    loop_ctrl_pending <= 1'b1;
+                end
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_STOP) begin
                     mode_reg <= IDLE; record_abort <= 1'b1;
+                    loop_ctrl_op <= 3'd4;
+                    loop_ctrl_track <= 3'd0;
+                    loop_ctrl_pending_op <= 3'd4;
+                    loop_ctrl_pending <= 1'b1;
+                    record_stop <= 1'b1;
                 end
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_COMMIT) potts_start <= 1'b1;
             end
@@ -365,8 +503,10 @@ module mgc3130_v2_top #(
         .capture_ready(tlm_capture_ready), .capture_type(8'd1), .capture_sequence(audio_sequence),
         .capture_x(audio_cursor_x[15:0]), .capture_y(audio_cursor_y[15:0]),
         .capture_z(audio_cursor_z[15:0]), .capture_note(live_active_note),
-        .capture_flags({6'd0, cursor_rebased, calibrated_presence}), .capture_tick(sample_index[7:0]),
-        .capture_voice_bitmap(voice_bitmap), .capture_fifo_level(8'd0), .capture_fault_code(protocol_error),
+        .capture_flags({1'b0, recording, loop_active_valid, loop_commit_pending, cursor_rebased,
+                        calibrated_presence, record_fault[1:0]}), .capture_tick(sample_index[7:0]),
+        .capture_voice_bitmap(voice_bitmap), .capture_fifo_level(record_count[7:0]),
+        .capture_fault_code(protocol_error | record_fault),
         .frame_valid(tlm_frame_valid), .frame_ready(tlm_frame_ready), .frame_byte(tlm_frame_byte),
         .frame_last(tlm_frame_last), .dropped_captures(tlm_dropped)
     );

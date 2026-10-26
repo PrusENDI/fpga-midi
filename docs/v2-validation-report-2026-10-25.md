@@ -34,7 +34,7 @@ scoped evidence; the final V2 top and board gates remain open.
 | 9 wavetable/FX | Explicit DPB-backed wavetable, patch and reduced FX path; ModelSim and Gowin resource/P&R probes. | **Accepted for scoped Task 9 storage/FX gate.** Final top timing and board evidence remain open. |
 | 10 UART/telemetry | Byte-level control parser, CRC/version/op/access/data checks, duplicate replay, TX backpressure, double-buffer telemetry and CRC tests. | **Accepted for scoped Task 10 byte/snapshot gate.** Physical UART baud and CSR/top integration remain Task 11–12 evidence. |
 | 11 PC UI/model | Contract-backed parameter model, fake transport, telemetry decoder, wavetable upload builder and hardware-free Tk shell. | **Accepted for offline/UI stop gate:** 171 Python tests pass; real serial remains excluded. |
-| 12 | Independent V2 top and board validation. | Not started. |
+| 12 | Independent V2 top and board validation. | In progress: RTL top simulation passes. A deterministic full-module timing probe retains input/calibration/validity, six-track recorder/store/scheduler, 32-voice DPB bank, FX and I2S with no synthesis sweep and closes 100 MHz; effective-reader/live timing and board capture remain open. |
 
 ## Toolchain
 
@@ -122,6 +122,38 @@ No final V2 top bitstream, board revision/capture, trigger-to-waveform latency, 
 level or whole-design timing has been accepted. Task 8 is accepted only for its
 standalone voice-engine gate. No board was programmed during this work. The routed
 voice probe cannot establish timing for calibration, cursor, FX or the final top.
+
+## Task 12 timing-probe evidence (2026-10-26)
+
+The current-source low-pin probe is `scripts/synth_v2_top_timing_timed20_20261026.tcl`
+with top `sim/v2_top_timing_probe.sv`. It instantiates the independent V2 top with
+`USE_GOWIN_RAM=1`, `USE_POTTS=0`, `PRESERVE_LOOP_PLANE=1`,
+`PRESERVE_INPUT_PLANE=1` and `PRESERVE_INPUT_VALID=0`. The three preservation
+parameters are timing-probe-only;
+their defaults are zero in `rtl/mgc3130_v2_top.sv`. The probe uses a deterministic
+transport/touch stimulus while marking XYZ invalid, so it exercises and retains the
+input/calibration/validity and loop planes without claiming a live sensor waveform.
+
+The authorized Gowin CLI run completed synthesis and P&R with no `NL0002 swept`
+warnings. The netlist contains `v2_touch_info_decoder`, `mgc3130_input_latch`,
+`v2_input_calibration`, `v2_position_validity`, `v2_loop_event_recorder`,
+`v2_loop_event_store` and `v2_loop_scheduler`. The routed report is under
+`impl/v2_top_timing_timed20_20261026/impl/pnr/` and records:
+
+- 100.000 MHz generated PLL clock; actual Fmax **100.453 MHz**;
+- setup violated endpoints **0**, hold violated endpoints **0**;
+- setup/hold TNS **0.000 ns**;
+- 5,890 logic (26%), 3,027 logic FF (13%), 17 DPB/BSRAM (31%), 18 DSP (65%),
+  and 18 I/O ports (21%).
+
+For comparison, enabling the real MGC reader with the same loop-preservation probe
+produced 93.434 MHz and 48 setup violations, while a reader-stub probe with valid
+synthetic XYZ produced 97.691 MHz and 24 violations. Those are diagnostic results,
+not acceptance claims; they show that the remaining margin problem is in effective
+reader/live/cursor activity and the current combinational note/velocity paths. The
+100.453 MHz result is a complete retained-module structural timing gate, not a board
+acceptance result. No final bitstream has been programmed, and no board I2S/UART or
+trigger-to-waveform capture has been performed.
 
 
 ## Corrective replay evidence (2026-10-26)
