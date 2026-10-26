@@ -37,3 +37,12 @@ SV compiler evidence is unavailable because neither `iverilog` nor `verilator` i
 - Corrected `V2_TELEMETRY_WIDTH_CHECK` to require `$bits(v2_telemetry_t) == 144`, matching all packed telemetry fields. The wire serializer remains `V2_TELEMETRY_BYTES == 22`.
 - ModelSim syntax evidence: `C:\modeltech64_10.6d\win64\vlog.exe -sv -work work rtl/v2_contract_pkg.sv` completed with 0 errors and 0 warnings.
 - Python focused suite: 5 tests passed. `git diff --check` passed.
+
+## Reopened gate: complete machine-readable contract
+
+- `rtl/v2_contract_pkg.sv` now owns all named CSR addresses, access classification, UART op/ACK/telemetry types, event types/flags, and fault/error codes. The misleading negative-index typedef checks were removed; `sim/tb_v2_contract.sv` uses executable `$fatal` checks for widths, lengths, every address, access, and the complete event bit mapping.
+- `tools/v2_contract.py` exports the matching constants and `CSR` definitions with access and 32-bit packing. Its control encoder/decoder now rejects invalid operations and RO/WO misuse. `tools/test_v2_contract.py` compares every Python constant against the SV source.
+- `docs/v2-fpga-contract-2026-10-25.md` now fixes all 32-bit CSR layouts, shadow/APPLY/version/CRC rules, UART ACK/NACK and duplicate-sequence behavior, typed 22-byte telemetry, and the raw XYZ coordinate boundary.
+- RED: `test_machine_contract_constants_match_sv` failed with missing `SV_CONSTANTS`; ModelSim `vlog` also failed on missing `V2_EV_NOTE_ON`/`V2_FLAG_TOUCH` before implementation.
+- GREEN: `python -m unittest tools.test_v2_contract -v` passed 6 tests. `scripts/test_v2_contract.ps1` compiled with ModelSim 10.6d, passed the normal simulation, and confirmed both layout and width mutations trigger `$fatal`. Focused `git diff --check` passed.
+- Scope: V1 and Task5 RTL were not edited. Task5 must import these constants in its next integration pass. Task3 raw-coordinate handling currently conflicts with the newly fixed 17-bit input boundary; that is documented as an integration failure to resolve and verify in Task3/4, not claimed fixed here.
