@@ -22,9 +22,9 @@ module v2_loop_scheduler #(parameter integer TRACKS=6)(
           if(read_slot_valid&&((pass==0&&read_data[94:91]==EV_NOTE_OFF&&read_data[87:80]==loop_tick)||
              (pass==1&&read_data[94:91]==EV_NOTE_ON&&read_data[87:80]==loop_tick)||
              (pass==2&&read_data[94:91]==EV_CONTROL&&read_data[87:80]==loop_tick)||
-             (read_data[94:91]==EV_NOTE_ON&&read_data[79:72]!=0&&end_tick<128&&end_tick[6:0]==loop_tick)))begin
+             (pass==0&&read_data[94:91]==EV_NOTE_ON&&read_data[79:72]!=0&&end_tick<128&&end_tick[6:0]==loop_tick)))begin
             held<=read_data;
-            if(read_data[94:91]==EV_NOTE_ON&&read_data[79:72]!=0&&end_tick<128&&end_tick[6:0]==loop_tick)begin held[94:91]<=EV_NOTE_OFF;held[87:80]<=loop_tick;held[79:72]<=0;end
+            if(pass==0&&read_data[94:91]==EV_NOTE_ON&&read_data[79:72]!=0&&end_tick<128&&end_tick[6:0]==loop_tick)begin held[94:91]<=EV_NOTE_OFF;held[87:80]<=loop_tick;held[79:72]<=0;end
             event_valid<=1;
           end else if(slot==15)begin
             slot<=0;if(track==TRACKS-1)begin track<=0;if(pass==2)begin pass<=0;if(loop_tick==127)boundary_stage<=1;end else pass<=pass+1'b1;end else track<=track+1'b1;

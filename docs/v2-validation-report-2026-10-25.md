@@ -108,5 +108,7 @@ uses held ready/valid events and STOP/FLUSH cancellation. These modules compile
 with ModelSim. The joint `sim/tb_v2_loop_transactions.sv` replay now passes with
 real store-to-scheduler wiring: shadow prepare/write, boundary bank swap,
 six-track active read, three-pass NOTE_ON scan with held output under
-backpressure, and abort preserving the active bank. This is RTL simulation
-evidence only; no P&R or timing claim is made.
+backpressure, a pass-gated duration-derived NOTE_OFF, and abort preserving the
+active bank. The duration vector is checked at its end tick so it cannot be
+re-emitted by the ON or CONTROL passes. This is RTL simulation evidence only;
+no P&R or timing claim is made.
