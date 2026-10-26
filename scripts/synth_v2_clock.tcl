@@ -10,11 +10,15 @@ puts $f {<Device name="GW5A-25A" pn="GW5A-LV25MG121NES">gw5a25a-000</Device><Fil
 foreach source {v2_clock_gen v2_sample_scheduler} {
     puts $f "<File path=\"../../rtl/$source.sv\" type=\"file.verilog\" enable=\"1\"/>"
 }
+puts $f {<File path="../../sim/v2_clock_sample_probe.sv" type="file.verilog" enable="1"/>}
+puts $f {<File path="../../mgc3130_v2.sdc" type="file.sdc" enable="1"/>}
 puts $f {</FileList></Project>}
 close $f
 open_project $project
-set_option -top_module v2_clock_gen
+set_option -top_module v2_clock_sample_probe
 set_option -verilog_std sysv2017
 run syn
 puts "V2_CLOCK_SYNTH_PASS: $out"
+run pnr
+puts "V2_CLOCK_PNR_PASS: $out"
 exit

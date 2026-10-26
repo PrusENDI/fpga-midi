@@ -1,10 +1,6 @@
 # Board oscillator is 50 MHz. The PLL output is the only V2 system clock.
 create_clock -name clk_50m -period 20.000 [get_ports {clk_in}]
-create_generated_clock -name clk_sys_100m -source [get_ports {clk_in}] \
-    -multiply_by 2 [get_ports {clk_sys_100m}]
+create_generated_clock -name clk_sys_100m -source [get_ports {clk_in}] -multiply_by 2 [get_ports {clk_sys_100m}]
 
-# PCM5102A I2S uses a 3.072 MHz BCLK (48 kHz x 64-bit stereo slot).
-# Keep this as a virtual interface clock for the V2 top-level integration.
-create_clock -name i2s_bclk -period 325.520833 -waveform {0.000 162.760417}
-set_clock_groups -asynchronous -group [get_clocks {clk_sys_100m}] \
-    -group [get_clocks {i2s_bclk}]
+# I2S BCLK is a synchronous output derived with clock enables in clk_sys_100m.
+# Do not cut paths or add an asynchronous clock group for that output.
