@@ -7,4 +7,3 @@ module tb_v2_loop_transactions;
  task put(input [2:0] tr,input [3:0] slot,input [95:0] d); begin @(negedge clk);wt=tr;ws=slot;wd=d;wrv=1;#1;if(!wrdy)$fatal(1,"write blocked");@(posedge clk);#1;wrv=0;end endtask
  initial begin repeat(2)@(posedge clk);rst_n=1;cmd(3'd5);repeat(100)@(posedge clk);put(0,0,96'h080000000000000000000001);put(5,0,96'h200000000000000000000055);cmd(3'd3);if(!cp)$fatal(1,"commit pending");boundary=1;@(posedge clk);#1;boundary=0;if(!ack||!av)$fatal(1,"boundary commit");run_s=1;repeat(250) begin @(posedge clk);#1;end;if(!sv||sched_data[94:91]!==4'd1)$fatal(1,"scheduler did not hold NOTE_ON");sr=1;@(posedge clk);#1;if(sv)$fatal(1,"scheduler did not handshake");run_s=0;cmd(3'd5);repeat(100)@(posedge clk);put(2,0,96'h200000000000000000000002);cmd(3'd3);abort=1;@(posedge clk);#1;abort=0;if(av!==1'b1)$fatal(1,"abort damaged active");$display("tb_v2_loop_transactions PASS");$finish;end
 endmodule
-
