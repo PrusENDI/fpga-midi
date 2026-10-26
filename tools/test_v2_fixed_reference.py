@@ -1,5 +1,5 @@
 import unittest
-from tools.v2_fixed_reference import Profile, process_frame, REASON_SATURATED, REASON_GAP, REASON_CLAMP
+from tools.v2_fixed_reference import Profile, process_frame, REASON_SATURATED, REASON_GAP, REASON_CLAMP, REASON_INVALID, REASON_EPOCH, REASON_PROFILE
 
 class FixedInputReferenceTest(unittest.TestCase):
     def setUp(self):
@@ -22,7 +22,26 @@ class FixedInputReferenceTest(unittest.TestCase):
         out = process_frame(dict(sequence=1, timestamp_ticks=0, raw=(0,0,0), valid_xyz=True,
                                  saturated=True, gap=False, calibration_epoch=7), self.p)
         self.assertFalse(out["frame_valid"])
+        self.assertEqual(out["xyz"], (0, 0, 0))
         self.assertEqual(out["calibration_reason"] & REASON_SATURATED, REASON_SATURATED)
+    def test_invalid_output_is_zero_and_recovery_is_fresh(self):
+        bad = process_frame(dict(sequence=1, raw=(200,200,200), valid_xyz=False, saturated=False, gap=False, calibration_epoch=7), self.p)
+        self.assertEqual(bad["xyz"], (0, 0, 0))
+        self.assertEqual(bad["calibration_reason"] & REASON_INVALID, REASON_INVALID)
+        good = process_frame(dict(sequence=2, raw=(100,-200,300), valid_xyz=True, saturated=False, gap=False, calibration_epoch=7), self.p, previous_sequence=1)
+        self.assertTrue(good["frame_valid"])
+        self.assertEqual(good["calibration_reason"], 0)
+
+    def test_wrap_and_profile_epoch(self):
+        first = process_frame(dict(sequence=0xffff, raw=(0,0,0), valid_xyz=True, saturated=False, gap=False, calibration_epoch=7), self.p)
+        wrapped = process_frame(dict(sequence=0, raw=(0,0,0), valid_xyz=True, saturated=False, gap=False, calibration_epoch=7), self.p, previous_sequence=first["sequence"], gap_count=0)
+        self.assertEqual(wrapped["gap_count"], 0)
+        self.assertFalse(wrapped["lost"])
+        mismatch = process_frame(dict(sequence=1, raw=(0,0,0), valid_xyz=True, saturated=False, gap=False, calibration_epoch=8), self.p, previous_sequence=0)
+        self.assertFalse(mismatch["frame_valid"])
+        self.assertTrue(mismatch["calibration_reason"] & REASON_EPOCH)
+        self.assertTrue(mismatch["calibration_reason"] & REASON_PROFILE)
+
     def test_clamp_reason(self):
         out = process_frame(dict(sequence=1, timestamp_ticks=0, raw=(2000,0,0), valid_xyz=True,
                                  saturated=False, gap=False, calibration_epoch=7), self.p)

@@ -4,47 +4,49 @@ module v2_position_validity (
   input logic valid_xyz, input logic saturated, input logic gap,
   input logic [15:0] sequence_id,
   input logic [7:0] calibration_epoch, input logic [7:0] active_epoch,
+  input logic active_profile_valid,
   input logic [7:0] calibration_reason_in,
   output logic frame_valid, output logic lost, output logic degraded,
   output logic [15:0] gap_count, output logic [7:0] calibration_reason,
   output logic note_permitted
 );
+  import v2_input_pkg::*;
   logic have_sequence;
   logic [15:0] previous_sequence;
   always_ff @(posedge clk or negedge rst_n) begin : quality
-    logic [16:0] delta;
+    logic [15:0] delta;
+    logic [16:0] missing;
     logic [7:0] reason;
     if (!rst_n) begin
-      have_sequence <= 1'b0; previous_sequence <= 16'd0; gap_count <= 16'd0;
-      frame_valid <= 1'b0; lost <= 1'b0; degraded <= 1'b0;
-      calibration_reason <= 8'd0; note_permitted <= 1'b0;
+      have_sequence<=1'b0; previous_sequence<=16'd0; gap_count<=16'd0;
+      frame_valid<=1'b0; lost<=1'b0; degraded<=1'b0; calibration_reason<=8'd0; note_permitted<=1'b0;
     end else begin
-      frame_valid <= 1'b0; lost <= 1'b0; degraded <= 1'b0;
-      note_permitted <= 1'b0; calibration_reason <= 8'd0;
+      frame_valid<=1'b0; lost<=1'b0; degraded<=1'b0; note_permitted<=1'b0; calibration_reason<=8'd0;
       if (frame_in_valid) begin
+        // Explicit 16-bit subtraction gives modulo sequence semantics at wrap.
+        delta = sequence_id - previous_sequence;
         reason = calibration_reason_in;
-        delta = {1'b0, sequence_id} - {1'b0, previous_sequence};
-        if (have_sequence && (delta > 17'd1)) begin
-          reason = reason | 8'h04;
-          if (gap_count != 16'hffff) gap_count <= gap_count + delta[15:0] - 16'd1;
+        if (have_sequence && (delta > 16'd1)) begin
+          reason = reason | V2_REASON_GAP;
+          missing = delta - 17'd1;
+          if ({1'b0,gap_count} + missing > 17'h0ffff) gap_count <= 16'hffff;
+          else gap_count <= gap_count + missing[15:0];
         end
-        if (gap && (!have_sequence || delta <= 17'd1)) begin
-          reason = reason | 8'h04;
+        if (gap && (!have_sequence || delta <= 16'd1)) begin
+          reason = reason | V2_REASON_GAP;
           if (gap_count != 16'hffff) gap_count <= gap_count + 16'd1;
         end
-        if (!valid_xyz) reason = reason | 8'h01;
-        if (saturated) reason = reason | 8'h02;
-        if (calibration_epoch != active_epoch) reason = reason | 8'h08;
+        if (!valid_xyz) reason = reason | V2_REASON_INVALID;
+        if (saturated) reason = reason | V2_REASON_SATURATED;
+        if (calibration_epoch != active_epoch) reason = reason | V2_REASON_EPOCH | V2_REASON_PROFILE;
+        if (!active_profile_valid) reason = reason | V2_REASON_PROFILE;
         calibration_reason <= reason;
-        lost <= |(reason & 8'h04);
-        degraded <= |(reason & 8'h3c);
-        frame_valid <= !(|(reason & 8'h0f));
-        note_permitted <= !(|(reason & 8'h0f));
-        previous_sequence <= sequence_id;
-        have_sequence <= 1'b1;
+        lost <= |(reason & V2_REASON_GAP);
+        degraded <= |(reason & (V2_REASON_GAP|V2_REASON_EPOCH|V2_REASON_CLAMP|V2_REASON_PROFILE));
+        frame_valid <= !(|(reason & (V2_REASON_INVALID|V2_REASON_SATURATED|V2_REASON_GAP|V2_REASON_EPOCH|V2_REASON_PROFILE)));
+        note_permitted <= !(|(reason & (V2_REASON_INVALID|V2_REASON_SATURATED|V2_REASON_GAP|V2_REASON_EPOCH|V2_REASON_PROFILE)));
+        previous_sequence <= sequence_id; have_sequence <= 1'b1;
       end
     end
   end
 endmodule
-
-

@@ -16,6 +16,7 @@ class Profile:
     gain: Tuple[int, int, int] = (1 << 16, 1 << 16, 1 << 16)
     workspace: Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]] = ((-32768, 32767),) * 3
     epoch: int = 0
+    active_profile_valid: bool = True
     def _replace(self, **kwargs):
         return replace(self, **kwargs)
 
@@ -41,17 +42,19 @@ def process_frame(frame: dict, profile: Profile, previous_sequence: int | None =
         seq_gap = (seq - (previous_sequence & 0xFFFF)) & 0xFFFF
         if seq_gap > 1:
             reason |= REASON_GAP
-            gap_count += seq_gap - 1
+            gap_count = min(0xFFFF, gap_count + seq_gap - 1)
     if frame.get("gap", False):
         reason |= REASON_GAP
         if seq_gap <= 1:
-            gap_count += 1
+            gap_count = min(0xFFFF, gap_count + 1)
     if not frame.get("valid_xyz", False):
         reason |= REASON_INVALID
     if frame.get("saturated", False):
         reason |= REASON_SATURATED
     if int(frame.get("calibration_epoch", profile.epoch)) != profile.epoch:
-        reason |= REASON_EPOCH
+        reason |= REASON_EPOCH | REASON_PROFILE
+    if not profile.active_profile_valid:
+        reason |= REASON_PROFILE
     centered = tuple(raw[i] - profile.neutral[i] for i in range(3))
     coupling_x = round_q16(profile.coupling[0] * centered[2])
     coupling_y = round_q16(profile.coupling[1] * centered[2])
@@ -70,7 +73,13 @@ def process_frame(frame: dict, profile: Profile, previous_sequence: int | None =
     if clamped:
         reason |= REASON_CLAMP
     lost = bool(reason & REASON_GAP)
-    frame_valid = not bool(reason & (REASON_INVALID | REASON_SATURATED | REASON_GAP | REASON_EPOCH | REASON_PROFILE))
+    bad_input = bool(reason & (REASON_INVALID | REASON_SATURATED | REASON_GAP | REASON_EPOCH | REASON_PROFILE))
+    if bad_input:
+        xyz = [0, 0, 0]
+        centered = (0, 0, 0)
+        decoupled = (0, 0, 0)
+        gained = (0, 0, 0)
+    frame_valid = not bad_input
     degraded = bool(reason & (REASON_CLAMP | REASON_GAP | REASON_EPOCH | REASON_PROFILE))
     return {
         "sequence": seq, "timestamp_ticks": int(frame.get("timestamp_ticks", 0)) & 0xFFFFFFFF,

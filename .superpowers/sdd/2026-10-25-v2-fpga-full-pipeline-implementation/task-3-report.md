@@ -27,4 +27,14 @@ No standalone Gowin arithmetic synthesis was run because the repository has no f
 
 - `sequence` is a SystemVerilog keyword in ModelSim, so the packed frame field is named `frame_sequence` and module ports use `sequence_id` while retaining the documented meaning.
 - The V1 latch has no SDK presence/calibration epoch inputs; its V2 presence is derived from successful XYZ reports and epoch defaults to zero. A reader/top-level integration can drive a real epoch later without changing legacy behavior.
-- The calibration output is registered; consumers should use the corresponding output pulse and pass the same frame metadata to `v2_position_validity`.
+- The calibration transform and reason metadata are combinational from the current frame and active profile; profile state changes remain clocked. `v2_position_validity` consumes the same-frame reason and metadata on the frame edge.
+
+## Review fixes (2026-10-26)
+
+- Made calibration coordinates, reason bits, validity, and frame metadata same-frame combinational outputs. Invalid, saturated, gap, epoch-mismatched, and inactive-profile frames now expose zero calibrated coordinates and cannot be note-permitted.
+- Added explicit active epoch/profile-valid outputs and used the packaged `v2_input_frame_t` plus reason constants in RTL. Shadow write plus commit is rejected atomically; a later commit activates the staged profile.
+- Corrected validity sequence arithmetic to 16-bit modulo subtraction, with saturating 16-bit `gap_count`; `0xffff -> 0` is a delta of one.
+- Expanded `sim/tb_v2_input_validity.sv` to assert stale-reason recovery, invalid/saturation gating, clamp reason, sequence wrap, gap count, epoch/profile mismatch, commit isolation, and profile activation.
+- Updated the Python reference and tests for zeroed invalid outputs, profile/epoch reasons, modulo wrap, and gap-count saturation.
+
+Review-fix verification: Python `python -m unittest tools.test_v2_fixed_reference tools.test_v2_input_vectors -v` — 7 passed. ModelSim V2 compile/run — 0 errors, `tb_v2_input_validity PASS`. V1 latch standalone `vlog` — 0 errors. `git diff --check` passed aside from existing dirty user-document line-ending warnings. No RTL-vs-reference equivalence claim is made; the RTL and Python suites are independently exercised.
