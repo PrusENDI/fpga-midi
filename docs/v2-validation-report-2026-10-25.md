@@ -273,3 +273,45 @@ rows and 1,784 samples pass against both the RTL memory fallback and the GW5A
 release, ALL_NOTES_OFF, scan-boundary backpressure and slot reuse. This closes
 the Task 8 standalone stop gate. It does not close the final V2 top or board
 gate.
+
+### Task 9 resource gate — explicit DPB-backed wavetable, patch and FX (2026-10-26)
+
+The first Task 9 probe is retained at `impl/v2_task9_wavetable_fx_20261026/`.
+Its variable-indexed delay/comb arrays synthesized as **16,443 FF, 9,701 LUT,
+0 BSRAM**, and placement stopped with `PR0003` and 1,822 unplaced registers.
+The same report showed `v2_patch_bank` swept because the probe had no
+observable patch controls. This is a storage-inference failure, not a GW5A
+capacity result.
+
+The repair uses explicit GW5A `DPB` lanes with synchronous one-cycle reads:
+two FX stores (1024x16 delay and 256x16 comb), six A/B/C wavetable banks
+(active/shadow), and two 1024x32 patch banks split into 16-bit lanes. Upload
+and APPLY keep the shadow CRC/version checks and swap only at idle or a Loop
+boundary. FX remains gain -> one-pole LP -> delay -> one-comb reverb, with
+bounded Q1.15 feedback and saturation; the memory read latency is internal to
+the effect block and does not delay event, Loop, voice or I2S control paths.
+
+Focused evidence:
+
+- `impl/modelsim_v2_task9_wt_fx_final/` reports `tb_v2_wavetable_fx PASS`.
+- `impl/modelsim_v2_task9_patch_20261026i/` reports
+  `tb_v2_patch_bank PASS version=1`, including incomplete-bank rejection,
+  CRC validation and active readback.
+- `impl/v2_task9_dpb_full_20261026/impl/gwsynthesis/` synthesizes the dynamic
+  full probe with **12 DPB**, **6,625 FF**, and **19,751 logic**. Its P&R is
+  not used because exposing every upload control as top-level ports creates
+  361 package pins.
+- The valid small-pin P&R probe is `impl/v2_task9_pnr_20261026/`, reproduced
+  by `scripts/synth_v2_task9_pnr_20261026.tcl` through
+  `scripts/run_gowin_cli.ps1`. It completes placement, routing, timing
+  analysis, bitstream and power generation with **5,886 logic**, **2,195 FF**,
+  **10 DPB**, **4 DSP**, and 46/86 I/O. The synthesis timing report for the
+  100 MHz constraint records **82.970 MHz** Fmax and -2.052 ns slack for this
+  deliberately dynamic diagnostic probe; this is a resource/P&R probe, not a
+  final V2 top timing claim. The final rerun reports **5,902 logic**, **2,195
+  FF**, **10 DPB**, and **5 DSP**. The bitstream SHA-256 is
+  `36568306ED6E860D8CAFF8FD70348924E6AF450F6E39D3F3451341808184BD33`.
+
+Task 9's standalone storage/FX stop gate is satisfied at reduced FX level
+(chorus absent, one comb retained). The final V2 top still needs its own I/O,
+timing and board evidence in Task 12.
