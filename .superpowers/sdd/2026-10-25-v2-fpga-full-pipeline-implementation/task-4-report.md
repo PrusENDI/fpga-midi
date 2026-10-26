@@ -104,4 +104,5 @@ Final standalone Gowin rerun: `GowinSynthesis finish`; HTML resource report is 9
 ## Validity-stage alignment fix (2026-10-26)
 
 - The cursor replay no longer bypasses the registered validity result. The TB delays the cursor strobe through the validity register boundary and feeds the cursor the corresponding `vvalid`, `vdegraded`, `vreason`, and latch gap/saturation metadata captured for that same calibrated bundle.
+- The explicit `left_edge` arm metadata is now latched at each report edge and carried through the replay queue, calibration/validity alignment, and cursor input. A centered-coordinate arm vector proves that the explicit edge pulse engages the cursor without relying on mapped-X edge detection.
 - Strict 30-field parsing and the independent free-counter timestamp model remain enabled. Replayed semantics are unchanged: `tb_v2_cursor_replay PASS rows=976`; Python remains 12 passed; no vector regeneration was needed.
