@@ -33,7 +33,8 @@ scoped evidence; the final V2 top and board gates remain open.
 | 8 voices | 32-slot two-oscillator lifecycle, 33rd overflow, release, revoice phase preservation, detune, ADSR, saturation, valid/ready and round-robin tests pass; explicit 240-bit/15-lane DPB state bank is synthesized and routed. | **Accepted for the scoped Task 8 gate:** fresh 100 MHz routed probe reports Fmax 101.832 MHz, setup/hold TNS 0, zero violated endpoints and +0.180 ns worst setup slack. Full V2 top and board timing remain Task 12 evidence. |
 | 9 wavetable/FX | Explicit DPB-backed wavetable, patch and reduced FX path; ModelSim and Gowin resource/P&R probes. | **Accepted for scoped Task 9 storage/FX gate.** Final top timing and board evidence remain open. |
 | 10 UART/telemetry | Byte-level control parser, CRC/version/op/access/data checks, duplicate replay, TX backpressure, double-buffer telemetry and CRC tests. | **Accepted for scoped Task 10 byte/snapshot gate.** Physical UART baud and CSR/top integration remain Task 11–12 evidence. |
-| 11–12 | PC parameter/telemetry UI, independent V2 top and board validation. | Not started. |
+| 11 PC UI/model | Contract-backed parameter model, fake transport, telemetry decoder, wavetable upload builder and hardware-free Tk shell. | **Accepted for offline/UI stop gate:** 171 Python tests pass; real serial remains excluded. |
+| 12 | Independent V2 top and board validation. | Not started. |
 
 ## Toolchain
 
@@ -85,6 +86,32 @@ bad-data mode write, TX backpressure, atomic field packing, CRC, full double-buf
 occupancy, dropped capture accounting, and simultaneous final-byte/capture handoff.
 This is byte-level evidence only; physical 115200/1 Mbaud sampling, CSR-side
 application, and top-level pin integration remain later gates.
+
+## Task 11 PC model/UI evidence (2026-10-26)
+
+`pc_receiver/fpga_v2_model.py` calls the single Python contract implementation for
+CSR addresses, ranges, signed telemetry and CRC. `V2Parameters` is immutable at the
+snapshot boundary; `apply_patch_delta()` returns a new clamped snapshot. The model
+does not open a serial port. `FakeTransport` records outgoing frames and accepts
+injected telemetry for replay tests.
+
+`build_upload()` emits the complete 1024-sample shadow upload with 32 blocks, CRC,
+version and APPLY trigger. `pc_receiver/fpga_v2_ui.py` is a small Tk shell with LIVE,
+LOOP, STOP and BPM controls plus XY/Z-color, voice bitmap, FIFO and fault displays.
+Transport threads post raw bytes into a queue; Tk alone decodes and updates widgets.
+The UI never sends EventTable or PCM and keeps `synthwave_loop.py` as the offline
+golden reference.
+
+Validation command:
+
+```powershell
+python -m unittest discover -s tools -p 'test_*.py'
+```
+
+The run passes **171 tests**, including five Task 11 tests for clamping, signed
+telemetry/CRC failure, complete upload bytes/CRC, fake transport replay and depth
+color mapping. This closes the offline/UI gate only; physical serial and board
+integration remain Task 12.
 4. `V2_SIM` bypass has no frequency multiplication. Testbenches using it must drive a
    100 MHz simulated system clock. The hardware primitive path is tested separately
    with the actual 50 MHz board clock.
