@@ -167,6 +167,9 @@ SV_CONSTANTS = {
     "V2_ERR_BAD_OP":6,"V2_ERR_BAD_DATA":7,"V2_ERR_VERSION":8,
     "V2_ERR_INCOMPLETE":9,"V2_ERR_WT_CRC":10,
     "V2_ERR_OVERFLOW":11,"V2_ERR_TIMEOUT":12,
+    **{f"V2_PARAM_F{family}_I{index}_{suffix}": getattr(parameter, attr)
+       for (family,index),parameter in PATCH_PARAMETERS.items()
+       for suffix,attr in (("MIN","minimum"),("MAX","maximum"),("DEFAULT","default"))},
 }
 globals().update(SV_CONSTANTS)
 
@@ -248,15 +251,16 @@ def _s(value: int, bits: int, name: str) -> int:
         raise ValueError(f"{name} must be a signed {bits}-bit integer")
     return value & ((1 << bits) - 1)
 
-def encode_control(op: int, address: int, data: int, seq: int) -> bytes:
+def encode_control(op: int, address: int, data: int, seq: int,
+                   indexed_selector: tuple[int, int, int] | None = None) -> bytes:
     op, address, data, seq = _u(op, 8, "op"), _u(address, 8, "address"), _u(data, 32, "data"), _u(seq, 8, "sequence")
     if not is_valid_address(address):
         raise ValueError(f"address 0x{address:02X} is outside the frozen V2 map")
-    _validate_operation(op, address, data)
+    _validate_operation(op, address, data, indexed_selector)
     body = bytes([SOF_CONTROL, VERSION, op, address, seq]) + data.to_bytes(4, "big")
     return body + crc16_ccitt(body).to_bytes(2, "big")
 
-def decode_control(frame: bytes) -> dict:
+def decode_control(frame: bytes, indexed_selector: tuple[int, int, int] | None = None) -> dict:
     if len(frame) != CONTROL_LENGTH:
         raise ControlPacketError(f"control frame must be {CONTROL_LENGTH} bytes")
     if frame[0] != SOF_CONTROL or frame[1] != VERSION:
@@ -268,12 +272,13 @@ def decode_control(frame: bytes) -> dict:
     if actual != expected:
         raise ControlPacketError("control CRC mismatch")
     try:
-        _validate_operation(frame[2], frame[3], int.from_bytes(frame[5:9], "big"))
+        _validate_operation(frame[2], frame[3], int.from_bytes(frame[5:9], "big"), indexed_selector)
     except ValueError as exc:
         raise ControlPacketError(str(exc)) from exc
     return {"op": frame[2], "address": frame[3], "sequence": frame[4], "data": int.from_bytes(frame[5:9], "big")}
 
-def _validate_operation(op: int, address: int, data: int) -> None:
+def _validate_operation(op: int, address: int, data: int,
+                        indexed_selector: tuple[int, int, int] | None = None) -> None:
     if op == V2_OP_PING:
         if address != V2_CSR_STATUS or data != 0:
             raise ValueError("PING requires STATUS address and zero data")
@@ -295,6 +300,10 @@ def _validate_operation(op: int, address: int, data: int) -> None:
             raise ValueError("BPM must be 60..240")
         if address == V2_CSR_PATCH_SELECT:
             encode_patch_select(data & 3, (data >> 2) & 7, (data >> 8) & 255)
+        if address == V2_CSR_PATCH_SHADOW_DATA:
+            if indexed_selector is None:
+                raise ValueError("indexed PATCH_SHADOW_DATA requires selector context")
+            validate_patch_value(*indexed_selector, data)
         if address == V2_CSR_WT_SELECT and (data & 7) > V2_WT_C:
             raise ValueError("invalid wavetable ID")
         if address == V2_CSR_WT_INDEX and data >= V2_WT_SAMPLES:
@@ -308,6 +317,8 @@ def _validate_operation(op: int, address: int, data: int) -> None:
             raise ValueError("trigger register requires bit zero set")
         if address == V2_CSR_THRESHOLDS and not (data & 0xFFFF) < (data >> 16):
             raise ValueError("engage threshold must be below release threshold")
+        if address == V2_CSR_PATCH_CRC and data > 0xFFFF:
+            raise ValueError("patch CRC is 16-bit")
         return
     raise ValueError("invalid op or CSR access")
 

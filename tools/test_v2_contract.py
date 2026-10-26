@@ -20,6 +20,11 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(c.SV_CONSTANTS[key], reg.write_mask)
         with self.assertRaises(ValueError):
             c.encode_control(c.V2_OP_WRITE, c.V2_CSR_TRACK, 0x8, 1)
+        with self.assertRaises(ValueError):
+            c.encode_control(c.V2_OP_WRITE, c.V2_CSR_PATCH_SHADOW_DATA, 400000, 1,
+                             indexed_selector=(0, 7, 14))
+        with self.assertRaises(ValueError):
+            c.encode_control(c.V2_OP_WRITE, c.V2_CSR_PATCH_SHADOW_DATA, 1, 1)
 
     def test_event_rejects_reserved_type_and_flags(self):
         from dataclasses import replace
@@ -69,7 +74,7 @@ class ContractTests(unittest.TestCase):
         sv = (Path(__file__).resolve().parents[1] / "rtl/v2_contract_pkg.sv").read_text()
         for name, value in c.SV_CONSTANTS.items():
             import re
-            match = re.search(r"\b" + name + r"\s*=\s*(?:(?:8|32)'h([0-9A-Fa-f]+)|(?:2|4|8)'d(\d+)|(\d+))", sv)
+            match = re.search(r"\b" + name + r"\s*=\s*(?:(?:8|32)'h([0-9A-Fa-f]+)|(?:2|4|8)'d(\d+)|(-?\d+))", sv)
             self.assertIsNotNone(match, name)
             self.assertEqual(int(match.group(1), 16) if match.group(1) else int(match.group(2) or match.group(3)), value, name)
         self.assertEqual(c.CSR["STATUS"].address, 0x00)
@@ -79,12 +84,12 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(crc16_ccitt(b"123456789"), 0x29B1)
 
     def test_control_is_11_bytes_big_endian_and_round_trips(self):
-        frame = encode_control(2, 0x4C, 0x89ABCDEF, 0x34)
+        frame = encode_control(2, 0x4C, 100000, 0x34, indexed_selector=(0, 5, 14))
         self.assertEqual(len(frame), 11)
         self.assertEqual(frame[:5], bytes([0xA5, 0x02, 0x02, 0x4C, 0x34]))
-        self.assertEqual(frame[5:9], bytes.fromhex("89abcdef"))
-        packet = decode_control(frame)
-        self.assertEqual(packet, {"op": 2, "address": 0x4C, "sequence": 0x34, "data": 0x89ABCDEF})
+        self.assertEqual(frame[5:9], (100000).to_bytes(4, "big"))
+        packet = decode_control(frame, indexed_selector=(0, 5, 14))
+        self.assertEqual(packet, {"op": 2, "address": 0x4C, "sequence": 0x34, "data": 100000})
 
     def test_control_rejects_bad_sof_version_crc_and_address(self):
         frame = encode_control(1, 0x00, 0, 1)

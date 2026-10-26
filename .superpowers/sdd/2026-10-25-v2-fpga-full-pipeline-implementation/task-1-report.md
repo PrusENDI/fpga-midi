@@ -62,3 +62,14 @@ beat, BPM 60–240 (default 120). SV `v2_csr_data_valid` and Python validation r
 invalid mode/track/table/family/index/BPM values in addition to reserved write bits.
 The implementation report must treat these as codec/contract/TB evidence only;
 downstream RTL consumers remain an explicit follow-up.
+
+## Indexed value-validation follow-up
+
+`PATCH_SHADOW_DATA` now requires explicit selector context in the Python control
+codec and validates the selected family/track/index against the frozen signed or
+unsigned min/max range. `v2_patch_value_valid` in the SV package implements the
+same generated metadata table (family, index, Q code, scope, min, max, default),
+and `v2_csr_data_valid` accepts selector context for the data write. Tests cover
+out-of-range OSC/patch data, missing selector context, and SV acceptance/rejection.
+The complete parameter metadata is parity-tested against Python. Python 10/10 and
+ModelSim TB/mutation tests pass; diff-check passes.
