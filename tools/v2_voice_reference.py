@@ -153,8 +153,14 @@ class VoiceEngine:
             mixed += self._oscillator(voice.phase_b, voice.stage, voice.gain, voice.mix_b)
             voice.phase_a = (voice.phase_a + voice.increment_a) & PHASE_MASK
             voice.phase_b = (voice.phase_b + voice.increment_b) & PHASE_MASK
-            voice.increment_a = self._bounded_step(voice.increment_a, voice.target_a)
-            voice.increment_b = self._bounded_step(voice.increment_b, voice.target_b)
+            if voice.increment_a < voice.target_a:
+                voice.increment_a = min(voice.target_a, voice.increment_a + 512)
+            elif voice.increment_a > voice.target_a:
+                voice.increment_a = max(voice.target_a, voice.increment_a - 512)
+            if voice.increment_b < voice.target_b:
+                voice.increment_b = min(voice.target_b, voice.increment_b + 512)
+            elif voice.increment_b > voice.target_b:
+                voice.increment_b = max(voice.target_b, voice.increment_b - 512)
             if voice.stage == "attack":
                 voice.env += ATTACK_STEP
                 if voice.env >= 0xFFFF:

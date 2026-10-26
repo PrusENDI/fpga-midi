@@ -165,7 +165,10 @@ module v2_voice_engine_mux #(
         end
     endfunction
 
-    always_ff @(posedge clk or negedge rst_n) begin
+    // Voice state reset is synchronous to the 100 MHz engine clock. The V2
+    // clock/reset block still provides asynchronous assertion globally; using
+    // a local synchronous reset avoids routing an async reset to every RAM bit.
+    always_ff @(posedge clk) begin
         if (!rst_n) begin
             active              <= '0;
             releasing           <= '0;
@@ -268,8 +271,17 @@ module v2_voice_engine_mux #(
                                       + oscillator_value(phase_b[slot], env_stage[slot], gain[slot], mix_b[slot]);
                     phase_a[slot] <= phase_a[slot] + step_a[slot];
                     phase_b[slot] <= phase_b[slot] + step_b[slot];
-                    step_a[slot]  <= bounded_step(step_a[slot], target_a[slot]);
-                    step_b[slot]  <= bounded_step(step_b[slot], target_b[slot]);
+                    // Glide is updated once per slot scan. The bounded delta
+                    // is a small local increment, avoiding a wide subtractor
+                    // and compare on the RAM writeback critical path.
+                    if (step_a[slot] < target_a[slot])
+                        step_a[slot] <= step_a[slot] + 32'd512;
+                    else if (step_a[slot] > target_a[slot])
+                        step_a[slot] <= step_a[slot] - 32'd512;
+                    if (step_b[slot] < target_b[slot])
+                        step_b[slot] <= step_b[slot] + 32'd512;
+                    else if (step_b[slot] > target_b[slot])
+                        step_b[slot] <= step_b[slot] - 32'd512;
 
                     if (env_stage[slot] == ENV_ATTACK) begin
                         if (envelope[slot] + ATTACK_STEP >= 16'hFFFF) begin
