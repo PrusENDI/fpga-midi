@@ -25,6 +25,19 @@ class ContractTests(unittest.TestCase):
                              indexed_selector=(0, 7, 14))
         with self.assertRaises(ValueError):
             c.encode_control(c.V2_OP_WRITE, c.V2_CSR_PATCH_SHADOW_DATA, 1, 1)
+        for (family, index), parameter in c.PATCH_PARAMETERS.items():
+            q_code = 4 if parameter.q_format.startswith("UQ") else 3 if parameter.q_format.startswith("SQ") else 1
+            self.assertEqual(c.SV_CONSTANTS[f"V2_PARAM_F{family}_I{index}_Q_CODE"], q_code)
+            self.assertEqual(c.SV_CONSTANTS[f"V2_PARAM_F{family}_I{index}_GLOBAL"], int(parameter.scope == "global"))
+
+    def test_signed_indexed_wire_round_trip(self):
+        from tools import v2_contract as c
+        for family, index, value in ((0, 2, -1200), (1, 3, -65536), (2, 5, -256)):
+            wire = c.patch_value_to_wire(family, index, value)
+            self.assertEqual(c.patch_wire_to_value(family, index, wire), value)
+            frame = c.encode_control(c.V2_OP_WRITE, c.V2_CSR_PATCH_SHADOW_DATA,
+                                     value, 9, indexed_selector=(family, 0 if family != 1 else 7, index))
+            self.assertEqual(int.from_bytes(frame[5:9], "big"), wire)
 
     def test_event_rejects_reserved_type_and_flags(self):
         from dataclasses import replace

@@ -52,6 +52,8 @@ module tb_v2_contract;
         !v2_csr_data_valid(V2_CSR_PATCH_SELECT,32'h0000001D) ||
         v2_csr_data_valid(V2_CSR_PATCH_SHADOW_DATA,32'd400000,2'd0,3'd0,8'd2) ||
         !v2_csr_data_valid(V2_CSR_PATCH_SHADOW_DATA,32'd100,2'd0,3'd0,8'd2) ||
+        !v2_csr_data_valid(V2_CSR_PATCH_SHADOW_DATA,32'hFFFFFB50,2'd0,3'd0,8'd2) ||
+        !v2_csr_data_valid(V2_CSR_PATCH_SHADOW_DATA,32'hFFFF0000,2'd1,3'd7,8'd3) ||
         v2_csr_data_valid(V2_CSR_TRACK,32'h00000008))
       $fatal(1, "CSR semantic validation mismatch");
     if (v2_csr_access(V2_CSR_STATUS) != V2_ACCESS_RO ||

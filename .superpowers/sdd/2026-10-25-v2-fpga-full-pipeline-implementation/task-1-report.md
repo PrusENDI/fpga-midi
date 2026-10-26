@@ -73,3 +73,13 @@ and `v2_csr_data_valid` accepts selector context for the data write. Tests cover
 out-of-range OSC/patch data, missing selector context, and SV acceptance/rejection.
 The complete parameter metadata is parity-tested against Python. Python 10/10 and
 ModelSim TB/mutation tests pass; diff-check passes.
+
+## Signed wire and metadata parity correction
+
+Indexed signed values now decode the 32-bit wire word as two's-complement before
+range checking and re-encode negative detune, coupling, and bend values unchanged
+on the wire. `encode_control`/`decode_control` require selector context for
+`PATCH_SHADOW_DATA`, preventing ambiguous raw writes. SV and Python metadata now
+parity-check every parameter's Q code and global/track scope, in addition to
+min/max/default. Focused tests cover negative values and their wire round trips;
+Python 11/11 and ModelSim TB/mutation checks pass, with `git diff --check` clean.

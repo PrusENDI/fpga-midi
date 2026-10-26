@@ -170,6 +170,10 @@ SV_CONSTANTS = {
     **{f"V2_PARAM_F{family}_I{index}_{suffix}": getattr(parameter, attr)
        for (family,index),parameter in PATCH_PARAMETERS.items()
        for suffix,attr in (("MIN","minimum"),("MAX","maximum"),("DEFAULT","default"))},
+    **{f"V2_PARAM_F{family}_I{index}_Q_CODE": (4 if parameter.q_format.startswith("UQ") else 3 if parameter.q_format.startswith("SQ") else 1)
+       for (family,index),parameter in PATCH_PARAMETERS.items()},
+    **{f"V2_PARAM_F{family}_I{index}_GLOBAL": int(parameter.scope == "global")
+       for (family,index),parameter in PATCH_PARAMETERS.items()},
 }
 globals().update(SV_CONSTANTS)
 
@@ -206,6 +210,15 @@ def validate_patch_value(family: int, track: int, index: int, value: int) -> int
     definition = PATCH_PARAMETERS[(family, index)]
     if not isinstance(value, int) or not definition.minimum <= value <= definition.maximum:
         raise ValueError(f"{definition.name} outside frozen range")
+    return value & 0xFFFFFFFF
+
+def patch_wire_to_value(family: int, index: int, wire_value: int) -> int:
+    definition = PATCH_PARAMETERS[(family, index)]
+    wire_value &= 0xFFFFFFFF
+    return wire_value - 0x100000000 if definition.q_format.startswith("S") else wire_value
+
+def patch_value_to_wire(family: int, index: int, value: int) -> int:
+    validate_patch_value(family, 7 if PATCH_PARAMETERS[(family,index)].scope == "global" else 0, index, value)
     return value & 0xFFFFFFFF
 
 def default_patch_values() -> dict[tuple[int, int, int], int]:
@@ -253,7 +266,12 @@ def _s(value: int, bits: int, name: str) -> int:
 
 def encode_control(op: int, address: int, data: int, seq: int,
                    indexed_selector: tuple[int, int, int] | None = None) -> bytes:
-    op, address, data, seq = _u(op, 8, "op"), _u(address, 8, "address"), _u(data, 32, "data"), _u(seq, 8, "sequence")
+    op, address, seq = _u(op, 8, "op"), _u(address, 8, "address"), _u(seq, 8, "sequence")
+    if indexed_selector and address == V2_CSR_PATCH_SHADOW_DATA:
+        family, _, index = indexed_selector
+        data = patch_value_to_wire(family, index, data)
+    else:
+        data = _u(data, 32, "data")
     if not is_valid_address(address):
         raise ValueError(f"address 0x{address:02X} is outside the frozen V2 map")
     _validate_operation(op, address, data, indexed_selector)
@@ -303,7 +321,8 @@ def _validate_operation(op: int, address: int, data: int,
         if address == V2_CSR_PATCH_SHADOW_DATA:
             if indexed_selector is None:
                 raise ValueError("indexed PATCH_SHADOW_DATA requires selector context")
-            validate_patch_value(*indexed_selector, data)
+            family, track, index = indexed_selector
+            validate_patch_value(family, track, index, patch_wire_to_value(family, index, data))
         if address == V2_CSR_WT_SELECT and (data & 7) > V2_WT_C:
             raise ValueError("invalid wavetable ID")
         if address == V2_CSR_WT_INDEX and data >= V2_WT_SAMPLES:
