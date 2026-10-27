@@ -12,8 +12,8 @@
 | 包络 | 16 位线性，固定步长（A+4096 / D−256 / R−1024，S=49152） | 同上 |
 | 滑音 | `step` 每拍 ±512 逼近 `target` | 同上 |
 | 滤波 | **无**（仅 FX 里一个一阶低通） | — |
-| LFO / 调制矩阵 | **无**（vibrato 已在计划中，未实现） | — |
-| 声部 | 32 槽；满时**丢弃**（抢占策略已写入计划，未实现） | 同上 |
+| LFO / 调制矩阵 | `v2_voice_engine_banked.sv` 已有每声部 UQ8.8 vibrato phase/depth；通用调制矩阵仍无 | `v2_voice_engine_banked.sv` |
+| 声部 | 32 槽；满载按 released → oldest → velocity → voice ID 抢占，bounded release 后复用 | `v2_voice_engine_banked.sv` |
 | 波表 | A/B/C 三表 + DPB patch bank + CRC/APPLY | `v2_patch_bank.sv` |
 | FX | 增益 → 一阶低通 → 延迟 → 单 comb 混响 | `v2_fx_lite.sv` |
 | 输出 | 16 bit 单声道 → I2S | `i2s_pcm5102a_tx.sv` |
@@ -28,9 +28,9 @@
 | 抗混叠 | polyBLEP / BLEP / mipmap | 无 | **0%** | 高音"脏" |
 | 每声部滤波器 | 谐振 LPF，包络/键位调制 | **无** | **0%** | 做不出"温暖/扫频/酸"，**听感差距最大** |
 | 包络 | 指数曲线、每参数独立、retrigger 模式 | 线性、两振荡器共用 | **45%** | 起音硬、做不了 FM 的"叮" |
-| LFO | 多个、可同步、可路由 | 无 | **0%** | 无颤音/自动摇摆 |
+| LFO | 多个、可同步、可路由 | 每声部固定 UQ8.8 vibrato；通用 LFO/路由仍无 | **20%** | 自动摇摆和复杂调制仍缺失 |
 | 调制矩阵 | 源×目标×深度，任意路由 | 固定（Z→增益/亮度/空间） | **10%** | 表情维度不足 |
-| 声部管理 | 抢占、unison、portamento、力度分层 | 只找空槽，满则丢音 | **55%** | 密集演奏丢音 |
+| 声部管理 | 抢占、unison、portamento、力度分层 | 确定性抢占 + bounded release；unison/复杂分层仍无 | **75%** | 高密度输入的扩展表现仍有限 |
 | FX | 合唱/相位/延迟/混响 | 延迟 + 单 comb | **30%** | 声音"干" |
 | 输出 | 立体声 24 bit + 限幅 | 单声道 16 bit | **55%** | 偏"窄" |
 | **综合** | — | — | **≈ 28%** | — |
@@ -153,7 +153,7 @@
 
 | 本文 | 对应计划任务 | 关系 |
 | --- | --- | --- |
-| P1 抢占/颤音 | Task 8 已含要求，未实现 | 直接做 |
+| P1 抢占/颤音 | Task 8 已实现并完成 Python/RTL/replay gate | 保持 P&R/顶层回归 |
 | P2 滤波器 | **计划中缺失** | 新增 Task 8.6 |
 | P3 抗混叠 | Task 9 原则性要求 | 细化为 polyBLEP |
 | P6 256 分量 | **计划中缺失** | 新增 Task 8.7 |
@@ -162,6 +162,16 @@
 
 > 我们现在是"一个能跑 32 声部的骨架"，距离经典合成器缺的是**滤波器、抗混叠、调制**这三件"肌肉"；
 > 而时钟周期还有 98% 空闲——**升级不需要更多算力，只需要把空闲拍数换成电路。**
+
+### 实施回填 — 2026-10-28
+
+Task 8 的 P1 抢占/颤音已进入当前 `rtl/v2_voice_engine_banked.sv`：满载
+NOTE_ON 按 released → oldest → lowest velocity → lowest voice ID 选择声部，
+用 bounded release mailbox 完成复用，并提供 UQ8.8 vibrato phase/depth 调制与
+readback。Python 8 项 voice tests、基础 RTL gate，以及 1,827 行双模型 replay
+均通过。每声部滤波器、polyBLEP/带限波表和 256 分量测试模式仍未实现；当前
+voice-steal/vibrato 修复后的 Gowin CLI P&R 在 Tcl 启动前返回 code 1，因此
+100 MHz 当前源码时序仍待后续恢复工具链后复测。
 
 ## 9. 演示与验证信号通路的缺口（2026-10-27 核查）
 
