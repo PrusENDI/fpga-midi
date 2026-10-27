@@ -114,7 +114,7 @@ Gowin V1.9.12.04 独立综合退出码 0：Logic 356（284 LUT + 72 ALU）、
 `v2_loop_scheduler` is a standalone 96-bit event path for the V2 store. It holds
 `event_valid/event_data` through downstream backpressure and cancels pending
 output on STOP or FLUSH. V1 scheduler timing and duration derivation remain
-unchanged. The V2 scan walks all six tracks and sixteen slots in OFF, ON, and
+unchanged. The V2 scan walks all six tracks and thirty-two slots in OFF, ON, and
 CONTROL passes; a duration within the 128-tick loop derives a held NOTE_OFF.
 At tick 127 it emits ALL_NOTES_OFF followed by a LOOP_BOUNDARY marker and
 asserts `loop_boundary` only after the marker handshake. The transaction replay

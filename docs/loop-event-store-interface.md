@@ -89,14 +89,49 @@ ModelSim 测试包含 RAM 128 地址与四个 lane、两端口读写、读输出
 这是综合结果，尚不是集成后的布局布线时序结果。
 模块已加入工程文件，但尚未实例化进演奏顶层；不表示六轨 Loop 已可上板演奏。
 
-### V2 independent store
+### V2 independent store (32-slot contract)
 
-`v2_loop_event_store` provides two banks × six tracks × 16 96-bit slots. Its
+`v2_loop_event_store` provides two banks × six tracks × 32 96-bit slots (192
+slots per bank). Its
 `write_valid/write_ready` path and boundary commit are independent of the V1
 64-bit store; abort clears only the shadow metadata and preserves the active
-bank. This module is the Task 6 V2 store and does not alter `loop_event_store`.
+bank. The slot address is 5 bits and each packed `record_count` field is 6 bits
+wide so that 0..32 is representable. This module is the Task 6 V2 store and
+does not alter `loop_event_store`.
 PREPARE_RECORD and PREPARE_OVERDUB copy the active bank through an explicit
 busy/copy phase; record preparation clears only the selected track after the
-copy completes. `record_count` exposes six packed five-bit shadow counts and
-reads select both track and slot. The joint RTL transaction test covers the
-store-to-scheduler path; no P&R or board evidence is implied.
+copy completes. The copy boundary is 192 slots, reads select both track and
+slot, and the joint RTL transaction test covers the store-to-scheduler path
+through slot 31, full-track overflow, and active-bank preservation. No P&R or
+board evidence is implied.
+
+The hardware storage probe uses `rtl/v2_loop_event_store_dpb.sv`, which maps
+the same interface to six explicit GW5A DPB lanes. Its nine-bit logical address
+packs bank/track/slot; Port A reads the active bank and Port B writes the
+shadow bank, with a one-cycle copy pipeline over all 192 slots. The portable
+`v2_loop_event_store` remains the RTL memory fallback used by the joint replay;
+the final top still has to select and re-verify the DPB wrapper as part of the
+full-path build.
+
+Both V2 implementations expose the same boundary timeout behavior. A
+`COMMIT_REQUEST` starts a 32-bit wait counter and keeps `commit_pending` asserted
+until `loop_boundary`. The default timeout is 3,400,000,000 system-clock cycles
+(34 seconds at 100 MHz). On timeout the shadow metadata is cleared, the active
+bank and its valid data remain unchanged, `commit_ack` stays low, and the sticky
+`commit_timeout` diagnostic is set. `commit_wait_cycles` records the observed
+boundary wait or timeout count. ABORT clears the pending request and diagnostics
+without modifying the active bank. The top-level commit-timeout regression
+overrides the counter to a short value and checks that the sample scheduler keeps
+running while the request is pending.
+
+The current evidence is reproducible with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_loop_transactions.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
+  -TclScript scripts/synth_v2_loop_transactions_probe.tcl
+```
+
+The physical probe is limited to the loop storage/scheduler plane and its
+diagnostic pins; it is not a final V2 top, I2S, UART, telemetry, or board
+acceptance result.

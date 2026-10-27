@@ -99,7 +99,8 @@ Task 6 的 `v2_loop_event_store` 与 `v2_loop_scheduler` 使用 96-bit、六轨�
 RECORD 从 IDLE/LIVE 准备 shadow，覆盖所选轨道并保留其他轨道，等待 record_start。
 从 tick0 起录制完整128格；最后写入排空后自动提交并进入 PLAY。
 空录音 abort 回 IDLE；OVERDUB 从 PLAY 复制旧 Loop，下一边界开始录制一轮，
-在下一边界提交。录音轨道16槽满时故障退出并保留 active bank，不静默截断。
+在下一边界提交。V2 录音轨道 32 槽满时故障退出并保留 active bank，不静默截断；
+旧 V1 控制层的 16 槽限制只适用于历史 64-bit store。
 
 STOP 保留 active；PLAY 只允许 IDLE 且 active_valid，从 tick0 开始。
 CLEAR 仅允许 IDLE，经 shadow 和内部边界原子提交。

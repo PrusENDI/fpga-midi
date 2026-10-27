@@ -89,7 +89,9 @@ table initialize both banks and make the initial shadow complete. A subsequent
 write marks the bank dirty until CRC is updated and APPLY succeeds.
 
 Wavetable IDs are A=0, B=1, C=2; 3–7 are BAD_DATA. Each table contains exactly
-1024 signed 16-bit samples. `WT_SELECT.bank=0` selects active readback only;
+1024 signed 16-bit samples. `WT_SELECT` packs `table_id[2:0]`, `bank[8]`,
+`band[11:9]`, and `octave[15:12]`; bits 3–7 and 16–31 are reserved and must be
+zero. `bank=0` selects active readback only;
 `bank=1` selects shadow upload/readback. `WT_INDEX` chooses 0–1023. Every
 `WT_DATA` write stores the low signed 16-bit sample at that index and then
 increments the index modulo 1024. Coverage is tracked per index: rewriting one
@@ -168,7 +170,7 @@ Legacy addresses 0x00–0x44 retain their V1 names and offsets; V2 TRACK is thre
 | PATCH_STATUS | 0x54 | RO | active_version[15:0],shadow_dirty[16],crc_ok[17],apply_busy[18],last_error[31:24] | 0x00000000 |
 | PATCH_CRC | 0x58 | RW | crc16_ccitt[15:0] | 0x0000FFFF |
 | PATCH_APPLY | 0x5C | WO | expected_version[15:0],trigger[31] | 0x8000FFFF |
-| WT_SELECT | 0x60 | RW | table_id[2:0],bank[8] | 0x00000107 |
+| WT_SELECT | 0x60 | RW | table_id[2:0],bank[8],band[11:9],octave[15:12] | 0x0000FF07 |
 | WT_INDEX | 0x64 | RW | sample_index[15:0] | 0x0000FFFF |
 | WT_DATA | 0x68 | RW | sample_s16[15:0] | 0x0000FFFF |
 | WT_LENGTH | 0x6C | RW | sample_count[15:0] | 0x0000FFFF |
@@ -185,6 +187,24 @@ Legacy addresses 0x00–0x44 retain their V1 names and offsets; V2 TRACK is thre
 | TLM_FAULT | 0x98 | RO | fault_code[7:0],fault_count[31:8] | 0x00000000 |
 | TLM_TABLE_VERSION | 0x9C | RO | active_version[15:0],shadow_version[31:16] | 0x00000000 |
 | TEST_SELECT_0..F | 0xA0..0xAF | RW | selector[7:0],value[31:8]; address low nibble selects test channel | 0xFFFFFFFF |
+
+## Capacity, test selectors, and voice diagnostics
+
+The loop store has two banks, six tracks, and 32 96-bit event slots per track.
+`slot` is five bits and each track event count is six bits; the aggregate capacity
+is 192 events per bank. These widths are part of the contract so recorder, store,
+copy, scheduler, and telemetry hand-offs cannot silently use a smaller legacy
+capacity.
+
+When all 32 voices are occupied, the deterministic voice-steal priority is
+released, oldest, lowest velocity, then lowest voice ID. The monotonic allocation
+counter is 16 bits and wraps by unsigned comparison. The current voice target is
+32 voices with two oscillators per voice.
+
+`TEST_SELECT_0` uses selector `1` for the N-tone test mode. Its count range is
+1–32 with a default of 8 tones. Selector `2` is reserved for vibrato readback.
+The vibrato diagnostic word uses `phase[15:0]` and signed `delta_cents[31:16]`;
+the masks and shifts are exported by both the Python and SystemVerilog contracts.
 
 ## Indexed parameter definitions
 

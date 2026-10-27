@@ -1,6 +1,6 @@
 # V2 validation status
 
-Updated: 2026-10-26. This is an in-progress evidence record, not a final acceptance report.
+Updated: 2026-10-28. This is an in-progress evidence record, not a final acceptance report.
 The binding requirements are the V2 implementation plan and V2 contract. Estimates,
 independent software tests, standalone synthesis, routed timing and board measurements
 are different kinds of evidence and must not be substituted for each other.
@@ -30,10 +30,10 @@ scoped evidence; the final V2 top and board gates remain open.
 | 4 cursor | Integrated 976-row latch → calibration → validity → cursor replay, 12 Python tests, ModelSim pass, and standalone synthesis evidence. | Accepted for its scoped gate; no whole-design timing claim. |
 | 5 rules | Separate LIVE/LOOP rule engines with backpressure, left-edge/rightward confirmation, reverse rejection and six-track recorder; Python and ModelSim suites pass. | Accepted for its scoped gate. |
 | 6–7 loop/Potts | Six-track two-bank store/scheduler transaction replay passes; bounded Potts DP replay and backpressure pass. | Accepted for scoped gates; remaining coverage and device-level cycle timing are residuals. |
-| 8 voices | 32-slot two-oscillator lifecycle, 33rd overflow, release, revoice phase preservation, detune, ADSR, saturation, valid/ready and round-robin tests pass; explicit 240-bit/15-lane DPB state bank is synthesized and routed. | **Accepted for the scoped Task 8 gate:** fresh 100 MHz routed probe reports Fmax 101.832 MHz, setup/hold TNS 0, zero violated endpoints and +0.180 ns worst setup slack. Full V2 top and board timing remain Task 12 evidence. |
+| 8 voices | Current 32-slot two-oscillator banked RTL includes deterministic voice-steal, bounded release, revoice and UQ8.8 vibrato. Python (8 tests), RTL gate, and 1,827-row/1,784-sample replay pass for portable and GW5A DPB models. | **Functional scoped gate accepted; current-source P&R remains open.** The post-fix Gowin CLI exits with code 1 before Tcl output, so the older 101.832 MHz routed artifact is historical and cannot close current-source timing. |
 | 9 wavetable/FX | Explicit DPB-backed wavetable, patch and reduced FX path; ModelSim and Gowin resource/P&R probes. | **Accepted for scoped Task 9 storage/FX gate.** Final top timing and board evidence remain open. |
 | 10 UART/telemetry | Byte-level control parser, CRC/version/op/access/data checks, duplicate replay, TX backpressure, double-buffer telemetry and CRC tests. | **Accepted for scoped Task 10 byte/snapshot gate.** Physical UART baud and CSR/top integration remain Task 11–12 evidence. |
-| 11 PC UI/model | Contract-backed parameter model, fake transport, telemetry decoder, wavetable upload builder and hardware-free Tk shell. | **Accepted for offline/UI stop gate:** 171 Python tests pass; real serial remains excluded. |
+| 11 PC UI/model | Contract-backed parameter model, fake transport, telemetry decoder, wavetable upload builder and hardware-free Tk shell. | **Accepted for offline/UI stop gate:** 174 Python tests pass; real serial remains excluded. |
 | 12 | Independent V2 top and board validation. | In progress: RTL top simulation passes. A deterministic full-module timing probe retains input/calibration/validity, six-track recorder/store/scheduler, 32-voice DPB bank, FX and I2S with no synthesis sweep and closes 100 MHz; effective-reader/live timing and board capture remain open. |
 
 ## Toolchain
@@ -196,23 +196,36 @@ The validity alignment was then tightened: the cursor now consumes the registere
 
 The replay also latches `left_edge` at the report boundary and carries it through the same staged transport. A centered-coordinate explicit-arm vector passes with `ENGAGED` and no `REBASED` pulse, so initial arm evidence does not depend on mapped-X edge detection. The adjacent A/B transport check remains enabled.
 
-Task 6 adds independent `v2_loop_event_store` and `v2_loop_scheduler` RTL. The
-store uses two banks, six tracks, sixteen 96-bit slots per track, explicit
-shadow commit at `loop_boundary`, and abort/overflow metadata. The scheduler
-uses held ready/valid events and STOP/FLUSH cancellation. These modules compile
-with ModelSim. The joint `sim/tb_v2_loop_transactions.sv` replay now passes with
-real store-to-scheduler wiring: shadow prepare/write, boundary bank swap,
-six-track active read, three-pass NOTE_ON scan with held output under
-backpressure, a pass-gated duration-derived NOTE_OFF, and abort preserving the
-active bank. The duration vector is checked at its end tick so it cannot be
-re-emitted by the ON or CONTROL passes. This is RTL simulation evidence only;
-no P&R or timing claim is made.
+Task 6's earlier 16-slot statement is superseded by the 2026-10-27 32-slot
+gate below. The historical replay remains retained as an earlier RTL-only
+record; current capacity and P&R evidence is recorded in the Task 6 section.
 Task 7 Potts commit evidence: the standalone fixed-point commit FSM and Python
 reference cover a 128-tick contour, A-minor pentatonic candidates, minimum
 segment length, rest masking, bounded event RAM, backtrace-valid completion,
 and held output backpressure. The measurement script reports the observed RTL
 cycle count; the 41 us design figure remains an estimate until a device-level
-timing run.
+timing run. The top now captures NOTE_ON pitch values indexed by recorded tick
+from the recorder holding register into `potts_contour[0:127]`, so the COMMIT
+input is no longer structurally tied to an all-zero contour. `USE_POTTS` remains
+disabled in the default top regression, and no real-contour top P&R or boundary
+timeout measurement has been claimed.
+
+The follow-up top regression `scripts/test_v2_top_potts.ps1` now measures
+`busy_cycles=1,868,573` for the current eight-event real-recorder contour,
+with `backtrace_valid=1`, `overflow=0`, and one emitted event. While the DP is
+busy it accepts a read-only UART status frame and the independent `sample_index`
+continues to advance. The DPB-backed store remains boundary-gated, so the test
+forces a loop boundary only after Potts completion before checking publication.
+
+Both V2 store implementations now implement a contract-aligned boundary timeout:
+the default is 3,400,000,000 100 MHz cycles (34 seconds), timeout clears only
+the shadow metadata, retains the active bank, leaves `commit_ack` low, and
+latches `commit_timeout`/`commit_wait_cycles`; ABORT clears the pending request
+and diagnostics. `scripts/test_v2_loop_store_timeout.ps1` passes with an
+eight-cycle override, and `scripts/test_v2_top_commit_timeout.ps1` passes with
+a 300,000-cycle override while the top sample scheduler remains live. This is
+RTL/simulation evidence; routed 100 MHz Potts timing and board measurements are
+still open.
 
 ## Task 8 voice-engine evidence (2026-10-26)
 
@@ -408,3 +421,179 @@ Focused evidence:
 Task 9's standalone storage/FX stop gate is satisfied at reduced FX level
 (chorus absent, one comb retained). The final V2 top still needs its own I/O,
 timing and board evidence in Task 12.
+
+## Task 1 contract increment — 2026-10-27
+
+The remaining Task 1 interface deltas are now frozen in
+`docs/v2-fpga-contract-2026-10-25.md`, `tools/v2_contract.py`, and
+`rtl/v2_contract_pkg.sv`. The increment covers two banks × six tracks × 32
+96-bit slots, five-bit slot addresses, six-bit per-track counts, a 16-bit voice
+steal counter with the released/oldest/velocity/voice-ID priority order, the
+N-tone selector and 1–32 count range, the `WT_SELECT` band[11:9]/octave[15:12]
+packing, and the phase/delta-cents vibrato readback masks.
+
+Reproducible checks from the current source:
+
+```text
+python -m unittest tools.test_v2_contract -v
+Ran 12 tests ... OK
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_contract.ps1
+V2 contract PASS; layout and width mutations rejected
+```
+
+This closes the Task 1 contract-increment stop gate. It does not claim that
+the downstream loop store, voice engine, test mode, wavetable loader, or top
+level CSR consumers already implement these newly frozen fields.
+
+## Task 6 32-slot Loop storage and boundary gate — 2026-10-27
+
+The V2 loop interfaces are now width-consistent: two banks × six tracks × 32
+96-bit slots, 5-bit slot/read indices, six-bit per-track counts, a 36-bit
+packed `record_count`, and a 192-slot copy boundary. The portable
+`rtl/v2_loop_event_store.sv`, `rtl/v2_loop_event_recorder.sv`, and
+`rtl/v2_loop_scheduler.sv` no longer use the old 16-slot/4-bit/5-bit boundary.
+The V1 `loop_event_store.sv` path was not changed.
+
+The fresh command
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_loop_transactions.ps1`
+reports PASS for the portable recorder test, the recorder→store→scheduler
+transaction test, and the official GW5A `prim_sim.v` test of
+`rtl/v2_loop_event_store_dpb.sv`. The vectors fill all 32 slots, reject and
+latch the 33rd append as overflow, read and schedule slot 31, hold scheduler
+output under backpressure, publish a COMMIT only at the boundary, and preserve
+the active bank across PREPARE_RECORD/ABORT. The recorder test also reads back
+its local slot 31 and checks its six-bit count.
+
+The independent physical probe is
+`impl/v2_loop_transactions_probe_20261027/`, reproduced by
+`scripts/synth_v2_loop_transactions_probe.tcl` through the licensed Gowin
+wrapper. It uses six explicit 16-bit DPB lanes in
+`rtl/v2_loop_event_store_dpb.sv` and a 100 MHz `clk_sys_100m` constraint on
+`GW5A-LV25MG121NES`. The routed report records actual Fmax **109.898 MHz**,
+setup and hold violated endpoints **0/0**, setup and hold TNS **0.000/0.000 ns**,
+worst setup slack **+0.901 ns**, **889 logic**, **317 logic FF**, **6 DPB**, and
+**15 constrained I/O**. The probe bitstream
+`impl/v2_loop_transactions_probe_20261027/impl/pnr/v2_loop_transactions_probe.fs`
+has SHA-256
+`776BF548924AA33B8B80B4CFE79C45DD559B197AB57FF6F21BA258E8DDC05C2F`.
+
+This is scoped storage/scheduler evidence. The physical probe has compact
+diagnostic ports and does not include the final MGC3130 reader, voice engine,
+Potts, I2S, UART/telemetry, or board wiring. The production `mgc3130_v2_top`
+now selects the DPB wrapper; its top-level ModelSim regression is recorded
+below. A final top P&R is still required before Task 12 can close.
+
+The timeout-counter RTL added after that probe was not assigned a new physical
+artifact: rerunning
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 -TclScript scripts/synth_v2_loop_transactions_probe.tcl`
+on the current source exited with code 1 before `gw_sh.exe` emitted Tcl output.
+The hash and timing numbers above therefore remain historical pre-timeout probe
+evidence and are not reused as a current-source timing claim.
+
+## DPB-backed V2 top integration — 2026-10-27
+
+`rtl/mgc3130_v2_top.sv` now instantiates `v2_loop_event_store_dpb.sv`, and
+`scripts/test_v2_top.ps1` compiles that source instead of the portable store.
+The regression still exercises UART mode/track/record/commit controls, a real
+recorder write, boundary-gated bank publication, PLAY scheduling and voice
+allocation. The original fixed 1,000-cycle PLAY window was too short for the
+DPB synchronous read latency; the test now holds `sample_index=0` until
+`voice_bitmap` becomes nonzero, with a 4,000-cycle timeout. The fresh run
+reports `tb_mgc3130_v2_top PASS samples=55`.
+
+The failure investigation also checked the DPB lane data at track 2/slot 0:
+the recorded word `0a00013c6400000000000000` was returned with
+`read_slot_valid=1`, so the corrected test is a latency-alignment fix rather
+than a storage-data workaround. This is top-level simulation evidence only;
+the current Gowin scripts still use diagnostic probe tops and do not close
+full-path timing or board validation.
+
+## Task 7 top-level Potts contour measurement — 2026-10-27
+
+`scripts/test_v2_top_potts.ps1` runs `mgc3130_v2_top` with `USE_POTTS=1` and
+the DPB-backed loop store. It injects eight NOTE_ON events with increasing
+ticks through the recorder, verifies that the recorder writes those values
+into the top-level contour holding bank, then triggers COMMIT. The run reports
+`tb_mgc3130_v2_top_potts PASS busy_cycles=1868573 events=1`, with
+`backtrace_valid=1` and `overflow=0`. The store's `commit_pending` remains set
+until the test supplies a loop boundary, after which `loop_active_valid` is
+published.
+
+The measured cycle count is a simulation-domain budget for the current FSM;
+it is not a 100 MHz routed result. The rest mask remains empty and the top
+still defaults `USE_POTTS=0`; routed 100 MHz timing, non-empty rest-mask policy,
+and board evidence remain open. Boundary timeout/pending behavior is now
+explicit and covered by the dedicated short-cycle regressions above.
+
+## Task 2.5 audio smoke gate — 2026-10-27
+
+The independent early audio slice is now implemented in
+`rtl/v2_audio_smoke_top.sv`, with the replay in `sim/tb_v2_audio_smoke.sv` and
+the reproducible command `scripts/test_v2_audio_smoke.ps1`. A fresh run reports
+`tb_v2_audio_smoke PASS`; the checks cover PLL lock/reset, fractional 48 kHz
+sample cadence, 30,720 BCLK edges, 480 LRCK rising edges, and the fixed DDS
+sample sequence (`samples=479`, `i2083=319`, `i2084=159`). This slice uses one
+100 MHz PLL clock and a `sample_ce`; it does not create a second free-running
+audio clock and is not the final V2 top.
+
+The source-matched Gowin run is `impl/v2_audio_smoke_20261027/`, reproduced with
+the licensed CLI wrapper and the current `mgc3130_v2_audio_smoke.cst/.sdc`.
+The P&R report identifies device `GW5A-LV25MG121NES`, 50 MHz `clk_50m` into
+one PLLA, generated 100 MHz clock, and constrained ports E1/L2/G1/L3/C2. The
+timing report records actual Fmax **137.296 MHz** for the 100 MHz generated
+clock, setup and hold violated endpoints **0/0**, setup and hold TNS
+**0.000/0.000 ns**, and worst setup slack **+2.716 ns**. Resource usage is
+**187 logic** (156 LUT + 31 ALU), **126 FF**, **5 I/O**, and **1 PLLA**.
+The generated bitstream is
+`impl/v2_audio_smoke_20261027/impl/pnr/v2_audio_smoke.fs` with SHA-256
+`4641A8C3C1CF28AD62B1C95C59753D3BD56B2BA7F862563A0F5CF9F5D8936A24`.
+
+An earlier attempt using the board-labelled E2 input did not produce a legal
+PLLA path: Gowin reported `PR2028 constrained location is useless` and
+`PR2017 clk_50m cannot be placed ... dedicated pin (CPU/SSPI)`. E1 is therefore
+the reproducible package-legal input for this smoke top. The board-level E2
+oscillator allocation remains unresolved, and no DAC-side capture has been
+performed. This closes the smoke simulation, I/O-constraint, and independent
+P&R gate only; it is not board-level audio evidence and does not close Task 12.
+
+## Task 8 voice-steal/vibrato continuation — 2026-10-28
+
+The previous banked replay failure was root-caused before changing the oracle.
+The steal hold counter was decremented with the unsynchronised `rd_releasing`
+flag rather than the release flag belonging to `calc_slot`, so it advanced only
+when two pipeline addresses happened to coincide. While the hold remained set,
+the release envelope could also subtract below zero and wrap to `16'hFFFF`.
+`rtl/v2_voice_engine_banked.sv` now carries `calc_releasing` through the compute
+pipeline, uses a 16-bit hold for eight complete 32-slot passes, clamps the quiet
+release tail at zero, and writes the pending note on the same edge that retires
+the victim. This keeps the final victim sample intact and publishes the reused
+slot at the expected sample boundary.
+
+The current source passes the following checks:
+
+```text
+python -m unittest tools.test_v2_voice_vectors -v
+Ran 8 tests ... OK
+
+python -m unittest discover -s tools -p 'test_*.py'
+Ran 174 tests ... OK
+
+scripts/test_v2_voice_engine_banked.ps1
+V2 voice engine simulation PASS
+
+scripts/test_v2_voice_banked.ps1
+tb_v2_voice_replay PASS rows=1827 samples=1784 ram=0 tolerance=1LSB
+tb_v2_voice_replay PASS rows=1827 samples=1784 ram=1 tolerance=1LSB
+
+git diff --check
+```
+
+The replay covers deterministic released/oldest/velocity/voice-ID selection,
+bounded steal-release, pending activation, revoice, ADSR, detune, vibrato,
+saturation, all-notes-off, scan-boundary backpressure and both portable and
+GW5A DPB state-bank models. The fresh command
+`scripts/run_gowin_cli.ps1 -TclScript scripts/synth_v2_voice_engine_banked_20261026.tcl`
+against this post-fix source exits with code 1 before `gw_sh.exe` emits Tcl
+output. Therefore the 2026-10-26 routed voice artifacts and their Fmax/slack
+values are retained as historical evidence only; they do not close the current
+source's 100 MHz P&R gate. Final V2 top timing and board evidence remain open.
