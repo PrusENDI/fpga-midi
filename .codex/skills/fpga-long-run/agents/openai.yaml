@@ -1,0 +1,7 @@
+interface:
+  display_name: "FPGA Long-Run"
+  short_description: "轻量 FPGA 长流程 checkpoint 与验收"
+  default_prompt: "Use $fpga-long-run to run this FPGA task with lightweight checkpoints and fresh evidence."
+
+policy:
+  allow_implicit_invocation: false
