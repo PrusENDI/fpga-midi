@@ -20,6 +20,16 @@ and V2 board P&R Tcl entry points: both `-use_sspi_as_gpio 1` and
 result is still pending; the earlier E1 audio-smoke result remains the only
 package-legal clock evidence.
 
+The Top CSR phase now instantiates the patch bank and wavetable loader and
+routs PATCH/WT selector, data, CRC, APPLY, status, version and synchronous read
+responses through the V2 UART boundary. Fresh gates pass:
+`scripts/test_v2_top.ps1`, `scripts/test_v2_patch_bank.ps1`,
+`scripts/test_v2_wavetable_fx.ps1`, and the Python suite (`175 tests`). The top
+smoke covers patch shadow readback and incomplete APPLY errors, plus WT selector
+metadata, partial-upload status and incomplete APPLY errors. Complete WT active
+sample readback remains covered by the standalone 1024-sample gate; final top
+FX enable, telemetry TX and current-source P&R remain open.
+
 ## 2026-10-28 — pre-Task-8.5 checkpoint
 
 The V2 contract is frozen for 32-slot/two-bank Loop storage, 16-bit voice-steal

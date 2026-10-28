@@ -13,6 +13,7 @@ module v2_patch_bank #(
     input logic [7:0] select_index,
     input logic write_valid, output logic write_ready, input logic signed [31:0] write_value,
     output logic signed [31:0] active_value,
+    output logic signed [31:0] shadow_value,
     input logic crc_valid, input logic [15:0] expected_crc,
     input logic apply_valid, output logic apply_ready, input logic [15:0] expected_version,
     input logic idle, input logic loop_boundary,
@@ -91,10 +92,15 @@ module v2_patch_bank #(
         end
     endfunction
 
+    logic shadow_user_rd_en;
     assign active_rd_en = rst_n && (select_family < 4) &&
                           (select_track < 8) && (select_index < 32);
     assign active_rd_addr = make_addr(select_family, select_track, select_index);
     assign active_value = active_rd_en ? active_rd_data : 32'sd0;
+    assign shadow_user_rd_en = rst_n && (state == S_IDLE) &&
+                               (select_family < 4) && (select_track < 8) &&
+                               (select_index < 32);
+    assign shadow_value = shadow_user_rd_en ? shadow_rd_data : 32'sd0;
 
     assign write_ready = rst_n && (state == S_IDLE) &&
                          (select_family < 4) && (select_track < 8) &&
@@ -106,10 +112,14 @@ module v2_patch_bank #(
     assign shadow_wr_en = write_valid && write_ready;
     assign shadow_wr_addr = make_addr(select_family, select_track, select_index);
     assign shadow_wr_data = write_value;
-    assign shadow_rd_en = (state == S_CRC) || (state == S_COPY);
-    assign shadow_rd_addr = make_addr(pending_family, pending_track,
-                                      ((state == S_CRC) ? scan_index : copy_index) +
-                                      (rd_pending ? 1'b1 : 1'b0));
+    assign shadow_rd_en = shadow_user_rd_en || (state == S_CRC) || (state == S_COPY);
+    assign shadow_rd_addr = (state == S_CRC) ?
+                            make_addr(pending_family, pending_track,
+                                      scan_index + (rd_pending ? 1'b1 : 1'b0)) :
+                            (state == S_COPY) ?
+                            make_addr(pending_family, pending_track,
+                                      copy_index + (rd_pending ? 1'b1 : 1'b0)) :
+                            make_addr(select_family, select_track, select_index);
     assign active_wr_en = (state == S_COPY) && rd_pending;
     assign active_wr_addr = make_addr(pending_family, pending_track, copy_index);
     assign active_wr_data = shadow_rd_data;

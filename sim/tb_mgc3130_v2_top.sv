@@ -109,6 +109,38 @@ module tb_mgc3130_v2_top;
         $display("top cmd=%b op=%h addr=%h data=%h mode=%h err=%h", dut.cmd_valid, dut.cmd_op, dut.cmd_address, dut.cmd_data, dut.mode_reg, dut.protocol_error);
         if (dut.mode_reg !== 3'd1) $fatal(1, "MODE write did not reach V2 top");
 
+        // PATCH CSR smoke: select one parameter, write/read its shadow value,
+        // observe dirty status, then verify incomplete APPLY is reported.
+        inject_control(8'h02, 8'h48, 8'h29, 32'h00000000); // family 0, track 0, index 0
+        inject_control(8'h02, 8'h4c, 8'h2a, 32'h0000007b);
+        inject_control(8'h01, 8'h4c, 8'h2b, 32'h00000000);
+        if (dut.rsp_data !== 32'h0000007b || dut.rsp_error !== 8'h00)
+            $fatal(1, "PATCH shadow readback mismatch data=%h err=%h", dut.rsp_data, dut.rsp_error);
+        inject_control(8'h01, 8'h54, 8'h2c, 32'h00000000);
+        if (dut.rsp_data[16] !== 1'b1)
+            $fatal(1, "PATCH status did not report shadow dirty: %h", dut.rsp_data);
+        inject_control(8'h02, 8'h5c, 8'h2d, 32'h80000000);
+        if (dut.rsp_error !== 8'h09)
+            $fatal(1, "PATCH incomplete APPLY was silently accepted: err=%h", dut.rsp_error);
+
+        // WT CSR smoke: upload one sample through the top boundary, observe
+        // the active/shadow status, and reject an incomplete table APPLY.
+        // WT_DATA reads the active bank; active sample readback is covered by
+        // the complete-table standalone gate because this upload is partial.
+        inject_control(8'h02, 8'h60, 8'h2e, 32'h00002300); // table A, bank/band/octave metadata
+        inject_control(8'h01, 8'h60, 8'h2f, 32'h00000000);
+        if (dut.rsp_data[1:0] !== 2'd0 || dut.rsp_data[8] !== 1'b1 ||
+            dut.rsp_data[9] !== 1'b1 || dut.rsp_data[15:12] !== 4'd2)
+            $fatal(1, "WT selector readback mismatch data=%h", dut.rsp_data);
+        inject_control(8'h02, 8'h64, 8'h30, 32'h00000000); // sample 0
+        inject_control(8'h02, 8'h68, 8'h31, 32'h00001234);
+        inject_control(8'h01, 8'h7c, 8'h32, 32'h00000000);
+        if (dut.rsp_data[16] !== 1'b0 || dut.rsp_data[17] !== 1'b0 || dut.rsp_error !== 8'h00)
+            $fatal(1, "WT partial status mismatch data=%h err=%h", dut.rsp_data, dut.rsp_error);
+        inject_control(8'h02, 8'h78, 8'h33, 32'h80000000);
+        if (dut.rsp_error !== 8'h0a)
+            $fatal(1, "WT incomplete APPLY was silently accepted: err=%h", dut.rsp_error);
+
         // Selector-1 N-tone control must reach the final top and produce an
         // audio sample at the I2S boundary without allocating a voice.
         inject_control(8'h02, 8'ha0, 8'h26, 32'h00000101);

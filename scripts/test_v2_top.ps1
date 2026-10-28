@@ -17,6 +17,7 @@ try {
       (Join-Path $projectRoot 'rtl/v2_loop_scheduler.sv'), (Join-Path $projectRoot 'rtl/v2_potts_commit_fsm.sv'),
       (Join-Path $projectRoot 'rtl/v2_note_increment_rom.sv'), (Join-Path $projectRoot 'rtl/v2_voice_state_bank.sv'),
       (Join-Path $projectRoot 'rtl/v2_voice_engine_banked.sv'), (Join-Path $projectRoot 'rtl/v2_fx_lite.sv'),
+      (Join-Path $projectRoot 'rtl/v2_patch_bank.sv'), (Join-Path $projectRoot 'rtl/v2_wavetable_loader.sv'),
       (Join-Path $projectRoot 'rtl/v2_test_mode.sv'),
       (Join-Path $projectRoot 'rtl/v2_clock_gen.sv'), (Join-Path $projectRoot 'rtl/v2_reset_sync.sv'),
       (Join-Path $projectRoot 'rtl/v2_sample_scheduler.sv'), (Join-Path $projectRoot 'rtl/i2s_pcm5102a_tx.sv'),

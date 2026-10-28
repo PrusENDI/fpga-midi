@@ -5,7 +5,7 @@ module tb_v2_patch_bank;
     logic [2:0] select_track = 0;
     logic [7:0] select_index = 0;
     logic write_valid = 0, write_ready;
-    logic signed [31:0] write_value = 0, active_value;
+    logic signed [31:0] write_value = 0, active_value, shadow_value;
     logic crc_valid = 0;
     logic [15:0] expected_crc = 16'hffff;
     logic apply_valid = 0, apply_ready;

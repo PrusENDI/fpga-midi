@@ -445,6 +445,76 @@ module mgc3130_v2_top #(
         .rsp_terminal(rsp_terminal), .tx_valid(v2_tx_valid), .tx_ready(v2_tx_ready), .tx_byte(v2_tx_byte),
         .rx_busy(), .tx_busy(), .protocol_error(protocol_error)
     );
+
+    // Indexed PATCH CSR state.  Selector and expected CRC/version registers
+    // live at the top-level command boundary; the bank owns shadow/active
+    // storage and its asynchronous APPLY/CRC state machine.
+    logic [1:0] patch_select_family;
+    logic [2:0] patch_select_track;
+    logic [7:0] patch_select_index;
+    logic [15:0] patch_expected_crc, patch_apply_version;
+    logic patch_write_valid, patch_write_ready;
+    logic signed [31:0] patch_write_value, patch_active_value, patch_shadow_value;
+    logic patch_crc_valid, patch_apply_valid, patch_apply_ready;
+    logic [15:0] patch_active_version;
+    logic patch_shadow_dirty, patch_crc_ok, patch_apply_busy;
+    logic [7:0] patch_last_error;
+    v2_patch_bank #(.USE_GOWIN_RAM(USE_GOWIN_RAM)) u_patch_bank (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n),
+        .select_family(patch_select_family), .select_track(patch_select_track),
+        .select_index(patch_select_index), .write_valid(patch_write_valid),
+        .write_ready(patch_write_ready), .write_value(patch_write_value),
+        .active_value(patch_active_value), .shadow_value(patch_shadow_value),
+        .crc_valid(patch_crc_valid),
+        .expected_crc(patch_crc_valid ? cmd_data[15:0] : patch_expected_crc),
+        .apply_valid(patch_apply_valid), .apply_ready(patch_apply_ready),
+        .expected_version(patch_apply_valid ? cmd_data[15:0] : patch_apply_version),
+        .idle((mode_reg == IDLE) && !recording), .loop_boundary(loop_boundary),
+        .active_version(patch_active_version), .shadow_dirty(patch_shadow_dirty),
+        .crc_ok(patch_crc_ok), .apply_busy(patch_apply_busy), .last_error(patch_last_error)
+    );
+
+    // Wavetable CSR state is wired in the same boundary.  The audio path does
+    // not consume these tables yet; the loader remains independently
+    // addressable for upload/readback/APPLY smoke and future voice hookup.
+    logic [1:0] wt_select_table;
+    logic wt_select_bank, wt_select_band;
+    logic [3:0] wt_select_octave;
+    logic [9:0] wt_select_index;
+    logic signed [15:0] wt_write_sample, wt_read_sample;
+    logic [15:0] wt_length, wt_expected_crc, wt_apply_version;
+    logic wt_write_valid, wt_write_ready, wt_crc_valid, wt_apply_valid, wt_apply_ready;
+    logic wt_active_valid, wt_shadow_valid, wt_apply_busy, wt_crc_error;
+    logic [15:0] wt_active_version;
+    logic [1:0] wt_active_table;
+    v2_wavetable_loader #(.TABLES(3), .SAMPLES(1024), .USE_GOWIN_RAM(USE_GOWIN_RAM)) u_wavetable_loader (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .wt_write_valid(wt_write_valid),
+        .wt_write_ready(wt_write_ready), .wt_table(wt_select_table), .wt_index(wt_select_index),
+        .wt_write_sample(wt_write_sample), .wt_crc_valid(wt_crc_valid),
+        .wt_expected_crc(wt_expected_crc), .wt_apply_valid(wt_apply_valid),
+        .wt_apply_ready(wt_apply_ready), .wt_apply_table(wt_select_table),
+        .wt_apply_version(wt_apply_version), .loop_boundary(loop_boundary),
+        .idle((mode_reg == IDLE) && !recording), .wt_read_table(wt_select_table),
+        .wt_read_index(wt_select_index), .wt_read_sample(wt_read_sample),
+        .wt_active_valid(wt_active_valid), .wt_shadow_valid(wt_shadow_valid),
+        .wt_apply_busy(wt_apply_busy), .wt_crc_error(wt_crc_error),
+        .wt_active_version(wt_active_version), .wt_active_table(wt_active_table)
+    );
+
+    assign patch_write_value = $signed(cmd_data);
+    assign wt_write_sample = $signed(cmd_data[15:0]);
+    assign patch_write_valid = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
+                               (cmd_address == V2_CSR_PATCH_SHADOW_DATA);
+    assign patch_crc_valid = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
+                             (cmd_address == V2_CSR_PATCH_CRC);
+    assign patch_apply_valid = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
+                               (cmd_address == V2_CSR_PATCH_APPLY);
+    assign wt_write_valid = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
+                            (cmd_address == V2_CSR_WT_DATA);
+    assign wt_crc_valid = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
+                          (cmd_address == V2_CSR_WT_CRC);
+    assign wt_apply_valid = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
+                            (cmd_address == V2_CSR_WT_APPLY);
     // The current implementation owns TEST_SELECT_0 only.  Other A0..AF
     // channels remain reserved for future diagnostic blocks.
     assign test_csr_valid = cmd_valid && cmd_ready &&
@@ -462,20 +532,44 @@ module mgc3130_v2_top #(
         .sample_counter(test_sample_counter), .test_active(test_active),
         .fault(test_fault)
     );
-    assign cmd_ready = !loop_ctrl_pending;
+    // Keep commands queued while a loop control operation or table APPLY is
+    // busy.  Reads remain available during APPLY so software can observe the
+    // status; writes are held until the owning bank returns to S_IDLE.
+    assign cmd_ready = !loop_ctrl_pending &&
+                       !((cmd_op == V2_OP_WRITE) &&
+                         (patch_apply_busy || wt_apply_busy));
     wire status_fault = (protocol_error != V2_ERR_NONE) || (record_fault != 8'd0) ||
                         loop_commit_timeout || test_fault;
     logic test_response_pending;
     logic [7:0] test_response_sequence;
+    logic csr_read_pending;
+    logic [7:0] csr_read_sequence, csr_read_address;
+    logic patch_apply_response_pending;
+    logic [7:0] patch_apply_response_sequence;
+    logic patch_apply_response_valid;
+    logic wt_apply_response_pending;
+    logic [7:0] wt_apply_response_sequence;
+    logic wt_apply_response_valid;
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
         if (!rst_sys_n) begin
             mode_reg <= IDLE; rsp_valid <= 0; rsp_sequence <= 0; rsp_status <= 0;
             rsp_error <= V2_ERR_NONE; rsp_data <= 0; rsp_terminal <= 1'b1;
             record_start <= 0; record_stop <= 0; record_abort <= 0; potts_start <= 0;
             selected_track <= 3'd0;
+            patch_select_family <= 2'd0; patch_select_track <= 3'd0;
+            patch_select_index <= 8'd0; patch_expected_crc <= 16'hffff;
+            patch_apply_version <= 16'd0;
+            wt_select_table <= 2'd0; wt_select_bank <= 1'b0; wt_select_band <= 1'b0;
+            wt_select_octave <= 4'd0; wt_select_index <= 10'd0; wt_length <= 16'd1024;
+            wt_expected_crc <= 16'hffff; wt_apply_version <= 16'd0;
             loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
             loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;
             test_response_pending <= 1'b0; test_response_sequence <= 8'd0;
+            csr_read_pending <= 1'b0; csr_read_sequence <= 8'd0; csr_read_address <= 8'd0;
+            patch_apply_response_pending <= 1'b0; patch_apply_response_sequence <= 8'd0;
+            patch_apply_response_valid <= 1'b0;
+            wt_apply_response_pending <= 1'b0; wt_apply_response_sequence <= 8'd0;
+            wt_apply_response_valid <= 1'b0;
         end else begin
             rsp_valid <= 1'b0; record_start <= 1'b0; record_stop <= 1'b0;
             record_abort <= 1'b0; potts_start <= 1'b0;
@@ -488,6 +582,65 @@ module mgc3130_v2_top #(
                 rsp_data <= test_csr_rdata;
                 rsp_terminal <= 1'b1;
                 test_response_pending <= 1'b0;
+            end
+            // All CSR reads are returned on the cycle after acceptance.  The
+            // table memories are synchronous, so this prevents a read reply
+            // from exposing the previous address/data word.
+            if (csr_read_pending) begin
+                rsp_valid <= 1'b1;
+                rsp_sequence <= csr_read_sequence;
+                rsp_status <= V2_ACK_ACCEPTED;
+                rsp_error <= V2_ERR_NONE;
+                rsp_terminal <= 1'b1;
+                case (csr_read_address)
+                    V2_CSR_STATUS: rsp_data <= {22'd0, status_fault, loop_active_valid,
+                                                 5'd0, mode_reg[2:0]};
+                    V2_CSR_PATCH_SELECT: rsp_data <= {16'd0, patch_select_index, 3'd0,
+                                                       patch_select_track, patch_select_family};
+                    V2_CSR_PATCH_SHADOW_DATA: rsp_data <= patch_shadow_value;
+                    V2_CSR_PATCH_ACTIVE_DATA: rsp_data <= patch_active_value;
+                    V2_CSR_PATCH_STATUS: rsp_data <= {patch_last_error, 5'd0,
+                                                       patch_apply_busy, patch_crc_ok,
+                                                       patch_shadow_dirty, patch_active_version};
+                    V2_CSR_PATCH_CRC: rsp_data <= {16'd0, patch_expected_crc};
+                    V2_CSR_PATCH_APPLY: rsp_data <= 32'd0;
+                    V2_CSR_WT_SELECT: rsp_data <= {16'd0, wt_select_octave, 2'd0,
+                                                    wt_select_band, wt_select_bank,
+                                                    6'd0, wt_select_table};
+                    V2_CSR_WT_INDEX: rsp_data <= {22'd0, wt_select_index};
+                    V2_CSR_WT_DATA: rsp_data <= {16'd0, wt_read_sample};
+                    V2_CSR_WT_LENGTH: rsp_data <= {16'd0, wt_length};
+                    V2_CSR_WT_CRC: rsp_data <= {16'd0, wt_expected_crc};
+                    V2_CSR_WT_VERSION: rsp_data <= {16'd0, wt_apply_version};
+                    V2_CSR_WT_APPLY: rsp_data <= 32'd0;
+                    V2_CSR_WT_STATUS: rsp_data <= {wt_crc_error ? V2_ERR_WT_CRC : 8'd0,
+                                                    6'd0, wt_apply_busy, wt_shadow_valid,
+                                                    wt_active_version};
+                    default: rsp_data <= 32'd0;
+                endcase
+                csr_read_pending <= 1'b0;
+            end
+            if (patch_apply_response_pending) begin
+                rsp_valid <= 1'b1;
+                rsp_sequence <= patch_apply_response_sequence;
+                rsp_status <= V2_ACK_ACCEPTED;
+                rsp_error <= !patch_apply_response_valid ? V2_ERR_BAD_DATA :
+                             ((patch_last_error != V2_ERR_NONE) ? patch_last_error : V2_ERR_NONE);
+                rsp_data <= 32'd0;
+                rsp_terminal <= 1'b1;
+                patch_apply_response_pending <= 1'b0;
+                patch_apply_response_valid <= 1'b0;
+            end
+            if (wt_apply_response_pending) begin
+                rsp_valid <= 1'b1;
+                rsp_sequence <= wt_apply_response_sequence;
+                rsp_status <= V2_ACK_ACCEPTED;
+                rsp_error <= !wt_apply_response_valid ? V2_ERR_BAD_DATA :
+                             (wt_crc_error ? V2_ERR_WT_CRC : V2_ERR_NONE);
+                rsp_data <= 32'd0;
+                rsp_terminal <= 1'b1;
+                wt_apply_response_pending <= 1'b0;
+                wt_apply_response_valid <= 1'b0;
             end
             if (loop_probe_record_start) record_start <= 1'b1;
             if (loop_probe_record_stop) record_stop <= 1'b1;
@@ -503,13 +656,50 @@ module mgc3130_v2_top #(
                 if (test_csr_valid && (cmd_op == V2_OP_READ)) begin
                     test_response_pending <= 1'b1;
                     test_response_sequence <= cmd_sequence;
+                end else if (cmd_op == V2_OP_READ) begin
+                    csr_read_pending <= 1'b1;
+                    csr_read_sequence <= cmd_sequence;
+                    csr_read_address <= cmd_address;
+                end else if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_PATCH_APPLY) begin
+                    patch_apply_response_pending <= 1'b1;
+                    patch_apply_response_sequence <= cmd_sequence;
+                    patch_apply_response_valid <= patch_apply_ready;
+                end else if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_APPLY) begin
+                    wt_apply_response_pending <= 1'b1;
+                    wt_apply_response_sequence <= cmd_sequence;
+                    wt_apply_response_valid <= wt_apply_ready;
                 end else begin
                     rsp_valid <= 1'b1; rsp_sequence <= cmd_sequence; rsp_status <= V2_ACK_ACCEPTED;
-                    rsp_error <= V2_ERR_NONE;
+                    rsp_error <= ((cmd_address == V2_CSR_PATCH_SHADOW_DATA) && !patch_write_ready) ||
+                                 ((cmd_address == V2_CSR_WT_DATA) && !wt_write_ready)
+                                 ? V2_ERR_BAD_DATA : V2_ERR_NONE;
                     rsp_data <= (cmd_address == V2_CSR_STATUS) ?
                                 {22'd0, status_fault, loop_active_valid, 5'd0, mode_reg[2:0]} : 0;
                     rsp_terminal <= 1'b1;
                 end
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_PATCH_SELECT) begin
+                    patch_select_family <= cmd_data[1:0];
+                    patch_select_track <= cmd_data[4:2];
+                    patch_select_index <= cmd_data[15:8];
+                end
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_PATCH_CRC)
+                    patch_expected_crc <= cmd_data[15:0];
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_PATCH_APPLY)
+                    patch_apply_version <= cmd_data[15:0];
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_SELECT) begin
+                    wt_select_table <= cmd_data[1:0];
+                    wt_select_bank <= cmd_data[8];
+                    wt_select_band <= cmd_data[9];
+                    wt_select_octave <= cmd_data[15:12];
+                end
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_INDEX)
+                    wt_select_index <= cmd_data[9:0];
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_LENGTH)
+                    wt_length <= cmd_data[15:0];
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_CRC)
+                    wt_expected_crc <= cmd_data[15:0];
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_VERSION)
+                    wt_apply_version <= cmd_data[15:0];
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_TRACK)
                     selected_track <= cmd_data[2:0];
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_MODE) begin
