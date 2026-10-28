@@ -585,7 +585,7 @@ band/octave selector、最终 top 的非零 FX 接线、UART/CSR shadow/active �
 
 ## Task 12：独立 V2 top、综合、板级和验收
 
-**As-built status:** `rtl/mgc3130_v2_top.sv` 已存在，但当前参数化 top 默认 `USE_MGC_READER=0`、`USE_POTTS=0`，输入为 stub/idle，Potts contour 全零，FX 关闭，telemetry `frame_ready` 固定为 0。`scripts/test_v2_top.ps1` 的仿真因此只能证明 stub/default probe 路径；`scripts/synth_v2_top.tcl` 当前把 `v2_top_synth_probe` 设为综合 top，也不是最终 `mgc3130_v2_top` full-path P&R。下列步骤是把诊断 top 收敛为最终 top 的剩余工作。
+**As-built status:** `rtl/mgc3130_v2_top.sv` 已存在，但当前参数化 top 默认 `USE_MGC_READER=0`、`USE_POTTS=0`，输入为 stub/idle，Potts contour 全零，FX 关闭，telemetry `frame_ready` 固定为 0。A0 N-tone 已接入 UART/I2S smoke，STATUS 读回也会反映已激活的 Loop bank；其余诊断/默认路径仍未达到最终验收。`scripts/test_v2_top.ps1` 的仿真因此只能证明 stub/default probe 路径；`scripts/synth_v2_top.tcl` 当前把 `v2_top_synth_probe` 设为综合 top，也不是最终 `mgc3130_v2_top` full-path P&R。下列步骤是把诊断 top 收敛为最终 top 的剩余工作。
 
 **Files**
 - Existing diagnostic artifacts: rtl/mgc3130_v2_top.sv、scripts/synth_v2_top.tcl、scripts/test_v2_top.ps1、sim/tb_mgc3130_v2_top.sv、docs/v2-validation-report-2026-10-25.md、mgc3130_v2.sdc；这些文件需要扩展或重写证据，不得把当前 probe/default 结果直接标为最终通过。

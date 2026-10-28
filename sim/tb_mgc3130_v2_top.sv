@@ -142,6 +142,8 @@ module tb_mgc3130_v2_top;
         release dut.loop_boundary;
         repeat (4) @(posedge clk_50m);
         if (!dut.loop_active_valid) $fatal(1, "committed loop bank is not active");
+        inject_control(8'h01, 8'h00, 8'h28, 32'd0); // STATUS
+        if (dut.rsp_data[8] !== 1'b1) $fatal(1, "STATUS did not report active Loop bank");
         inject_control(8'h02, 8'h04, 8'h25, 32'd4); // PLAY
         force dut.sample_index = 32'd0;
         // The DPB-backed store has a synchronous read latency. Hold the

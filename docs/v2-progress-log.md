@@ -76,6 +76,14 @@ the final top timing and board gates remain open. All tracked
 `scripts/synth_v2_top*.tcl` manifests now include `rtl/v2_test_mode.sv`, so a
 future top synthesis cannot silently omit the newly instantiated module.
 
+## 2026-10-28 — Task 12 status readback checkpoint
+
+The top regression now reads `V2_CSR_STATUS` after a boundary commit and checks
+the contract's `active_valid` bit. The response mux reports mode, active Loop
+bank state and a combined protocol/recorder/timeout/test fault bit. This is a
+small top CSR slice only; POSITION/DIAG/PATCH/WT/TLM readback, PLAY/RESET/STOP,
+BPM timebase, telemetry TX and final top P&R/board evidence remain open.
+
 ## Git checkpoint policy
 
 Create a commit after each independently verified task or a material root-cause

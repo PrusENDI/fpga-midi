@@ -463,6 +463,8 @@ module mgc3130_v2_top #(
         .fault(test_fault)
     );
     assign cmd_ready = !loop_ctrl_pending;
+    wire status_fault = (protocol_error != V2_ERR_NONE) || (record_fault != 8'd0) ||
+                        loop_commit_timeout || test_fault;
     logic test_response_pending;
     logic [7:0] test_response_sequence;
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
@@ -503,7 +505,9 @@ module mgc3130_v2_top #(
                     test_response_sequence <= cmd_sequence;
                 end else begin
                     rsp_valid <= 1'b1; rsp_sequence <= cmd_sequence; rsp_status <= V2_ACK_ACCEPTED;
-                    rsp_error <= V2_ERR_NONE; rsp_data <= (cmd_address == V2_CSR_STATUS) ? mode_reg : 0;
+                    rsp_error <= V2_ERR_NONE;
+                    rsp_data <= (cmd_address == V2_CSR_STATUS) ?
+                                {22'd0, status_fault, loop_active_valid, 5'd0, mode_reg[2:0]} : 0;
                     rsp_terminal <= 1'b1;
                 end
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_TRACK)

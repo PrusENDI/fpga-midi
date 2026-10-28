@@ -587,6 +587,17 @@ than a storage-data workaround. This is top-level simulation evidence only;
 the current Gowin scripts still use diagnostic probe tops and do not close
 full-path timing or board validation.
 
+## Task 12 top CSR status increment — 2026-10-28
+
+The top smoke now reads `V2_CSR_STATUS` after boundary publication and checks
+that bit 8 (`active_valid`) is set while the committed Loop bank is active.
+The top response mux preserves `mode[2:0]`, reports `loop_active_valid`, and
+sets the contract fault bit when protocol, recorder, commit-timeout or test
+mode faults are present. This closes only the status readback slice; the
+remaining POSITION/DIAG/PATCH/WT/TLM registers, PLAY/RESET/STOP semantics,
+telemetry TX arbitration, BPM timing and final top P&R/board gates remain
+open.
+
 ## Task 7 top-level Potts contour measurement — 2026-10-27
 
 `scripts/test_v2_top_potts.ps1` runs `mgc3130_v2_top` with `USE_POTTS=1` and
