@@ -9,6 +9,26 @@ module tb_v2_contract;
         $bits(v2_telemetry_t) != 144) $fatal(1, "type width mismatch");
     if (V2_CONTROL_BYTES != 11 || V2_TELEMETRY_BYTES != 22)
       $fatal(1, "wire length mismatch");
+    if (V2_LOOP_BANKS != 2 || V2_LOOP_TRACKS != 6 ||
+        V2_LOOP_SLOTS_PER_TRACK != 32 || V2_LOOP_SLOT_BITS != 5 ||
+        V2_LOOP_COUNT_BITS != 6 || V2_LOOP_TOTAL_SLOTS != 192)
+      $fatal(1, "loop capacity contract mismatch");
+    if (V2_VOICE_COUNT != 32 || V2_OSCILLATORS_PER_VOICE != 2 ||
+        V2_VOICE_STEAL_COUNTER_BITS != 16 ||
+        V2_VOICE_STEAL_RELEASED != 0 || V2_VOICE_STEAL_OLDEST != 1 ||
+        V2_VOICE_STEAL_LOWEST_VELOCITY != 2 ||
+        V2_VOICE_STEAL_LOWEST_VOICE_ID != 3)
+      $fatal(1, "voice steal contract mismatch");
+    if (V2_TEST_SELECTOR_N_TONE != 8'd1 ||
+        V2_TEST_N_TONE_COUNT_MIN != 1 || V2_TEST_N_TONE_COUNT_MAX != 32 ||
+        V2_TEST_N_TONE_COUNT_DEFAULT != 8)
+      $fatal(1, "N-tone selector contract mismatch");
+    if (V2_CSR_WT_SELECT_WRITE_MASK != 32'h0000FF07 ||
+        V2_WT_BAND_MAX != 7 || V2_WT_OCTAVE_MAX != 15)
+      $fatal(1, "wavetable selector contract mismatch");
+    if (V2_VIBRATO_READBACK_PHASE_MASK != 32'h0000FFFF ||
+        V2_VIBRATO_READBACK_DELTA_CENTS_MASK != 32'hFFFF0000)
+      $fatal(1, "vibrato readback contract mismatch");
     event_word = '0;
     event_word.event_type = V2_EV_NOTE_ON;
     event_word.track = 3'd5;
@@ -40,7 +60,7 @@ module tb_v2_contract;
       $fatal(1, "CSR access mismatch");
     for (address = 'hA0; address <= 'hAF; address = address + 1)
       if (v2_csr_access(address[7:0]) != V2_ACCESS_RW ||
-          v2_csr_write_mask(address[7:0]) != 32'hFFFFFFFF)
+        v2_csr_write_mask(address[7:0]) != 32'hFFFFFFFF)
         $fatal(1, "test selector access/mask mismatch at %h", address[7:0]);
     if (!v2_csr_data_valid(V2_CSR_MODE,32'd5) ||
         v2_csr_data_valid(V2_CSR_MODE,32'd6) ||
@@ -129,7 +149,7 @@ module tb_v2_contract;
         v2_csr_write_mask(V2_CSR_PATCH_APPLY) != 32'h8000FFFF)
       $fatal(1, "CSR access/mask mismatch: PATCH_APPLY");
     if (v2_csr_access(V2_CSR_WT_SELECT) != V2_ACCESS_RW ||
-        v2_csr_write_mask(V2_CSR_WT_SELECT) != 32'h00000107)
+        v2_csr_write_mask(V2_CSR_WT_SELECT) != 32'h0000FF07)
       $fatal(1, "CSR access/mask mismatch: WT_SELECT");
     if (v2_csr_access(V2_CSR_WT_INDEX) != V2_ACCESS_RW ||
         v2_csr_write_mask(V2_CSR_WT_INDEX) != 32'h0000FFFF)

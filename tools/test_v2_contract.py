@@ -14,7 +14,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(c.PATCH_PARAMETERS[(1, 0)].name, "NEUTRAL_X")
         self.assertEqual(c.CSR["TRACK"].write_mask, 0x7)
         self.assertEqual(c.CSR["PATCH_APPLY"].write_mask, 0x8000FFFF)
-        self.assertEqual(c.CSR["WT_SELECT"].write_mask, 0x107)
+        self.assertEqual(c.CSR["WT_SELECT"].write_mask, 0xFF07)
         for name, reg in c.CSR.items():
             key = "V2_CSR_TEST_SELECT_WRITE_MASK" if name.startswith("TEST_SELECT_") else f"V2_CSR_{name}_WRITE_MASK"
             self.assertEqual(c.SV_CONSTANTS[key], reg.write_mask)
@@ -29,6 +29,39 @@ class ContractTests(unittest.TestCase):
             q_code = 4 if parameter.q_format.startswith("UQ") else 3 if parameter.q_format.startswith("SQ") else 1
             self.assertEqual(c.SV_CONSTANTS[f"V2_PARAM_F{family}_I{index}_Q_CODE"], q_code)
             self.assertEqual(c.SV_CONSTANTS[f"V2_PARAM_F{family}_I{index}_GLOBAL"], int(parameter.scope == "global"))
+
+    def test_v2_capacity_voice_test_and_wavetable_extensions(self):
+        from tools import v2_contract as c
+        self.assertEqual(c.V2_LOOP_BANKS, 2)
+        self.assertEqual(c.V2_LOOP_TRACKS, 6)
+        self.assertEqual(c.V2_LOOP_SLOTS_PER_TRACK, 32)
+        self.assertEqual(c.V2_LOOP_SLOT_BITS, 5)
+        self.assertEqual(c.V2_LOOP_COUNT_BITS, 6)
+        self.assertEqual(c.V2_LOOP_TOTAL_SLOTS, 192)
+        self.assertEqual(c.V2_VOICE_COUNT, 32)
+        self.assertEqual(c.V2_OSCILLATORS_PER_VOICE, 2)
+        self.assertEqual(c.V2_VOICE_STEAL_COUNTER_BITS, 16)
+        self.assertEqual(c.V2_VOICE_STEAL_PRIORITY, (
+            c.V2_VOICE_STEAL_RELEASED,
+            c.V2_VOICE_STEAL_OLDEST,
+            c.V2_VOICE_STEAL_LOWEST_VELOCITY,
+            c.V2_VOICE_STEAL_LOWEST_VOICE_ID,
+        ))
+        self.assertEqual(c.V2_TEST_SELECTOR_N_TONE, 1)
+        self.assertEqual(c.V2_TEST_N_TONE_COUNT_MIN, 1)
+        self.assertEqual(c.V2_TEST_N_TONE_COUNT_MAX, 32)
+        self.assertEqual(c.V2_TEST_N_TONE_COUNT_DEFAULT, 8)
+        self.assertEqual(c.V2_WT_BAND_MAX, 7)
+        self.assertEqual(c.V2_WT_OCTAVE_MAX, 15)
+        self.assertEqual(c.encode_wavetable_select(c.V2_WT_B, 1, 7, 15), 0x0000FF01)
+        self.assertEqual(c.decode_wavetable_select(0x0000FF01),
+                         {"table_id": 1, "bank": 1, "band": 7, "octave": 15})
+        with self.assertRaises(ValueError):
+            c.encode_wavetable_select(c.V2_WT_A, 0, 8, 0)
+        with self.assertRaises(ValueError):
+            c.encode_wavetable_select(c.V2_WT_A, 0, 0, 16)
+        self.assertEqual(c.V2_VIBRATO_READBACK_PHASE_MASK, 0x0000FFFF)
+        self.assertEqual(c.V2_VIBRATO_READBACK_DELTA_CENTS_MASK, 0xFFFF0000)
 
     def test_signed_indexed_wire_round_trip(self):
         from tools import v2_contract as c

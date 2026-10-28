@@ -11,6 +11,8 @@ ATTACK_STEP = 4096
 DECAY_STEP = 256
 RELEASE_STEP = 1024
 DEFAULT_MIX = 128
+SAMPLE_HZ = 48_000
+STEAL_RELEASE_SAMPLES = 8
 
 
 def note_increment(note: int) -> int:
@@ -44,18 +46,82 @@ class Voice:
         self.target_a = 0
         self.target_b = 0
         self.gain = 0
+        self.velocity = 0
+        self.age = 0
+        self.steal_hold = 0
         self.mix_a = DEFAULT_MIX
         self.mix_b = DEFAULT_MIX
         self.env = 0
         self.stage = "attack"
+        self.vibrato_phase = 0
+        self.vibrato_delta_cents = 0
 
 
 class VoiceEngine:
-    def __init__(self, voices=32):
+    def __init__(self, voices=32, vibrato_hz_q8_8=0, vibrato_cents_q8_8=0):
         self.voices = [Voice() for _ in range(voices)]
         self.overflow = False
+        self.voice_steal_count = 0
         self.revoice_count = 0
         self.scan_base = 0
+        self.age_counter = 0
+        self.pending_steal_slot = -1
+        self.pending_note = 0
+        self.pending_velocity = 0
+        self.pending_pitch_mod = 0
+        self.pending_timbre_mod = 0
+        self.pending_track = 0
+        self.pending_tick = 0
+        self.pending_duration = 0
+        self.pending_flags = 0
+        self.vibrato_hz_q8_8 = vibrato_hz_q8_8 & 0xFFFF
+        self.vibrato_cents_q8_8 = vibrato_cents_q8_8 & 0xFFFF
+
+    def _allocate(self, voice, note, velocity, pitch_mod, timbre_mod,
+                  track, tick, duration, flags):
+        base = note_increment(note)
+        voice.active = True
+        voice.releasing = False
+        voice.note = note & 0xFF
+        voice.track = track & 0x7
+        voice.tick = tick & 0xFF
+        voice.duration = duration & 0xFF
+        voice.flags = flags & 0xFF
+        voice.phase_a = 0
+        voice.phase_b = 0
+        voice.increment_a = base
+        voice.increment_b = base
+        voice.target_a = self._apply_delta(base, pitch_mod)
+        voice.target_b = self._apply_delta(base, -pitch_mod)
+        voice.gain = velocity & 0xFF
+        voice.velocity = velocity & 0xFF
+        voice.age = self.age_counter
+        self.age_counter = (self.age_counter + 1) & 0xFFFF
+        voice.steal_hold = 0
+        if timbre_mod:
+            voice.mix_a = (timbre_mod >> 8) & 0xFF
+            voice.mix_b = timbre_mod & 0xFF
+        else:
+            voice.mix_a = DEFAULT_MIX
+            voice.mix_b = DEFAULT_MIX
+        voice.env = 0
+        voice.stage = "attack"
+        voice.vibrato_phase = 0
+        voice.vibrato_delta_cents = 0
+
+    def _select_steal_slot(self):
+        candidates = [v for v in self.voices if v.active]
+        if not candidates:
+            return -1
+        return min(
+            (index for index, voice in enumerate(self.voices) if voice.active),
+            key=lambda index: (
+                0 if self.voices[index].releasing else 1,
+                self.voices[index].age,
+                self.voices[index].velocity,
+                index,
+            ),
+        )
 
     @staticmethod
     def _apply_delta(base: int, delta: int) -> int:
@@ -72,33 +138,33 @@ class VoiceEngine:
 
     def note_on(self, note, velocity=100, pitch_mod=0, timbre_mod=0,
                 track=0, tick=0, duration=0, flags=0):
-        voice = next((v for v in self.voices if not v.active), None)
-        if voice is None:
+        if self.pending_steal_slot >= 0:
+            return False
+        free_slot = next((index for index, v in enumerate(self.voices) if not v.active), None)
+        if free_slot is not None:
+            self._allocate(self.voices[free_slot], note, velocity, pitch_mod,
+                           timbre_mod, track, tick, duration, flags)
+            return True
+        steal_slot = self._select_steal_slot()
+        if steal_slot < 0:
             self.overflow = True
             return False
-        base = note_increment(note)
-        voice.active = True
-        voice.releasing = False
-        voice.note = note & 0xFF
-        voice.track = track & 0x7
-        voice.tick = tick & 0xFF
-        voice.duration = duration & 0xFF
-        voice.flags = flags & 0xFF
-        voice.phase_a = 0
-        voice.phase_b = 0
-        voice.increment_a = base
-        voice.increment_b = base
-        voice.target_a = self._apply_delta(base, pitch_mod)
-        voice.target_b = self._apply_delta(base, -pitch_mod)
-        voice.gain = velocity & 0xFF
-        if timbre_mod:
-            voice.mix_a = (timbre_mod >> 8) & 0xFF
-            voice.mix_b = timbre_mod & 0xFF
-        else:
-            voice.mix_a = DEFAULT_MIX
-            voice.mix_b = DEFAULT_MIX
-        voice.env = 0
-        voice.stage = "attack"
+        victim = self.voices[steal_slot]
+        victim.releasing = True
+        victim.stage = "release"
+        # The RTL updates one voice per sample scan, so a bounded eight-scan
+        # release takes eight complete voice passes in the sample-level model.
+        victim.steal_hold = STEAL_RELEASE_SAMPLES * len(self.voices)
+        self.pending_steal_slot = steal_slot
+        self.pending_note = note & 0xFF
+        self.pending_velocity = velocity & 0xFF
+        self.pending_pitch_mod = pitch_mod
+        self.pending_timbre_mod = timbre_mod
+        self.pending_track = track
+        self.pending_tick = tick
+        self.pending_duration = duration
+        self.pending_flags = flags
+        self.voice_steal_count += 1
         return True
 
     def note_off(self, note):
@@ -142,6 +208,17 @@ class VoiceEngine:
             attenuation += 1
         return raw >> attenuation
 
+    def _vibrato_phase_increment(self):
+        return (self.vibrato_hz_q8_8 * 65536) // (256 * SAMPLE_HZ)
+
+    def _vibrato_delta(self, phase):
+        lfo = ((phase >> 1) & 0x7FFF) - 16384
+        return (lfo * self.vibrato_cents_q8_8) >> 14
+
+    @staticmethod
+    def _vibrato_increment_delta(base, delta_cents_q8_8):
+        return (int(base) * int(delta_cents_q8_8)) // (1200 * 256)
+
     def sample(self):
         mixed = 0
         count = len(self.voices)
@@ -149,18 +226,17 @@ class VoiceEngine:
             voice = self.voices[(self.scan_base + offset) % count]
             if not voice.active:
                 continue
+            voice.vibrato_phase = (voice.vibrato_phase + self._vibrato_phase_increment()) & 0xFFFF
+            voice.vibrato_delta_cents = self._vibrato_delta(voice.vibrato_phase)
             mixed += self._oscillator(voice.phase_a, voice.stage, voice.gain, voice.mix_a)
             mixed += self._oscillator(voice.phase_b, voice.stage, voice.gain, voice.mix_b)
             voice.phase_a = (voice.phase_a + voice.increment_a) & PHASE_MASK
             voice.phase_b = (voice.phase_b + voice.increment_b) & PHASE_MASK
-            if voice.increment_a < voice.target_a:
-                voice.increment_a = min(voice.target_a, voice.increment_a + 512)
-            elif voice.increment_a > voice.target_a:
-                voice.increment_a = max(voice.target_a, voice.increment_a - 512)
-            if voice.increment_b < voice.target_b:
-                voice.increment_b = min(voice.target_b, voice.increment_b + 512)
-            elif voice.increment_b > voice.target_b:
-                voice.increment_b = max(voice.target_b, voice.increment_b - 512)
+            glide_a = self._bounded_step(voice.increment_a, voice.target_a)
+            glide_b = self._bounded_step(voice.increment_b, voice.target_b)
+            delta = self._vibrato_increment_delta(glide_a, voice.vibrato_delta_cents)
+            voice.increment_a = max(0, min(PHASE_MASK, glide_a + delta))
+            voice.increment_b = max(0, min(PHASE_MASK, glide_b - delta))
             if voice.stage == "attack":
                 voice.env += ATTACK_STEP
                 if voice.env >= 0xFFFF:
@@ -173,12 +249,21 @@ class VoiceEngine:
                 else:
                     voice.env -= DECAY_STEP
             elif voice.stage == "release":
-                if voice.env <= RELEASE_STEP:
+                if voice.steal_hold:
+                    voice.steal_hold -= 1
+                if voice.env <= RELEASE_STEP and voice.steal_hold == 0:
                     voice.env = 0
                     voice.active = False
                     voice.releasing = False
                     voice.stage = "attack"
                 else:
                     voice.env -= RELEASE_STEP
+        if self.pending_steal_slot >= 0 and not self.voices[self.pending_steal_slot].active:
+            self._allocate(self.voices[self.pending_steal_slot], self.pending_note,
+                           self.pending_velocity, self.pending_pitch_mod,
+                           self.pending_timbre_mod, self.pending_track,
+                           self.pending_tick, self.pending_duration,
+                           self.pending_flags)
+            self.pending_steal_slot = -1
         self.scan_base = (self.scan_base + 1) % count
         return max(-32768, min(32767, mixed))

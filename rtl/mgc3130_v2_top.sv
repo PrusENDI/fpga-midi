@@ -8,6 +8,10 @@
 module mgc3130_v2_top #(
     parameter integer USE_MGC_READER = 0,
     parameter integer UART_BAUD = 1_000_000,
+    // Loop commit waits for a musical boundary but must not remain queued
+    // forever. The contract allows 34 seconds at 100 MHz; short overrides are
+    // used by simulation to exercise the timeout path quickly.
+    parameter [31:0] BOUNDARY_TIMEOUT_CYCLES = 32'd3_400_000_000,
     // The board build uses the explicit GW5A DPB state bank. A portable
     // simulation can override this to 0 and exercise the same engine with
     // the RTL memory model.
@@ -23,7 +27,10 @@ module mgc3130_v2_top #(
     // Timing-only deterministic sensor activity. Production/board builds
     // leave this disabled and use the actual MGC3130 reader.
     parameter integer PRESERVE_INPUT_PLANE = 0,
-    parameter integer PRESERVE_INPUT_VALID = 0
+    parameter integer PRESERVE_INPUT_VALID = 0,
+    // Timing-probe-only Potts activity. Production builds keep this disabled;
+    // COMMIT through the V2 UART remains the normal start source.
+    parameter integer PRESERVE_POTTS_PLANE = 0
 ) (
     input  wire clk_50m,
     inout  wire mgc_sda,
@@ -247,7 +254,7 @@ module mgc3130_v2_top #(
     logic record_write_valid /* synthesis syn_keep=1 */;
     logic record_write_ready /* synthesis syn_keep=1 */;
     logic [15:0] record_count /* synthesis syn_keep=1 */;
-    logic [15:0] record_track_count [0:5] /* synthesis syn_keep=1 */;
+    logic [5:0] record_track_count [0:5] /* synthesis syn_keep=1 */;
     logic [7:0] record_fault /* synthesis syn_keep=1 */;
     logic record_left_edge, record_gate;
     logic recording /* synthesis syn_keep=1 */;
@@ -260,13 +267,13 @@ module mgc3130_v2_top #(
     wire loop_probe_record_start = (PRESERVE_LOOP_PLANE != 0) && (sample_index == 32'd16);
     wire loop_probe_record_stop = (PRESERVE_LOOP_PLANE != 0) && (sample_index == 32'd32);
     logic [95:0] recorder_event_data;
-    logic [3:0] recorder_write_slot;
+    logic [4:0] recorder_write_slot;
     assign recorder_event_data = {live_event_data[95:91], selected_track,
                                   live_event_data[87:0]};
     // The recorder increments track_event_count when it fills its holding
     // register. The store still needs the pre-increment slot number.
-    assign recorder_write_slot = record_track_count[record_event_data[90:88]][3:0]
-                               - (record_write_valid ? 4'd1 : 4'd0);
+    assign recorder_write_slot = record_track_count[record_event_data[90:88]][4:0]
+                               - (record_write_valid ? 5'd1 : 5'd0);
     (* keep_hierarchy = "yes" *)
     (* syn_noprune = 1 *)
     v2_loop_event_recorder u_recorder (
@@ -275,7 +282,7 @@ module mgc3130_v2_top #(
         .event_ready(record_event_ready), .event_data(recorder_event_data),
         .event_tick(sample_index), .write_ready(record_write_ready),
         .loop_write_valid(record_write_valid), .loop_write_data(record_event_data),
-        .read_req(1'b0), .read_track(3'd0), .read_index(16'd0), .read_valid(), .read_data(),
+        .read_req(1'b0), .read_track(3'd0), .read_index(5'd0), .read_valid(), .read_data(),
         .event_count(record_count), .track_event_count(record_track_count),
         .fault_code(record_fault), .left_edge_armed(record_left_edge),
         .gate_state(record_gate), .recording(recording)
@@ -288,16 +295,18 @@ module mgc3130_v2_top #(
     logic loop_read_enable /* synthesis syn_keep=1 */;
     logic loop_read_valid /* synthesis syn_keep=1 */;
     logic loop_read_slot_valid /* synthesis syn_keep=1 */;
-    logic [2:0] loop_read_track; logic [3:0] loop_read_index;
+    logic [2:0] loop_read_track; logic [4:0] loop_read_index;
     logic [95:0] loop_read_data;
     logic loop_boundary /* synthesis syn_keep=1 */;
     logic loop_commit_pending /* synthesis syn_keep=1 */;
     logic loop_commit_ack, loop_busy;
-    logic [29:0] loop_record_count /* synthesis syn_keep=1 */;
+    logic loop_commit_timeout;
+    logic [31:0] loop_commit_wait_cycles;
+    logic [35:0] loop_record_count /* synthesis syn_keep=1 */;
     logic [5:0] loop_overflow /* synthesis syn_keep=1 */;
     logic loop_active_valid /* synthesis syn_keep=1 */;
     (* keep_hierarchy = "yes" *)
-    v2_loop_event_store u_store (
+    v2_loop_event_store_dpb #(.BOUNDARY_TIMEOUT_CYCLES(BOUNDARY_TIMEOUT_CYCLES)) u_store (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .abort(record_abort), .loop_boundary(loop_boundary),
         .ctrl_valid(loop_ctrl_valid), .ctrl_ready(loop_ctrl_ready), .ctrl_op(loop_ctrl_op),
         .ctrl_track(loop_ctrl_track), .ctrl_done(loop_ctrl_done),
@@ -308,7 +317,8 @@ module mgc3130_v2_top #(
         .read_index(loop_read_index), .read_valid(loop_read_valid), .read_slot_valid(loop_read_slot_valid),
         .read_data(loop_read_data), .active_bank(), .shadow_bank(), .commit_pending(loop_commit_pending),
         .commit_ack(loop_commit_ack), .busy(loop_busy), .record_count(loop_record_count),
-        .overflow(loop_overflow), .active_valid(loop_active_valid)
+        .overflow(loop_overflow), .active_valid(loop_active_valid),
+        .commit_timeout(loop_commit_timeout), .commit_wait_cycles(loop_commit_wait_cycles)
     );
     (* keep_hierarchy = "yes" *)
     v2_loop_scheduler u_loop_sched (
@@ -345,16 +355,27 @@ module mgc3130_v2_top #(
     end
 
     logic signed [15:0] potts_contour [0:127];
+    logic [127:0] potts_rest_mask;
     logic potts_start, potts_busy, potts_done, potts_overflow, potts_backtrace_valid;
     logic potts_event_valid, potts_event_ready; logic [95:0] potts_event_data; logic [5:0] potts_event_count;
-    genvar contour_i;
-    generate for (contour_i=0; contour_i<128; contour_i=contour_i+1) begin : g_contour
-        always_comb potts_contour[contour_i] = 16'sd0;
-    end endgenerate
+    integer contour_i;
+    // Record NOTE_ON events into the lead contour as they drain from the
+    // recorder holding register. COMMIT therefore consumes the actual
+    // recorded contour; an empty slot remains a non-rest zero pitch.
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) begin
+            potts_rest_mask <= 128'd0;
+            for (contour_i=0; contour_i<128; contour_i=contour_i+1)
+                potts_contour[contour_i] <= 16'sd0;
+        end else if (record_write_valid && record_event_data[94:91] == 4'd1) begin
+            potts_contour[record_event_data[87:80]] <= $signed({8'd0, record_event_data[71:64]});
+        end
+    end
     generate if (USE_POTTS) begin : g_potts
+    wire potts_run_start = (PRESERVE_POTTS_PLANE != 0) ? (sample_index == 32'd64) : potts_start;
     v2_potts_commit_fsm u_potts (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n), .start(potts_start), .lambda_q16(16'hffff),
-        .rest_mask(128'd0), .contour(potts_contour), .busy(potts_busy), .progress(), .done(potts_done),
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .start(potts_run_start), .lambda_q16(16'hffff),
+        .rest_mask(potts_rest_mask), .contour(potts_contour), .busy(potts_busy), .progress(), .done(potts_done),
         .overflow(potts_overflow), .backtrace_valid(potts_backtrace_valid), .event_valid(potts_event_valid),
         .event_ready(potts_event_ready), .event_data(potts_event_data), .event_count(potts_event_count)
     );
@@ -368,6 +389,7 @@ module mgc3130_v2_top #(
     logic [95:0] voice_event_data /* synthesis syn_keep=1 */;
     logic signed [15:0] voice_sample; logic voice_sample_valid;
     logic [31:0] voice_bitmap; logic [5:0] active_voice_count; logic [7:0] revoice_count;
+    logic [15:0] voice_steal_count;
     assign voice_event_valid = mode_live ? live_event_valid : mode_play ? loop_event_valid : potts_event_valid;
     assign voice_event_data = mode_live ? live_event_data : mode_play ? loop_event_data : potts_event_data;
     assign loop_event_ready = mode_play ? voice_event_ready : 1'b0;
@@ -375,9 +397,11 @@ module mgc3130_v2_top #(
     v2_voice_engine_banked #(.VOICES(32), .USE_GOWIN_RAM(USE_GOWIN_RAM)) u_voice (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .event_valid(voice_event_valid), .event_ready(voice_event_ready),
-        .event_data(voice_event_data), .mixed_sample(voice_sample), .sample_valid(voice_sample_valid),
+        .event_data(voice_event_data), .vibrato_hz_q8_8(16'd0), .vibrato_cents_q8_8(16'd0),
+        .mixed_sample(voice_sample), .sample_valid(voice_sample_valid),
         .active_bitmap(voice_bitmap), .voice_overflow(voice_overflow),
-        .revoice_count(revoice_count), .active_voice_count(active_voice_count)
+        .voice_steal_count(voice_steal_count), .revoice_count(revoice_count),
+        .active_voice_count(active_voice_count), .vibrato_phase(), .vibrato_delta_cents()
     );
 
     logic signed [15:0] fx_sample; logic [1:0] fx_status; logic fx_clip;

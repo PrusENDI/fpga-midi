@@ -1,0 +1,157 @@
+`timescale 1ns/1ps
+module tb_mgc3130_v2_top;
+    logic clk_50m = 1'b0, uart_rx = 1'b1;
+    tri mgc_sda, mgc_scl, mgc_ts, mgc_mclr;
+    wire uart_tx, pcm5102a_bck, pcm5102a_lrck, pcm5102a_din;
+    integer i;
+    GSR GSR(.GSRI(1'b1));
+    reg [7:0] inject_value;
+    reg [15:0] sensor_x, sensor_y, sensor_z;
+    reg [95:0] forced_event_value;
+
+    always #5 clk_50m = ~clk_50m;
+    mgc3130_v2_top #(.USE_MGC_READER(0), .UART_BAUD(1_000_000)) dut (
+        .clk_50m(clk_50m), .mgc_sda(mgc_sda), .mgc_scl(mgc_scl), .mgc_ts(mgc_ts),
+        .mgc_mclr(mgc_mclr), .uart_rx(uart_rx), .uart_tx(uart_tx),
+        .pcm5102a_bck(pcm5102a_bck), .pcm5102a_lrck(pcm5102a_lrck), .pcm5102a_din(pcm5102a_din)
+    );
+
+    function automatic [15:0] crc_byte(input [15:0] crc_in, input [7:0] value);
+        reg [15:0] c; integer b;
+        begin
+            c = crc_in ^ {value,8'h00};
+            for (b = 0; b < 8; b = b + 1)
+                c = c[15] ? ((c << 1) ^ 16'h1021) : (c << 1);
+            crc_byte = c;
+        end
+    endfunction
+
+    task automatic inject_byte(input [7:0] value);
+        begin
+            inject_value = value;
+            force dut.uart_byte = inject_value;
+            force dut.uart_byte_valid = 1'b1;
+            @(posedge clk_50m); #1;
+            force dut.uart_byte_valid = 1'b0;
+            @(posedge clk_50m); #1;
+            release dut.uart_byte_valid;
+            release dut.uart_byte;
+        end
+    endtask
+
+    task automatic inject_control(input [7:0] op, input [7:0] address,
+                                   input [7:0] seq, input [31:0] data);
+        reg [7:0] b [0:10]; reg [15:0] c; integer k;
+        begin
+            b[0]=8'ha5; b[1]=8'h02; b[2]=op; b[3]=address; b[4]=seq;
+            b[5]=data[31:24]; b[6]=data[23:16]; b[7]=data[15:8]; b[8]=data[7:0];
+            c=16'hffff; for(k=0;k<9;k=k+1)c=crc_byte(c,b[k]);
+            b[9]=c[15:8]; b[10]=c[7:0];
+            for(k=0;k<11;k=k+1) inject_byte(b[k]);
+            // The V2 endpoint serializes a complete 22-byte response at the
+            // configured UART baud before accepting the next command.
+            repeat (4) @(posedge clk_50m);
+            for (integer wait_i = 0; wait_i < 500000; wait_i = wait_i + 1) begin
+                if (!dut.v2_tx_valid && !dut.uart_tx_busy) wait_i = 500000;
+                else @(posedge clk_50m);
+            end
+            if (dut.v2_tx_valid || dut.uart_tx_busy)
+                $fatal(1, "V2 UART response did not drain");
+        end
+    endtask
+
+    task automatic sensor_report(input [15:0] x, input [15:0] y,
+                                 input [15:0] z, input touch, input presence);
+        begin
+            sensor_x=x; sensor_y=y; sensor_z=z;
+            force dut.x_position=sensor_x; force dut.y_position=sensor_y; force dut.z_position=sensor_z;
+            force dut.xyz_valid=1'b1; force dut.report_valid=1'b1;
+            force dut.touch_valid=1'b0; force dut.report_error=1'b0;
+            @(posedge clk_50m); #1;
+            force dut.report_valid=1'b0; force dut.xyz_valid=1'b0;
+            release dut.x_position; release dut.y_position; release dut.z_position;
+            release dut.xyz_valid; release dut.report_valid; release dut.touch_valid;
+            release dut.report_error;
+        end
+    endtask
+
+    task automatic inject_live_note(input [7:0] note_value);
+        begin
+            forced_event_value = 96'd0;
+            forced_event_value[94:91] = 4'd1;
+            forced_event_value[87:80] = 8'd0;
+            forced_event_value[79:72] = 8'd1;
+            forced_event_value[71:64] = note_value;
+            forced_event_value[63:56] = 8'd100;
+            force dut.live_event_data = forced_event_value;
+            force dut.live_event_valid = 1'b1;
+            repeat (2) @(posedge clk_50m);
+            release dut.live_event_valid;
+            release dut.live_event_data;
+        end
+    endtask
+
+    integer dbg_count = 0;
+    always @(posedge dut.clk_sys_100m) begin
+        if (dbg_count < 80 && (dut.record_write_valid || dut.loop_event_valid || dut.voice_event_valid || dut.loop_boundary || dut.loop_commit_ack || dut.loop_read_track >= 2 || dut.loop_read_slot_valid)) begin
+            $display("DBG t=%0t mode=%0d rec=%b rwv=%b rdy=%b rcount2=%0d storecnt2=%0d ab=%b c0=%0d c1=%0d pendv=%b active=%b busy=%b cp=%b read_en=%b read_v=%b slot_v=%b rtrack=%0d ridx=%0d evt_v=%b evt_rdy=%b evt=%h wait=%b pass=%0d held=%h reg=%h ra=%0d rb=%0d rbe=%b rbd=%h doa=%h/%h/%h/%h/%h/%h dib=%h/%h/%h/%h/%h/%h mem=%h/%h/%h/%h/%h/%h voice_v=%b vbm=%h ack=%b boundary=%b", $time, dut.mode_reg, dut.recording, dut.record_write_valid, dut.record_write_ready, dut.record_track_count[2], dut.loop_record_count[2*6 +: 6], dut.u_store.active_bank, dut.u_store.counts[0][2], dut.u_store.counts[1][2], dut.u_store.read_pending_slot_valid, dut.loop_active_valid, dut.loop_busy, dut.loop_commit_pending, dut.loop_read_enable, dut.loop_read_valid, dut.loop_read_slot_valid, dut.loop_read_track, dut.loop_read_index, dut.loop_event_valid, dut.loop_event_ready, dut.loop_event_data, dut.u_loop_sched.waiting, dut.u_loop_sched.pass, dut.u_loop_sched.held, dut.u_store.read_reg, dut.u_store.ram_a_addr, dut.u_store.ram_b_addr, dut.u_store.ram_b_en, dut.u_store.ram_b_data, dut.u_store.dpb_doa[0], dut.u_store.dpb_doa[1], dut.u_store.dpb_doa[2], dut.u_store.dpb_doa[3], dut.u_store.dpb_doa[4], dut.u_store.dpb_doa[5], dut.u_store.g_lane[0].ram.DIB, dut.u_store.g_lane[1].ram.DIB, dut.u_store.g_lane[2].ram.DIB, dut.u_store.g_lane[3].ram.DIB, dut.u_store.g_lane[4].ram.DIB, dut.u_store.g_lane[5].ram.DIB, dut.u_store.g_lane[0].ram.ram_MEM[4111:4096], dut.u_store.g_lane[1].ram.ram_MEM[4111:4096], dut.u_store.g_lane[2].ram.ram_MEM[4111:4096], dut.u_store.g_lane[3].ram.ram_MEM[4111:4096], dut.u_store.g_lane[4].ram.ram_MEM[4111:4096], dut.u_store.g_lane[5].ram.ram_MEM[4111:4096], dut.voice_event_valid, dut.voice_bitmap, dut.loop_commit_ack, dut.loop_boundary);
+            dbg_count = dbg_count + 1;
+        end
+    end
+    initial begin
+        repeat (25) @(posedge clk_50m);
+        if (!dut.rst_sys_n) $fatal(1, "V2 reset did not release");
+        if (!dut.pll_locked) $fatal(1, "V2 simulation PLL boundary not locked");
+
+        // A valid control frame reaches the single V2 parser and changes mode.
+        inject_control(8'h02, 8'h04, 8'h21, 32'h00000001);
+        repeat (3) @(posedge clk_50m);
+        $display("top cmd=%b op=%h addr=%h data=%h mode=%h err=%h", dut.cmd_valid, dut.cmd_op, dut.cmd_address, dut.cmd_data, dut.mode_reg, dut.protocol_error);
+        if (dut.mode_reg !== 3'd1) $fatal(1, "MODE write did not reach V2 top");
+
+        // A valid XYZ report traverses latch, calibration, validity and cursor.
+        sensor_report(16'd40000, 16'd32768, 16'd20000, 1'b0, 1'b1);
+        repeat (4) @(posedge clk_50m);
+        if (!dut.active_profile_valid) $fatal(1, "calibration profile did not commit");
+        if (!dut.audio_cursor_valid && dut.cursor_stable_valid)
+            $fatal(1, "cursor/audio boundary inconsistent");
+
+        // Pure Z movement with no gate must not allocate a voice or emit NOTE_ON.
+        sensor_report(16'd40000, 16'd32768, 16'd30000, 1'b0, 1'b0);
+        repeat (4) @(posedge clk_50m);
+        if (dut.voice_bitmap !== 32'd0) $fatal(1, "pure Z allocated a voice");
+
+        // The record/commit path must reach the six-track store through CSR
+        // control, rather than only changing the mode register.
+        inject_control(8'h02, 8'h0c, 8'h22, 32'd2); // selected track 2
+        inject_control(8'h02, 8'h18, 8'h23, 32'd1); // PREPARE_RECORD
+        repeat (130) @(posedge clk_50m);
+        if (!dut.recording) $fatal(1, "record CSR did not start recorder");
+        inject_live_note(8'd60);
+        repeat (8) @(posedge clk_50m);
+        if (dut.record_track_count[2] == 0)
+            $fatal(1, "recorded event did not reach selected track");
+        inject_control(8'h02, 8'h28, 8'h24, 32'd1); // COMMIT_REQUEST
+        repeat (8) @(posedge clk_50m);
+        if (!dut.loop_commit_pending) $fatal(1, "commit CSR did not reach store");
+        force dut.loop_boundary = 1'b1;
+        @(posedge clk_50m); #1;
+        release dut.loop_boundary;
+        repeat (4) @(posedge clk_50m);
+        if (!dut.loop_active_valid) $fatal(1, "committed loop bank is not active");
+        inject_control(8'h02, 8'h04, 8'h25, 32'd4); // PLAY
+        force dut.sample_index = 32'd0;
+        repeat (1000) @(posedge clk_50m);
+        release dut.sample_index;
+        if (dut.voice_bitmap == 32'd0) begin
+            $display("FINAL pass=%0d track=%0d slot=%0d wait=%b evt=%b readv=%b rsv=%b reg=%h data=%h", dut.u_loop_sched.pass, dut.u_loop_sched.track, dut.u_loop_sched.slot, dut.u_loop_sched.waiting, dut.loop_event_valid, dut.loop_read_valid, dut.loop_read_slot_valid, dut.u_store.read_reg, dut.loop_read_data);
+            $fatal(1, "PLAY did not deliver the committed loop event to voices");
+        end
+
+        // The sample scheduler remains active independently of UART traffic.
+        repeat (2500) @(posedge clk_50m);
+        if (dut.sample_index == 0) $fatal(1, "sample scheduler stopped");
+        $display("tb_mgc3130_v2_top PASS samples=%0d", dut.sample_index);
+        $finish;
+    end
+endmodule

@@ -58,7 +58,7 @@ _csr_rows = (
     ("PATCH_STATUS",0x54,"RO","active_version[15:0],shadow_dirty[16],crc_ok[17],apply_busy[18],last_error[31:24]"),
     ("PATCH_CRC",0x58,"RW","crc16_ccitt[15:0]"),
     ("PATCH_APPLY",0x5C,"WO","expected_version[15:0],trigger[31]"),
-    ("WT_SELECT",0x60,"RW","table_id[2:0],bank[8]"),
+    ("WT_SELECT",0x60,"RW","table_id[2:0],bank[8],band[11:9],octave[15:12]"),
     ("WT_INDEX",0x64,"RW","sample_index[15:0]"),
     ("WT_DATA",0x68,"RW","sample_s16[15:0]"),
     ("WT_LENGTH",0x6C,"RW","sample_count[15:0]"),
@@ -159,7 +159,25 @@ SV_CONSTANTS = {
     "V2_FAMILY_PATCH":0,"V2_FAMILY_CALIBRATION":1,
     "V2_FAMILY_RULE":2,"V2_FAMILY_CURSOR":3,
     "V2_WT_A":0,"V2_WT_B":1,"V2_WT_C":2,"V2_WT_SAMPLES":1024,
+    "V2_WT_BAND_BITS":3,"V2_WT_BAND_MAX":7,
+    "V2_WT_OCTAVE_BITS":4,"V2_WT_OCTAVE_MAX":15,
+    "V2_WT_BAND_DEFAULT":0,"V2_WT_OCTAVE_DEFAULT":0,
     "V2_LOOP_TICKS":128,"V2_TICKS_PER_BEAT":4,
+    "V2_LOOP_BANKS":2,"V2_LOOP_TRACKS":6,"V2_LOOP_SLOTS_PER_TRACK":32,
+    "V2_LOOP_SLOT_BITS":5,"V2_LOOP_COUNT_BITS":6,"V2_LOOP_TOTAL_SLOTS":192,
+    "V2_VOICE_COUNT":32,"V2_OSCILLATORS_PER_VOICE":2,
+    "V2_VOICE_STEAL_COUNTER_BITS":16,"V2_VOICE_STEAL_PRIORITY_COUNT":4,
+    "V2_VOICE_STEAL_RELEASED":0,"V2_VOICE_STEAL_OLDEST":1,
+    "V2_VOICE_STEAL_LOWEST_VELOCITY":2,"V2_VOICE_STEAL_LOWEST_VOICE_ID":3,
+    "V2_TEST_SELECTOR_N_TONE":1,"V2_TEST_SELECTOR_VIBRATO_READBACK":2,
+    "V2_TEST_N_TONE_COUNT_MIN":1,"V2_TEST_N_TONE_COUNT_MAX":32,
+    "V2_TEST_N_TONE_COUNT_DEFAULT":8,
+    "V2_VIBRATO_READBACK_PHASE_BITS":16,
+    "V2_VIBRATO_READBACK_DELTA_CENTS_BITS":16,
+    "V2_VIBRATO_READBACK_PHASE_SHIFT":0,
+    "V2_VIBRATO_READBACK_DELTA_CENTS_SHIFT":16,
+    "V2_VIBRATO_READBACK_PHASE_MASK":0x0000FFFF,
+    "V2_VIBRATO_READBACK_DELTA_CENTS_MASK":0xFFFF0000,
     "V2_BPM_MIN":60,"V2_BPM_MAX":240,"V2_BPM_DEFAULT":120,
     "V2_PATCH_PARAM_COUNT":len(_patch_rows),"V2_CAL_PARAM_COUNT":len(_cal_rows),
     "V2_RULE_PARAM_COUNT":len(_rule_rows),"V2_CURSOR_PARAM_COUNT":len(_cursor_rows),
@@ -176,6 +194,16 @@ SV_CONSTANTS = {
        for (family,index),parameter in PATCH_PARAMETERS.items()},
 }
 globals().update(SV_CONSTANTS)
+
+# Ordered tie-break policy for deterministic 33rd-note allocation.  These
+# names intentionally remain a Python tuple rather than a packed wire field;
+# the individual enum values above are mirrored in v2_contract_pkg.sv.
+V2_VOICE_STEAL_PRIORITY = (
+    V2_VOICE_STEAL_RELEASED,
+    V2_VOICE_STEAL_OLDEST,
+    V2_VOICE_STEAL_LOWEST_VELOCITY,
+    V2_VOICE_STEAL_LOWEST_VOICE_ID,
+)
 
 SOF_CONTROL = 0xA5
 SOF_TELEMETRY = 0x5A
@@ -250,6 +278,30 @@ def validate_wavetable_upload(table_id: int, samples: list[int], covered: set[in
     payload = b"".join(_s(sample,16,"sample").to_bytes(2,"big") for sample in samples)
     if crc16_ccitt(payload) != expected_crc:
         raise ValueError("wavetable CRC mismatch")
+
+def encode_wavetable_select(table_id: int, bank: int, band: int, octave: int) -> int:
+    """Pack the frozen WT_SELECT table/bank/band/octave selector."""
+    if table_id not in (V2_WT_A, V2_WT_B, V2_WT_C):
+        raise ValueError("invalid wavetable ID")
+    if bank not in (0, 1):
+        raise ValueError("wavetable bank must be 0 or 1")
+    if not 0 <= band <= V2_WT_BAND_MAX:
+        raise ValueError("wavetable band outside frozen range")
+    if not 0 <= octave <= V2_WT_OCTAVE_MAX:
+        raise ValueError("wavetable octave outside frozen range")
+    return table_id | (bank << 8) | (band << 9) | (octave << 12)
+
+def decode_wavetable_select(value: int) -> dict[str, int]:
+    """Decode a WT_SELECT word and reject reserved bits."""
+    value = _u(value, 32, "WT_SELECT")
+    if value & ~CSR["WT_SELECT"].write_mask:
+        raise ValueError("WT_SELECT reserved bits must be zero")
+    return {
+        "table_id": value & 0x7,
+        "bank": (value >> 8) & 0x1,
+        "band": (value >> 9) & 0x7,
+        "octave": (value >> 12) & 0xF,
+    }
 
 def is_valid_address(address: int) -> bool:
     return any(register.address == address for register in CSR.values())

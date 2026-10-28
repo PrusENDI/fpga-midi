@@ -52,10 +52,10 @@ module mgc3130_reader #(
         ST_CFG_LO=0, ST_CFG_HI=1, ST_CFG_ENABLE=2, ST_WAIT_TS=3,
         ST_TS_SETUP=4, ST_ADDRESS=5, ST_ADDRESS_CMD=6,
         ST_POLL=7, ST_STATUS=8, ST_READ_CMD=9,
-        ST_RX_REQUEST=10, ST_RX_BYTE=11, ST_PARSE=12,
-        ST_STOP_ERROR=13, ST_ERROR_REPORT=14, ST_RELEASE=15,
-        ST_DELAY=16, ST_RECOVER=17, ST_RESET_HOLD=18,
-        ST_WR_GAP=19, ST_WR_RETURN=20, ST_RD_GAP=21, ST_RD_CAPTURE=22;
+        ST_RX_REQUEST=10, ST_RX_BYTE=11, ST_PARSE_PREP=12, ST_PARSE=13,
+        ST_STOP_ERROR=14, ST_ERROR_REPORT=15, ST_RELEASE=16,
+        ST_DELAY=17, ST_RECOVER=18, ST_RESET_HOLD=19,
+        ST_WR_GAP=20, ST_WR_RETURN=21, ST_RD_GAP=22, ST_RD_CAPTURE=23;
     reg [5:0] state, return_state;
     reg [7:0] reg_read_data, ip_status;
     reg [7:0] frame [0:254]; // Size includes the four-byte header
@@ -78,6 +78,9 @@ module mgc3130_reader #(
         (output_mask[5] ? 8'd4 : 8'd0) +
         (output_mask[11] ? electrode_bytes : 8'd0) +
         (output_mask[12] ? electrode_bytes : 8'd0);
+    reg [15:0] parse_output_mask;
+    reg [7:0] parse_gesture_offset, parse_touch_offset, parse_position_offset, parse_required_length;
+    reg [7:0] parse_electrode_bytes;
     reg [1:0] operation; // 0 address, 1 read, 2 error STOP
     reg command_active, transaction_active;
     reg tip_seen;
@@ -114,6 +117,8 @@ module mgc3130_reader #(
             command_active <= 0; transaction_active <= 0;
             tip_seen <= 0; debug_error_context <= 0;
             debug_output_mask <= 0; debug_message_size <= 0;
+            parse_output_mask <= 0; parse_gesture_offset <= 0; parse_touch_offset <= 0;
+            parse_position_offset <= 0; parse_required_length <= 0; parse_electrode_bytes <= 0;
             command_timer <= 0; frame_timer <= 0; delay_timer <= 0;
             report_valid <= 0; report_error <= 0; xyz_valid <= 0;
             touch_info <= 0; touch_valid <= 0;
@@ -205,10 +210,19 @@ module mgc3130_reader #(
                         end else begin
                             rx_byte <= 8'd1; state <= ST_READ_CMD;
                         end
-                    end else if (rx_byte == frame_length-1'b1) state <= ST_PARSE;
+                    end else if (rx_byte == frame_length-1'b1) state <= ST_PARSE_PREP;
                     else begin
                         rx_byte <= rx_byte + 1'b1; state <= ST_READ_CMD;
                     end
+                end
+                ST_PARSE_PREP: begin
+                    parse_output_mask <= output_mask;
+                    parse_gesture_offset <= gesture_offset;
+                    parse_touch_offset <= touch_offset;
+                    parse_position_offset <= position_offset;
+                    parse_required_length <= required_length;
+                    parse_electrode_bytes <= electrode_bytes;
+                    state <= ST_PARSE;
                 end
                 ST_PARSE: begin
                     last_message_id <= frame[3];
@@ -216,24 +230,24 @@ module mgc3130_reader #(
                     // them as malformed sensor reports.
                     if (frame[3] == 8'h91) begin
                         report_valid <= 1;
-                        debug_output_mask <= output_mask;
+                        debug_output_mask <= parse_output_mask;
                         debug_message_size <= frame_length;
                         touch_info <= 0;
                         if ((frame_length >= 8'd8) &&
-                            (frame_length >= required_length) &&
-                            ((output_mask & 16'hE0C0) == 16'd0) &&
-                            (output_mask[10:8] <= 3'd1)) begin
-                            xyz_valid <= output_mask[4] && frame[7][0];
-                            touch_valid <= output_mask[2];
-                            if (output_mask[2])
-                                touch_info <= {frame[touch_offset+8'd3], frame[touch_offset+8'd2],
-                                               frame[touch_offset+8'd1], frame[touch_offset]};
-                            if (output_mask[1]) gesture_code <= frame[gesture_offset];
+                            (frame_length >= parse_required_length) &&
+                            ((parse_output_mask & 16'hE0C0) == 16'd0) &&
+                            (parse_output_mask[10:8] <= 3'd1)) begin
+                            xyz_valid <= parse_output_mask[4] && frame[7][0];
+                            touch_valid <= parse_output_mask[2];
+                            if (parse_output_mask[2])
+                                touch_info <= {frame[parse_touch_offset+8'd3], frame[parse_touch_offset+8'd2],
+                                               frame[parse_touch_offset+8'd1], frame[parse_touch_offset]};
+                            if (parse_output_mask[1]) gesture_code <= frame[parse_gesture_offset];
                             else gesture_code <= 0;
-                            if (output_mask[4] && frame[7][0]) begin
-                                x_position <= {frame[position_offset+8'd1], frame[position_offset]};
-                                y_position <= {frame[position_offset+8'd3], frame[position_offset+8'd2]};
-                                z_position <= {frame[position_offset+8'd5], frame[position_offset+8'd4]};
+                            if (parse_output_mask[4] && frame[7][0]) begin
+                                x_position <= {frame[parse_position_offset+8'd1], frame[parse_position_offset]};
+                                y_position <= {frame[parse_position_offset+8'd3], frame[parse_position_offset+8'd2]};
+                                z_position <= {frame[parse_position_offset+8'd5], frame[parse_position_offset+8'd4]};
                             end
                             error_code <= 0;
                             debug_error_context <= 0;

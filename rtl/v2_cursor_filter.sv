@@ -71,12 +71,15 @@ module v2_cursor_filter #(
   endfunction
 
   function automatic signed [31:0] map_axis(input signed [31:0] value);
-    reg signed [63:0] mapped, quotient;
     begin
-      mapped = (value + 64'sd32768) * 64'sd65536;
-      if (mapped <= 0) map_axis = 32'sd0;
-      else if (mapped >= 64'sd4294901760) map_axis = Q16_ONE;
-      else begin quotient = mapped / 64'sd65535; map_axis = quotient[31:0]; end
+      // For the calibrated signed-16 workspace, the original expression
+      // floor((value + 32768) * 65536 / 65535) is exactly the identity on
+      // the interior integers; only the two endpoints need saturation.
+      // Keeping this as compare/add avoids inferring a wide divider in the
+      // cursor's frame-rate path.
+      if (value <= -32'sd32768) map_axis = 32'sd0;
+      else if (value >= 32'sd32767) map_axis = Q16_ONE;
+      else map_axis = value + 32'sd32768;
     end
   endfunction
 

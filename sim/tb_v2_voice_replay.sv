@@ -7,7 +7,12 @@ module tb_v2_voice_replay;
     wire signed [15:0] mixed_sample;
     wire [31:0] active_bitmap;
     wire [7:0] revoice_count;
+    wire [15:0] voice_steal_count;
     wire [5:0] active_voice_count;
+    logic [15:0] vibrato_hz_q8_8 = 16'd0;
+    logic [15:0] vibrato_cents_q8_8 = 16'd0;
+    wire [15:0] vibrato_phase;
+    wire signed [15:0] vibrato_delta_cents;
     always #5 clk=~clk;
     GSR GSR (.GSRI(1'b1));
     v2_voice_engine_banked #(.USE_GOWIN_RAM(USE_GOWIN_RAM)) dut (.*);
@@ -36,7 +41,9 @@ module tb_v2_voice_replay;
             end
             difference=$signed(mixed_sample)-expected_sample;
             if(difference < -1 || difference > 1 || (^mixed_sample === 1'bx))
-                $fatal(1,"sample mismatch row=%0d actual=%0d expected=%0d",row,$signed(mixed_sample),expected_sample);
+                $fatal(1,"sample mismatch row=%0d actual=%0d expected=%0d bitmap=%h pending=%b slotp=%0d hold0=%0d rel0=%b note0=%0d active0=%b rdslot=%0d rdrel=%b rdenv=%0d",
+                    row,$signed(mixed_sample),expected_sample,active_bitmap,dut.steal_pending,
+                    dut.steal_slot_pending,dut.steal_hold[0],dut.releasing[0],dut.note[0],dut.active[0],dut.rd_slot,dut.rd_releasing,dut.rd_envelope);
             samples=samples+1;
             compare_state();
         end

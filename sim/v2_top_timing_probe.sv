@@ -22,7 +22,7 @@ module v2_top_timing_probe (
         .USE_POTTS(0),
         .PRESERVE_LOOP_PLANE(1),
         .PRESERVE_INPUT_PLANE(1),
-        .PRESERVE_INPUT_VALID(0)
+        .PRESERVE_INPUT_VALID(1)
     ) u_v2 (
         .clk_50m,
         .mgc_sda,

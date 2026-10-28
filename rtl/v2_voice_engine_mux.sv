@@ -53,6 +53,37 @@ module v2_voice_engine_mux #(
     logic [5:0]  scan_base;
     logic [5:0]  scan_slot;
     logic signed [47:0] mix_acc;
+    // The scan is split into a state-read stage and a compute/writeback
+    // stage.  Keeping the variable-indexed RAM output on the read side of a
+    // register prevents the address decode, oscillator arithmetic and state
+    // writeback from sharing one 100 MHz timing path.
+    logic        rd_valid;
+    logic        rd_last;
+    logic        rd_active;
+    logic [5:0]  rd_slot;
+    logic [31:0] rd_phase_a;
+    logic [31:0] rd_phase_b;
+    logic [31:0] rd_step_a;
+    logic [31:0] rd_step_b;
+    logic [31:0] rd_target_a;
+    logic [31:0] rd_target_b;
+    logic [15:0] rd_envelope;
+    logic [7:0]  rd_gain;
+    logic [7:0]  rd_mix_a;
+    logic [7:0]  rd_mix_b;
+    logic [1:0]  rd_env_stage;
+    logic        calc_valid;
+    logic        calc_last;
+    logic        calc_active;
+    logic [5:0]  calc_slot;
+    logic signed [47:0] calc_osc_sum;
+    logic [31:0] calc_phase_a;
+    logic [31:0] calc_phase_b;
+    logic [31:0] calc_step_a;
+    logic [31:0] calc_step_b;
+    logic [15:0] calc_envelope;
+    logic [1:0]  calc_env_stage;
+    logic        calc_active_next;
     logic [15:0] last_event_sequence;
     logic        reserved_event_seen;
 
@@ -69,10 +100,9 @@ module v2_voice_engine_mux #(
     );
 
     assign active_bitmap = active;
-    // Event updates and sample scans share the same state RAM. A one-cycle
-    // sample_ce pulse is accepted only when the sequencer is idle; accepting
-    // a later event while a scan is active keeps the handshake live and avoids
-    // a testbench or UART producer waiting on a 32-cycle scan.
+    // Events remain independently handshakeable while the pipelined scan is
+    // active; their writes are separated from the oscillator scan by the
+    // registered state-read stage.
     assign event_ready = rst_n;
 
     always_comb begin
@@ -179,6 +209,33 @@ module v2_voice_engine_mux #(
             scan_base           <= 6'd0;
             scan_slot           <= 6'd0;
             mix_acc             <= '0;
+            rd_valid            <= 1'b0;
+            rd_last             <= 1'b0;
+            rd_active           <= 1'b0;
+            rd_slot             <= 6'd0;
+            rd_phase_a          <= 32'd0;
+            rd_phase_b          <= 32'd0;
+            rd_step_a           <= 32'd0;
+            rd_step_b           <= 32'd0;
+            rd_target_a         <= 32'd0;
+            rd_target_b         <= 32'd0;
+            rd_envelope         <= 16'd0;
+            rd_gain             <= 8'd0;
+            rd_mix_a            <= DEFAULT_MIX_A;
+            rd_mix_b            <= DEFAULT_MIX_B;
+            rd_env_stage        <= ENV_ATTACK;
+            calc_valid          <= 1'b0;
+            calc_last           <= 1'b0;
+            calc_active         <= 1'b0;
+            calc_slot           <= 6'd0;
+            calc_osc_sum        <= 48'sd0;
+            calc_phase_a        <= 32'd0;
+            calc_phase_b        <= 32'd0;
+            calc_step_a         <= 32'd0;
+            calc_step_b         <= 32'd0;
+            calc_envelope       <= 16'd0;
+            calc_env_stage      <= ENV_ATTACK;
+            calc_active_next    <= 1'b0;
             mixed_sample        <= 16'sd0;
             sample_valid        <= 1'b0;
             last_event_sequence <= 16'd0;
@@ -190,8 +247,6 @@ module v2_voice_engine_mux #(
         end else begin
             sample_valid <= 1'b0;
 
-            // Event updates happen only on a valid/ready handshake. Events are
-            // back-pressured while the sample microsequencer owns the state RAM.
             if (event_valid && event_ready) begin
                 last_event_sequence <= event_data[15:0];
                 reserved_event_seen <= event_data[95];
@@ -249,84 +304,124 @@ module v2_voice_engine_mux #(
                 end
             end
 
-            // sample_ce starts one 32-cycle scan. One slot is read, advanced,
-            // envelope-updated, and mixed on each 100 MHz clock. scan_base
-            // rotates the slot order between samples, making the round-robin
-            // schedule observable without creating 32 parallel pipelines.
-            if (!scan_active) begin
+            // Stage 3 writes the state and accumulates the contribution
+            // computed on the previous clock.  The final sample is produced
+            // here, after the oscillator result has crossed a register.
+            if (calc_valid && calc_active) begin
+                mix_acc <= mix_acc + calc_osc_sum;
+                phase_a[calc_slot] <= calc_phase_a;
+                phase_b[calc_slot] <= calc_phase_b;
+                step_a[calc_slot]  <= calc_step_a;
+                step_b[calc_slot]  <= calc_step_b;
+                envelope[calc_slot] <= calc_envelope;
+                env_stage[calc_slot] <= calc_env_stage;
+                if (!calc_active_next) begin
+                    active[calc_slot] <= 1'b0;
+                    releasing[calc_slot] <= 1'b0;
+                end
+            end
+
+            if (calc_valid && calc_last) begin
+                if (calc_active)
+                    mixed_sample <= saturate_sample(mix_acc + calc_osc_sum);
+                else
+                    mixed_sample <= saturate_sample(mix_acc);
+                sample_valid <= 1'b1;
+                scan_index   <= 6'd0;
+                scan_base    <= (scan_base == VOICES - 1) ? 6'd0 : scan_base + 6'd1;
+                mix_acc      <= 48'sd0;
+            end
+
+            // Stage 2 computes one state transition and one oscillator sum per
+            // clock.  Its outputs are registered before the dynamic state
+            // writeback and mixer accumulator, isolating both long paths.
+            calc_valid       <= rd_valid;
+            calc_last        <= rd_last;
+            calc_active      <= rd_active;
+            calc_slot        <= rd_slot;
+            calc_osc_sum     <= 48'sd0;
+            calc_phase_a     <= rd_phase_a + rd_step_a;
+            calc_phase_b     <= rd_phase_b + rd_step_b;
+            calc_step_a      <= rd_step_a;
+            calc_step_b      <= rd_step_b;
+            calc_envelope    <= rd_envelope;
+            calc_env_stage   <= rd_env_stage;
+            calc_active_next <= rd_active;
+            if (rd_valid && rd_active) begin
+                calc_osc_sum <= oscillator_value(rd_phase_a, rd_env_stage, rd_gain, rd_mix_a)
+                              + oscillator_value(rd_phase_b, rd_env_stage, rd_gain, rd_mix_b);
+                if (rd_step_a < rd_target_a)
+                    calc_step_a <= rd_step_a + 32'd512;
+                else if (rd_step_a > rd_target_a)
+                    calc_step_a <= rd_step_a - 32'd512;
+                if (rd_step_b < rd_target_b)
+                    calc_step_b <= rd_step_b + 32'd512;
+                else if (rd_step_b > rd_target_b)
+                    calc_step_b <= rd_step_b - 32'd512;
+
+                if (rd_env_stage == ENV_ATTACK) begin
+                    if (rd_envelope + ATTACK_STEP >= 16'hFFFF) begin
+                        calc_envelope <= 16'hFFFF;
+                        calc_env_stage <= ENV_DECAY;
+                    end else begin
+                        calc_envelope <= rd_envelope + ATTACK_STEP;
+                    end
+                end else if (rd_env_stage == ENV_DECAY) begin
+                    if (rd_envelope <= SUSTAIN_LEVEL + DECAY_STEP) begin
+                        calc_envelope <= SUSTAIN_LEVEL;
+                        calc_env_stage <= ENV_SUSTAIN;
+                    end else begin
+                        calc_envelope <= rd_envelope - DECAY_STEP;
+                    end
+                end else if (rd_env_stage == ENV_RELEASE) begin
+                    if (rd_envelope <= RELEASE_STEP) begin
+                        calc_envelope <= 16'd0;
+                        calc_env_stage <= ENV_ATTACK;
+                        calc_active_next <= 1'b0;
+                    end else begin
+                        calc_envelope <= rd_envelope - RELEASE_STEP;
+                    end
+                end
+            end
+
+            // Stage 1 reads one voice state per clock.  It runs concurrently
+            // with stage 2 and stage 3, so the scan still accepts one slot per
+            // cycle while the variable-indexed RAM output is isolated from
+            // oscillator arithmetic and state writeback.
+            if (scan_active) begin
+                rd_valid     <= 1'b1;
+                rd_last      <= (scan_index == VOICES - 1);
+                rd_slot      <= scan_slot;
+                rd_active    <= active[scan_slot];
+                rd_phase_a   <= phase_a[scan_slot];
+                rd_phase_b   <= phase_b[scan_slot];
+                rd_step_a    <= step_a[scan_slot];
+                rd_step_b    <= step_b[scan_slot];
+                rd_target_a  <= target_a[scan_slot];
+                rd_target_b  <= target_b[scan_slot];
+                rd_envelope  <= envelope[scan_slot];
+                rd_gain      <= gain[scan_slot];
+                rd_mix_a     <= mix_a[scan_slot];
+                rd_mix_b     <= mix_b[scan_slot];
+                rd_env_stage <= env_stage[scan_slot];
+
+                if (scan_index == VOICES - 1) begin
+                    scan_active <= 1'b0;
+                end else begin
+                    scan_index <= scan_index + 6'd1;
+                    scan_slot  <= (scan_slot == VOICES - 1) ? 6'd0 : scan_slot + 6'd1;
+                end
+            end else begin
+                rd_valid <= 1'b0;
+                rd_last  <= 1'b0;
                 if (sample_ce) begin
                     scan_active <= 1'b1;
                     scan_index  <= 6'd0;
                     scan_slot   <= scan_base;
                     mix_acc     <= 48'sd0;
                 end
-            end else begin
-                // Keep the physical slot as a registered rotating pointer.
-                // This removes the scan_base+scan_index adder and its wide
-                // fanout from every voice RAM write path.
-                slot = scan_slot;
-
-                if (active[slot]) begin
-                    mix_acc <= mix_acc + oscillator_value(phase_a[slot], env_stage[slot], gain[slot], mix_a[slot])
-                                      + oscillator_value(phase_b[slot], env_stage[slot], gain[slot], mix_b[slot]);
-                    phase_a[slot] <= phase_a[slot] + step_a[slot];
-                    phase_b[slot] <= phase_b[slot] + step_b[slot];
-                    // Glide is updated once per slot scan. The bounded delta
-                    // is a small local increment, avoiding a wide subtractor
-                    // and compare on the RAM writeback critical path.
-                    if (step_a[slot] < target_a[slot])
-                        step_a[slot] <= step_a[slot] + 32'd512;
-                    else if (step_a[slot] > target_a[slot])
-                        step_a[slot] <= step_a[slot] - 32'd512;
-                    if (step_b[slot] < target_b[slot])
-                        step_b[slot] <= step_b[slot] + 32'd512;
-                    else if (step_b[slot] > target_b[slot])
-                        step_b[slot] <= step_b[slot] - 32'd512;
-
-                    if (env_stage[slot] == ENV_ATTACK) begin
-                        if (envelope[slot] + ATTACK_STEP >= 16'hFFFF) begin
-                            envelope[slot] <= 16'hFFFF;
-                            env_stage[slot] <= ENV_DECAY;
-                        end else begin
-                            envelope[slot] <= envelope[slot] + ATTACK_STEP;
-                        end
-                    end else if (env_stage[slot] == ENV_DECAY) begin
-                        if (envelope[slot] <= SUSTAIN_LEVEL + DECAY_STEP) begin
-                            envelope[slot] <= SUSTAIN_LEVEL;
-                            env_stage[slot] <= ENV_SUSTAIN;
-                        end else begin
-                            envelope[slot] <= envelope[slot] - DECAY_STEP;
-                        end
-                    end else if (env_stage[slot] == ENV_RELEASE) begin
-                        if (envelope[slot] <= RELEASE_STEP) begin
-                            envelope[slot] <= 16'd0;
-                            active[slot] <= 1'b0;
-                            releasing[slot] <= 1'b0;
-                            env_stage[slot] <= ENV_ATTACK;
-                        end else begin
-                            envelope[slot] <= envelope[slot] - RELEASE_STEP;
-                        end
-                    end
-                end
-
-                if (scan_index == VOICES - 1) begin
-                    if (active[slot])
-                        mixed_sample <= saturate_sample(mix_acc
-                            + oscillator_value(phase_a[slot], env_stage[slot], gain[slot], mix_a[slot])
-                            + oscillator_value(phase_b[slot], env_stage[slot], gain[slot], mix_b[slot]));
-                    else
-                        mixed_sample <= saturate_sample(mix_acc);
-                    sample_valid <= 1'b1;
-                    scan_active  <= 1'b0;
-                    scan_index   <= 6'd0;
-                    scan_slot    <= (scan_slot == VOICES - 1) ? 6'd0 : scan_slot + 6'd1;
-                    scan_base    <= (scan_base == VOICES - 1) ? 6'd0 : scan_base + 6'd1;
-                    mix_acc      <= 48'sd0;
-                end else begin
-                    scan_index <= scan_index + 6'd1;
-                    scan_slot  <= (scan_slot == VOICES - 1) ? 6'd0 : scan_slot + 6'd1;
-                end
             end
         end
     end
+
 endmodule

@@ -1,8 +1,10 @@
-// V2 six-track event recorder.  Storage and write backpressure are local to
-// this block; LIVE's ready/valid path is never shared with it.
-module v2_loop_event_recorder #(
+// V2 six-track event recorder.  Its local replay store and the downstream
+// write holding register use the same 32-slot/track contract as the V2 store.
+module v2_loop_event_recorder /* synthesis syn_noprune=1 */ #(
   parameter integer TRACKS = 6,
-  parameter integer DEPTH = 64
+  parameter integer DEPTH = 32,
+  parameter integer SLOT_BITS = (DEPTH <= 1) ? 1 : $clog2(DEPTH),
+  parameter integer COUNT_BITS = $clog2(DEPTH+1)
 ) (
   input logic clk, input logic rst_n,
   input logic record_start, input logic record_stop, input logic abort,
@@ -11,17 +13,17 @@ module v2_loop_event_recorder #(
   input logic [31:0] event_tick,
   input logic write_ready,
   output logic loop_write_valid, output logic [95:0] loop_write_data,
-  input logic read_req, input logic [2:0] read_track, input logic [15:0] read_index,
+  input logic read_req, input logic [2:0] read_track, input logic [SLOT_BITS-1:0] read_index,
   output logic read_valid, output logic [95:0] read_data,
   output logic [15:0] event_count,
-  output logic [15:0] track_event_count [0:TRACKS-1],
+  output logic [COUNT_BITS-1:0] track_event_count [0:TRACKS-1],
   output logic [7:0] fault_code,
   output logic left_edge_armed, output logic gate_state,
   output logic recording
 );
   import v2_contract_pkg::*;
   logic [95:0] mem [0:TRACKS-1][0:DEPTH-1];
-  integer wr_ptr [0:TRACKS-1];
+  logic [SLOT_BITS:0] wr_ptr [0:TRACKS-1];
   logic [31:0] last_tick;
   logic have_tick;
   integer i;
@@ -29,8 +31,9 @@ module v2_loop_event_recorder #(
   wire [7:0] input_flags = event_data[23:16];
   wire bad_track = (input_track >= TRACKS);
   wire monotonic = !have_tick || (event_tick >= last_tick);
+
   // One-entry output holding register: input and downstream write handshakes
-  // are independent, and the output remains stable while write_ready=0.
+  // remain independent, and the output remains stable while write_ready=0.
   assign event_ready = recording && !loop_write_valid && !bad_track && monotonic &&
                        (wr_ptr[input_track] < DEPTH) && (fault_code == 0);
 
@@ -55,8 +58,8 @@ module v2_loop_event_recorder #(
       else if (event_valid && recording && !bad_track && (wr_ptr[input_track] >= DEPTH))
         fault_code<=V2_FAULT_OVERFLOW;
       if (event_valid && event_ready) begin
-        mem[input_track][wr_ptr[input_track]] <= event_data;
-        wr_ptr[input_track] <= wr_ptr[input_track] + 1;
+        mem[input_track][wr_ptr[input_track][SLOT_BITS-1:0]] <= event_data;
+        wr_ptr[input_track] <= wr_ptr[input_track] + 1'b1;
         track_event_count[input_track] <= track_event_count[input_track] + 1'b1;
         event_count <= event_count + 1'b1;
         last_tick <= event_tick; have_tick<=1'b1;

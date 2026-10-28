@@ -13,7 +13,7 @@ class VoiceTests(unittest.TestCase):
         self.assertEqual(engine.scan_base, 1)
         self.assertGreater(engine.voices[0].env, 0)
 
-    def test_eight_and_thirty_two_voice_capacity(self):
+    def test_thirty_two_voice_steal_released_then_reuse(self):
         engine = VoiceEngine()
         for index in range(8):
             self.assertTrue(engine.note_on(60 + index, velocity=255))
@@ -21,10 +21,42 @@ class VoiceTests(unittest.TestCase):
         for index in range(8, 32):
             self.assertTrue(engine.note_on(60 + index % 8, velocity=255))
         self.assertEqual(sum(v.active for v in engine.voices), 32)
-        bitmap = [v.active for v in engine.voices]
-        self.assertFalse(engine.note_on(100, velocity=255))
-        self.assertTrue(engine.overflow)
-        self.assertEqual(bitmap, [v.active for v in engine.voices])
+        engine.note_off(60)
+        self.assertTrue(engine.note_on(100, velocity=255))
+        self.assertEqual(engine.voice_steal_count, 1)
+        self.assertEqual(engine.pending_steal_slot, 0)
+        self.assertTrue(engine.voices[0].releasing)
+        self.assertTrue(engine.note_on(101, velocity=255) is False)
+        for _ in range(320):
+            engine.sample()
+        self.assertTrue(engine.voices[0].active)
+        self.assertEqual(engine.voices[0].note, 100)
+
+    def test_full_voice_steal_uses_oldest_then_velocity_then_id(self):
+        engine = VoiceEngine()
+        for index in range(32):
+            self.assertTrue(engine.note_on(40 + index, velocity=200 - index))
+        # Equal age is constructed explicitly to isolate the velocity/id tie-break.
+        for index, voice in enumerate(engine.voices):
+            voice.age = 7
+            voice.releasing = False
+            voice.active = True
+        engine.voices[3].velocity = 10
+        engine.voices[5].velocity = 10
+        self.assertTrue(engine.note_on(100, velocity=100))
+        self.assertEqual(engine.pending_steal_slot, 3)
+
+    def test_vibrato_phase_and_signed_increment_modulation(self):
+        engine = VoiceEngine(vibrato_hz_q8_8=256, vibrato_cents_q8_8=12 * 256)
+        self.assertTrue(engine.note_on(60, velocity=200))
+        voice = engine.voices[0]
+        base = voice.increment_a
+        for _ in range(64):
+            engine.sample()
+        self.assertNotEqual(voice.vibrato_phase, 0)
+        self.assertNotEqual(voice.vibrato_delta_cents, 0)
+        self.assertNotEqual(voice.increment_a, base)
+        self.assertEqual(voice.increment_a + voice.increment_b, 2 * base)
 
     def test_revoice_preserves_phase_and_bounded_detune(self):
         engine = VoiceEngine()
