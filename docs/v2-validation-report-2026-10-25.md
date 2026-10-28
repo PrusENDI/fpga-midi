@@ -422,6 +422,28 @@ Task 9's standalone storage/FX stop gate is satisfied at reduced FX level
 (chorus absent, one comb retained). The final V2 top still needs its own I/O,
 timing and board evidence in Task 12.
 
+### Task 9 reproducible simulation scripts — 2026-10-28
+
+The previously retained Task 9 ModelSim logs are now reproducible from the
+current checkout with two focused scripts:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_wavetable_fx.ps1
+V2 wavetable/FX simulation PASS
+
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_patch_bank.ps1
+V2 patch bank simulation PASS
+```
+
+The wavetable/FX replay checks incomplete-table rejection, CRC16/CCITT-FALSE,
+boundary/idle APPLY, active sample readback, and nonzero reduced FX status. The
+patch replay checks range rejection, incomplete APPLY rejection, full shadow
+upload, CRC validation, atomic idle APPLY, active-version increment, and active
+readback. Both current-source logs report zero simulator errors; the only
+warning is ModelSim's expected `-novopt` visibility warning. These remain
+standalone gates: the top-level path still has FX disabled and does not yet
+connect wavetable/patch shadow/active control to the final UART/CSR path.
+
 ## Task 1 contract increment — 2026-10-27
 
 The remaining Task 1 interface deltas are now frozen in

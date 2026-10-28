@@ -522,6 +522,16 @@ not stopped while the request waits.
 
 **Stop gate:** reduced FX 在真实 voice/I2S 样本路径中非零启用，频响、脉冲响应、固定延迟、反馈饱和和 underrun 证据通过；FX 不能改变输入事件、Loop tick、voice pitch/timing 或 I2S sample cadence。报告必须写明最终等级和资源。
 
+### Task 9 continuation checkpoint — 2026-10-28
+
+新增 `scripts/test_v2_wavetable_fx.ps1` 与 `scripts/test_v2_patch_bank.ps1`，
+把现有 wavetable/FX 和 patch-bank testbench 变成可从当前 checkout 重跑的
+专项 gate。两项 ModelSim 回归均通过，覆盖 incomplete-table/patch rejection、
+CRC、idle/boundary APPLY、active readback、version increment、reduced-FX
+非零状态和饱和路径。Task 9 的 standalone reduced-FX gate 已有可复现命令；
+band/octave selector、最终 top 的非零 FX 接线、UART/CSR shadow/active 闭环、
+频响/脉冲响应和板级 I2S evidence 仍是后续工作。
+
 ---
 
 ## Task 10：实现单一 UART/CSR 控制和无撕裂遥测
