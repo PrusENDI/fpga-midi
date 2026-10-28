@@ -48,9 +48,9 @@ Task 8.5 now has an independent `v2_test_mode` with selector-1 N-tone control,
 1–32 tone counts, phase reset, active bitmap, sample counter, fault readback and
 fixed 220 Hz × k sine tones. `scripts/test_v2_test_mode.ps1` generates N=1, 2,
 4, 8, 16 and 32 captures; `tools/test_v2_spectrum.py` reports all expected
-peaks within 1 Hz for the current fixed-point capture. The checker prints a
-reserved `sideband_ratio=0.0000` field but does not yet perform FFT/sideband
-search, so that acceptance item remains open. This mode remains isolated from EventTable/LIVE/LOOP; the top now
+peaks within 1 Hz for the current fixed-point capture. The checker now runs a
+4096-sample Hann-window radix-2 FFT and rejects sideband ratio above 0.02; the
+current six captures measure 0.0026–0.0090. This mode remains isolated from EventTable/LIVE/LOOP; the top now
 routes TEST_SELECT_0 through UART read/write and bypasses FX to I2S while the
 test mode is active. The top smoke checks readback, I2S sample-valid and zero
 voice allocation.

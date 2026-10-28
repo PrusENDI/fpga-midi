@@ -489,8 +489,7 @@ not stopped while the request waits.
 **Steps**
 - [x] 为 N=1、8、16、32 和重复 selector 写 RTL vectors，检查每个频率、phase reset 和停止行为。
 - [x] 运行 `scripts/test_v2_test_mode.ps1`，导出固定窗口的内部样本并完成频率检查。
-- [x] 用 `tools/test_v2_spectrum.py` 做固定窗口频率投影检查，验证独立峰数量和频率误差；记录窗口、采样率和峰值阈值。
-- [ ] 用真正的 FFT/旁瓣搜索验证独立峰数量、频率误差和无额外 sideband；当前 checker 的 `sideband_ratio` 字段仍是占位值。
+- [x] 用 `tools/test_v2_spectrum.py` 做 4096-sample Hann-window radix-2 FFT 和固定窗口频率投影检查，验证独立峰数量、频率误差和 sideband ratio ≤ 0.02；记录 48 kHz 采样率、±10 Hz 峰值搜索和幅度阈值 1.0。
 - [x] 综合测试模式并记录其资源；top smoke 确认 test mode 不分配 voice，默认 LIVE/LOOP 路径回归通过。
 
 **Stop gate:** N-tone 仿真和频谱报告通过后，Task 12 才能使用测试模式作为 32-slot 可观测性证据；它不能替代真实 LIVE/LOOP 声音链路。

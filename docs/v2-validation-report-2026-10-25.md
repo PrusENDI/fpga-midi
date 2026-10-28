@@ -462,13 +462,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_test_mode.ps
 It compiles and runs `sim/tb_v2_test_mode.sv`, producing 48 kHz fixed-window
 captures for N=1, 2, 4, 8, 16 and 32. `tools/test_v2_spectrum.py` checks the
 expected 220 Hz × k fundamentals over a ±10 Hz search window, requires each
-peak magnitude to exceed 1.0. The current run reports 0–1 Hz peak error and
-`files=6`. The script prints `sideband_ratio=0.0000` as a reserved report
-field; it does not yet perform an FFT or a sideband search, so the no-sideband
-acceptance item remains open. This closes the independent RTL and fundamental
-frequency portion of Task 8.5. Standalone synthesis/resource evidence and
-final top CSR/I2S/board integration remain separate gates; the mode cannot
-substitute for LIVE/LOOP audio validation.
+peak magnitude to exceed 1.0. It then applies a 4096-sample Hann window and a
+pure-Python radix-2 FFT, retaining the three-bin main-lobe neighborhood around
+each expected fundamental. The gate rejects any capture with power-based
+`sideband_ratio > 0.02`. The current run reports 0–1 Hz peak error and
+sideband ratios **0.0026–0.0090** across `files=6`. This closes the independent
+RTL/fundamental/sideband portion of Task 8.5. Standalone synthesis/resource
+evidence and final top CSR/I2S/board integration remain separate gates; the
+mode cannot substitute for LIVE/LOOP audio validation.
 
 The current top now routes `TEST_SELECT_0` writes and delayed readback through
 the V2 UART command boundary. While `test_active` is asserted, the test sample

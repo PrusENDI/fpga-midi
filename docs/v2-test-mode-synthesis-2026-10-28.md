@@ -15,12 +15,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
 
 The first command completed with `tb_v2_test_mode PASS`, followed by
 `v2 N-tone spectrum PASS files=6` and `V2 N-tone test mode PASS`. It generated
-4096-sample captures for N=1, 2, 4, 8, 16 and 32. The checker printed
-`sideband_ratio=0.0000` for every capture; its current implementation sets
-that field to zero and does not perform a third-party FFT or sideband search.
-The 32-tone 4096-sample window has a 1 Hz bin error for the first two tones
-and 0 Hz for the remaining tones. A true sideband/FFT acceptance check remains
-open under Task 8.5.
+4096-sample captures for N=1, 2, 4, 8, 16 and 32. The checker applies a
+Hann-window radix-2 FFT and enforces a power-based sideband-ratio limit of
+0.02; the current captures measure 0.0026–0.0090. The 32-tone 4096-sample
+window has a 1 Hz bin error for the first two tones and 0 Hz for the remaining
+tones.
 
 The second command uses
 `C:\Gowin\Gowin_V1.9.12.04_x64\IDE\bin\gw_sh.exe` through the repository
