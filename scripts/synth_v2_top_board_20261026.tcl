@@ -12,6 +12,10 @@ close $f
 open_project $p
 set_option -top_module v2_top_synth_probe
 set_option -verilog_std sysv2017
+# mgc3130_v2.cst assigns the board 50 MHz oscillator to E2.  E2 is shared
+# with CPU/SSPI on GW5A and must be released as a regular IO for P&R.
+set_option -use_sspi_as_gpio 1
+set_option -use_cpu_as_gpio 1
 run syn
 puts "V2_TOP_BOARD_SYNTH_PASS"
 run pnr

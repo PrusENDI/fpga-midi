@@ -14,6 +14,12 @@ changes, timing closure or repeated unresolved failures. The skill requires
 fresh evidence for each gate, records source revision and bitstream hash, and
 preserves the existing no-reset/no-clean recovery rule.
 
+The E2 board-clock constraint is now documented and configured in the legacy
+and V2 board P&R Tcl entry points: both `-use_sspi_as_gpio 1` and
+`-use_cpu_as_gpio 1` are required because E2 is shared by CPU/SSPI. An E2 P&R
+result is still pending; the earlier E1 audio-smoke result remains the only
+package-legal clock evidence.
+
 ## 2026-10-28 — pre-Task-8.5 checkpoint
 
 The V2 contract is frozen for 32-slot/two-bank Loop storage, 16-bit voice-steal

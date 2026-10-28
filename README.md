@@ -140,7 +140,10 @@ RTL fallback，不依赖加密 IP；`scripts/test_gowin_uart_rx_fifo.ps1` 会验
 
 MGC3130 接 3.3 V 并共地；SDA/SCL 使用传感器板现有的外部上拉。TS/MCLR 应有外部上拉。FPGA 上电将 MCLR 拉低 250 ms，释放后等待 2 s，再开始读取。
 
-E2 兼用 SSPI 功能。工程必须保持 **Use SSPI as Regular IO = True**；`scripts/build.tcl` 已设置对应选项。之前的 PR2017/PR2028 与该配置有关。
+E2 兼用 CPU/SSPI 功能。工程必须保持 **Use SSPI as Regular IO = True** 和
+**Use CPU as Regular IO = True**；`scripts/build.tcl` 与 V2 board P&R 脚本已设置这两个选项。
+缺少任一选项都可能触发 `PR2028 constrained location is useless` 或
+`PR2017 clk_50m cannot be placed ... (CPU/SSPI)`。
 
 ## 代码结构
 
@@ -207,7 +210,7 @@ backup_before_official_ip/ 替换前的 reader、top、工程、GAO 和 README
 1. 确认器件 GW5A-LV25MG121NES，顶层 `mgc3130_uart_loop_top`，语言 SystemVerilog 2017。
 2. Include Path 至少包含本工程的 `ip/gowin_i2c_master` 和
    `ip/gowin_uart_rx_fifo` 目录；脚本构建会自动设置这两个路径。
-3. 保持 Use SSPI as Regular IO 为 True。
+3. 保持 Use SSPI as Regular IO 和 Use CPU as Regular IO 均为 True。
 4. 执行 Synthesize，再执行 Place & Route。启用 GAO 时输出中间文件为 `impl/pnr/ao_0.fs`，
    脚本会将它复制为 `bitstream/mgc3130_uart_loop.fs`。
 
