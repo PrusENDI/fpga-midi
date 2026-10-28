@@ -16,6 +16,14 @@ are different kinds of evidence and must not be substituted for each other.
   The requested `docs/投稿的文档.pdf` was not present when its path was checked;
   no PDF was renamed, edited or deleted.
 
+## Git checkpoint publication
+
+Verified implementation checkpoints remain local on `feat/loop-event-store`.
+The configured `origin` is a GitHub repository. An earlier push attempt was
+rejected by the environment's automatic review as an external public write;
+the local commits are preserved and no bypass was used. A later push requires
+explicit authorization for that destination.
+
 ## Gate audit
 
 Initial scoped reviews accepted code fixes without enforcing all plan evidence gates.

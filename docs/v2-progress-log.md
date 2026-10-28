@@ -88,6 +88,15 @@ The top smoke also now asserts the LIVE rule engine receives the actual
 `degraded_frame` and `calibrated_gap` signals. The old constant-zero wiring was
 removed; behavior-level invalid/gap vectors are still pending.
 
+## Git publication note — 2026-10-28
+
+The verified checkpoints are retained locally on `feat/loop-event-store`, with
+the latest commit recorded by `git log`. A push to the configured `origin`
+GitHub repository was attempted earlier and rejected by the environment's
+automatic review because it is an external write to a public destination.
+No bypass or repeated push was attempted; publication remains pending explicit
+authorization for that repository.
+
 ## Git checkpoint policy
 
 Create a commit after each independently verified task or a material root-cause
