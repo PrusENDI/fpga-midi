@@ -206,6 +206,15 @@ counter is 16 bits and wraps by unsigned comparison. The current voice target is
 The vibrato diagnostic word uses `phase[15:0]` and signed `delta_cents[31:16]`;
 the masks and shifts are exported by both the Python and SystemVerilog contracts.
 
+The standalone `v2_test_mode` implementation accepts selector `1` at
+`TEST_SELECT_0` and reads back the same selector with the active count in
+`value[31:8]`. A write with count zero is a local stop command that disables
+the diagnostic generator and resets its phases; counts above 32 latch the
+module fault and leave the prior test state unchanged. Selector `2` remains a
+reserved voice-diagnostic readback and is not consumed by the standalone
+N-tone module. The test mode does not consume EventTable data or alter the
+LIVE/LOOP state machine.
+
 ## Indexed parameter definitions
 
 Integer bounds/defaults below are raw 32-bit register values. S formats use two's complement; U formats are unsigned. Q notation gives fractional bits. Family/track/index invalid combinations are BAD_DATA. Six-track parameters have separate values for tracks 0–5; global values use track 7. These values are a frozen interface, not a claim that every downstream RTL block is wired to them.

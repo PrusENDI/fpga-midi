@@ -35,6 +35,26 @@ the older 2026-10-26 routed artifact is therefore historical evidence only.
 The next active work item is Task 8.5's independent N-tone test mode, followed
 by the remaining Task 9–12 integration and full-path timing/board gates.
 
+## 2026-10-28 — Task 9 and Task 8.5 checkpoint
+
+Task 9 now has two direct-current-source ModelSim scripts:
+`scripts/test_v2_patch_bank.ps1` and `scripts/test_v2_wavetable_fx.ps1`.
+They pass the patch upload/CRC/range/atomic-APPLY checks and the wavetable/FX
+incomplete-table, boundary-APPLY, active-readback, saturation and nonzero
+reduced-FX checks. These are standalone gates; final top FX/patch CSR wiring and
+board I2S evidence remain open.
+
+Task 8.5 now has an independent `v2_test_mode` with selector-1 N-tone control,
+1–32 tone counts, phase reset, active bitmap, sample counter, fault readback and
+fixed 220 Hz × k sine tones. `scripts/test_v2_test_mode.ps1` generates N=1, 2,
+4, 8, 16 and 32 captures; `tools/test_v2_spectrum.py` reports all expected
+peaks within 1 Hz and zero measured sideband ratio for the current fixed-point
+capture. This mode is isolated from EventTable/LIVE/LOOP and is not yet wired
+into the final top UART/CSR path.
+
+The Task 9 and Task 8.5 validation commits are kept separate from the initial
+checkpoint so each gate can be reverted or reviewed independently.
+
 ## Git checkpoint policy
 
 Create a commit after each independently verified task or a material root-cause

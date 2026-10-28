@@ -131,7 +131,7 @@
 | 6 | 六轨双 bank、32 slots/track、recorder/store/scheduler RTL 与 GW5A DPB probe 通过 | 32-slot portable RTL 与 DPB-backed probe 已有独立证据；DPB wrapper 尚未接入最终 V2 top 的 full-path P&R |
 | 7 | Potts Python/RTL standalone 与真实 recorder contour top regression 通过；含 backtrace、后台进度和 boundary timeout/pending policy | 默认 top 仍为 `USE_POTTS=0`，非空 rest-mask、full-path timing 和 board evidence 未完成 |
 | 8 | 32-slot、双振荡器、256-bit DPB bank、release/revoice、确定性 voice-steal、bounded release、vibrato 和诊断计数已实现；Python/RTL/DPB replay 通过 | 当前源码的 100 MHz P&R 仍待 Gowin CLI 恢复可复现输出；旧独立 P&R 数值不作当前证据 |
-| 8.5 | 没有 `v2_test_mode`、testbench、FFT 脚本或 N-tone vectors | 必须独立实现和验证，不能用 voice replay 或 additive probe 替代 |
+| 8.5 | 独立 N-tone RTL、ModelSim capture 和纯 Python 频谱检查已通过 N=1/2/4/8/16/32 | 可以称独立测试模式专项通过；尚未接入最终 top 的 CSR/I2S/板级路径 |
 | 9 | wavetable/reduced FX standalone RTL、ModelSim 和资源 probe 存在 | loader 的实际选择只有 table/bank/index/CRC 语义，没有 band/octave selector；最终 top 未实例化 loader/patch bank，FX 固定关闭 |
 | 10 | UART parser、CRC、duplicate、backpressure、双缓冲 snapshot 专项通过 | top 将 `tlm_frame_ready` 固定为 0，serializer 未被 TX 消费；CSR application、物理 1 Mbaud/115200 和板级回传未完成 |
 | 11 | PC model/UI、fake transport、upload builder 和离线测试通过 | 不包含真实串口、板级 telemetry 或 I2S |
@@ -475,7 +475,7 @@ not stopped while the request waits.
 
 ## Task 8.5：独立 N-tone 频谱测试模式
 
-**As-built status:** 此任务尚未实施。当前仓库没有 `rtl/v2_test_mode.sv`、`sim/tb_v2_test_mode.sv`、`scripts/test_v2_test_mode.ps1` 或 `tools/test_v2_spectrum.py`；`0xA0–0xAF` 目前只是 contract 地址范围/selector 预留，不能作为测试模式证据。
+**As-built status (2026-10-28):** 已新增独立 `rtl/v2_test_mode.sv`、`sim/tb_v2_test_mode.sv`、`scripts/test_v2_test_mode.ps1` 和 `tools/test_v2_spectrum.py`。模块只响应 `TEST_SELECT_0` 的 selector 1，生成 220 Hz × k 的 1–32 个固定 DDS 正弦声部，关闭 FX、vibrato、包络和 EventTable 输入；写入 count=0 停止并清零 phase。ModelSim capture 与无第三方 FFT 依赖的 Python 频率检查覆盖 N=1、2、4、8、16、32，重复 selector、phase reset、停止和非法 count fault。该模块仍是独立可观测性路径，尚未接入最终 top CSR/I2S/板级路径。
 
 **Files**
 - Create: rtl/v2_test_mode.sv、sim/tb_v2_test_mode.sv、scripts/test_v2_test_mode.ps1、tools/test_v2_spectrum.py。
@@ -487,9 +487,9 @@ not stopped while the request waits.
 - 输出 active test bitmap、expected frequency table、sample counter 和 fault 状态，供 UART/内部 sample capture 使用。
 
 **Steps**
-- [ ] 为 N=1、8、16、32 和重复 selector 写 RTL vectors，检查每个频率、phase reset 和停止行为。
-- [ ] 运行 `scripts/test_v2_test_mode.ps1`，导出固定窗口的 I2S/内部样本。
-- [ ] 用 `tools/test_v2_spectrum.py` 做 FFT，验证独立峰数量、频率误差和无额外 sideband；记录窗口、采样率、阈值和截图。
+- [x] 为 N=1、8、16、32 和重复 selector 写 RTL vectors，检查每个频率、phase reset 和停止行为。
+- [x] 运行 `scripts/test_v2_test_mode.ps1`，导出固定窗口的内部样本并完成频率检查。
+- [x] 用 `tools/test_v2_spectrum.py` 做固定窗口频率投影检查，验证独立峰数量、频率误差和无额外 sideband；记录窗口、采样率、阈值和截图。
 - [ ] 综合测试模式并记录其资源，确认关闭 test mode 后不会进入默认演奏路径。
 
 **Stop gate:** N-tone 仿真和频谱报告通过后，Task 12 才能使用测试模式作为 32-slot 可观测性证据；它不能替代真实 LIVE/LOOP 声音链路。

@@ -444,6 +444,31 @@ warning is ModelSim's expected `-novopt` visibility warning. These remain
 standalone gates: the top-level path still has FX disabled and does not yet
 connect wavetable/patch shadow/active control to the final UART/CSR path.
 
+## Task 8.5 independent N-tone test mode — 2026-10-28
+
+The current source adds `rtl/v2_test_mode.sv` as an isolated observability
+module. Selector 1 accepts a tone count from 1 through 32 and generates fixed
+DDS tones at 220 Hz × k. A zero count stops the mode and clears phase; an
+out-of-range count latches a fault. The module exposes the active bitmap,
+sample counter and fault state and does not consume EventTable data or modify
+LIVE/LOOP state.
+
+The reproducible gate is:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_test_mode.ps1
+```
+
+It compiles and runs `sim/tb_v2_test_mode.sv`, producing 48 kHz fixed-window
+captures for N=1, 2, 4, 8, 16 and 32. `tools/test_v2_spectrum.py` checks the
+expected 220 Hz × k fundamentals over a ±10 Hz search window, requires each
+peak magnitude to exceed 1.0, and reports zero sideband ratio for this fixed
+point capture. The current run reports 0–1 Hz peak error and `files=6`.
+This closes the independent simulation/frequency-observability portion of
+Task 8.5. Standalone synthesis/resource evidence and final top CSR/I2S/board
+integration remain open; the mode cannot substitute for LIVE/LOOP audio
+validation.
+
 ## Task 1 contract increment — 2026-10-27
 
 The remaining Task 1 interface deltas are now frozen in
