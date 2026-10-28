@@ -102,6 +102,16 @@ module tb_mgc3130_v2_top;
         $display("top cmd=%b op=%h addr=%h data=%h mode=%h err=%h", dut.cmd_valid, dut.cmd_op, dut.cmd_address, dut.cmd_data, dut.mode_reg, dut.protocol_error);
         if (dut.mode_reg !== 3'd1) $fatal(1, "MODE write did not reach V2 top");
 
+        // Selector-1 N-tone control must reach the final top and produce an
+        // audio sample at the I2S boundary without allocating a voice.
+        inject_control(8'h02, 8'ha0, 8'h26, 32'h00000101);
+        inject_control(8'h01, 8'ha0, 8'h27, 32'h00000000);
+        if (dut.rsp_data[31:8] !== 24'h040000) $fatal(1, "N-tone readback did not reach top");
+        for (i = 0; i < 6000 && !dut.u_i2s.sample_valid; i = i + 1)
+            @(posedge clk_50m);
+        if (!dut.u_i2s.sample_valid) $fatal(1, "N-tone sample did not reach I2S");
+        if (dut.voice_bitmap !== 32'd0) $fatal(1, "N-tone mode allocated a voice");
+
         // A valid XYZ report traverses latch, calibration, validity and cursor.
         sensor_report(16'd40000, 16'd32768, 16'd20000, 1'b0, 1'b1);
         repeat (4) @(posedge clk_50m);

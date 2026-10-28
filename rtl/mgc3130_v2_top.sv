@@ -405,15 +405,25 @@ module mgc3130_v2_top #(
     );
 
     logic signed [15:0] fx_sample; logic [1:0] fx_status; logic fx_clip;
+    logic signed [15:0] test_sample;
+    logic test_sample_valid, test_active, test_fault;
+    logic [31:0] test_active_bitmap, test_sample_counter;
+    logic test_csr_valid, test_csr_write, test_csr_ready, test_csr_rvalid;
+    logic [7:0] test_csr_addr;
+    logic [31:0] test_csr_wdata, test_csr_rdata;
+    logic i2s_sample_valid;
+    logic signed [15:0] i2s_sample;
     v2_fx_lite #(.USE_GOWIN_RAM(1)) u_fx (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce), .audio_in(voice_sample),
         .audio_out(fx_sample), .fx_enable(1'b0), .fx_level(2'd0), .fx_gain_q16(18'h10000),
         .fx_cutoff_q16(16'hffff), .fx_delay_samples(10'd0), .fx_feedback_q15(16'd0),
         .fx_reverb_mix_q15(16'd0), .fx_status_level(fx_status), .fx_clip(fx_clip)
     );
+    assign i2s_sample_valid = test_active ? test_sample_valid : voice_sample_valid;
+    assign i2s_sample = test_active ? test_sample : fx_sample;
     i2s_pcm5102a_tx #(.CLK_HZ(100_000_000), .SAMPLE_HZ(48_000)) u_i2s (
-        .clk(clk_sys_100m), .rst(!rst_sys_n), .sample_valid(voice_sample_valid),
-        .sample_in(fx_sample), .i2s_bck(pcm5102a_bck), .i2s_lrck(pcm5102a_lrck),
+        .clk(clk_sys_100m), .rst(!rst_sys_n), .sample_valid(i2s_sample_valid),
+        .sample_in(i2s_sample), .i2s_bck(pcm5102a_bck), .i2s_lrck(pcm5102a_lrck),
         .i2s_din(pcm5102a_din)
     );
 
@@ -435,7 +445,26 @@ module mgc3130_v2_top #(
         .rsp_terminal(rsp_terminal), .tx_valid(v2_tx_valid), .tx_ready(v2_tx_ready), .tx_byte(v2_tx_byte),
         .rx_busy(), .tx_busy(), .protocol_error(protocol_error)
     );
+    // The current implementation owns TEST_SELECT_0 only.  Other A0..AF
+    // channels remain reserved for future diagnostic blocks.
+    assign test_csr_valid = cmd_valid && cmd_ready &&
+                            (cmd_address == V2_CSR_TEST_SELECT);
+    assign test_csr_write = (cmd_op == V2_OP_WRITE);
+    assign test_csr_addr = cmd_address;
+    assign test_csr_wdata = cmd_data;
+    v2_test_mode u_test_mode (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
+        .csr_valid(test_csr_valid), .csr_write(test_csr_write),
+        .csr_addr(test_csr_addr), .csr_wdata(test_csr_wdata),
+        .csr_ready(test_csr_ready), .csr_rvalid(test_csr_rvalid),
+        .csr_rdata(test_csr_rdata), .mixed_sample(test_sample),
+        .sample_valid(test_sample_valid), .active_bitmap(test_active_bitmap),
+        .sample_counter(test_sample_counter), .test_active(test_active),
+        .fault(test_fault)
+    );
     assign cmd_ready = !loop_ctrl_pending;
+    logic test_response_pending;
+    logic [7:0] test_response_sequence;
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
         if (!rst_sys_n) begin
             mode_reg <= IDLE; rsp_valid <= 0; rsp_sequence <= 0; rsp_status <= 0;
@@ -444,10 +473,20 @@ module mgc3130_v2_top #(
             selected_track <= 3'd0;
             loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
             loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;
+            test_response_pending <= 1'b0; test_response_sequence <= 8'd0;
         end else begin
             rsp_valid <= 1'b0; record_start <= 1'b0; record_stop <= 1'b0;
             record_abort <= 1'b0; potts_start <= 1'b0;
             loop_ctrl_valid <= loop_ctrl_pending;
+            if (test_csr_rvalid && test_response_pending) begin
+                rsp_valid <= 1'b1;
+                rsp_sequence <= test_response_sequence;
+                rsp_status <= V2_ACK_ACCEPTED;
+                rsp_error <= V2_ERR_NONE;
+                rsp_data <= test_csr_rdata;
+                rsp_terminal <= 1'b1;
+                test_response_pending <= 1'b0;
+            end
             if (loop_probe_record_start) record_start <= 1'b1;
             if (loop_probe_record_stop) record_stop <= 1'b1;
             if (loop_ctrl_pending && loop_ctrl_ready) begin
@@ -459,9 +498,14 @@ module mgc3130_v2_top #(
                 mode_reg <= RECORD;
             end
             if (cmd_valid && cmd_ready) begin
-                rsp_valid <= 1'b1; rsp_sequence <= cmd_sequence; rsp_status <= V2_ACK_ACCEPTED;
-                rsp_error <= V2_ERR_NONE; rsp_data <= (cmd_address == V2_CSR_STATUS) ? mode_reg : 0;
-                rsp_terminal <= 1'b1;
+                if (test_csr_valid && (cmd_op == V2_OP_READ)) begin
+                    test_response_pending <= 1'b1;
+                    test_response_sequence <= cmd_sequence;
+                end else begin
+                    rsp_valid <= 1'b1; rsp_sequence <= cmd_sequence; rsp_status <= V2_ACK_ACCEPTED;
+                    rsp_error <= V2_ERR_NONE; rsp_data <= (cmd_address == V2_CSR_STATUS) ? mode_reg : 0;
+                    rsp_terminal <= 1'b1;
+                end
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_TRACK)
                     selected_track <= cmd_data[2:0];
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_MODE) begin

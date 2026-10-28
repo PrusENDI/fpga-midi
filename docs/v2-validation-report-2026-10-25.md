@@ -462,12 +462,44 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_test_mode.ps
 It compiles and runs `sim/tb_v2_test_mode.sv`, producing 48 kHz fixed-window
 captures for N=1, 2, 4, 8, 16 and 32. `tools/test_v2_spectrum.py` checks the
 expected 220 Hz × k fundamentals over a ±10 Hz search window, requires each
-peak magnitude to exceed 1.0, and reports zero sideband ratio for this fixed
-point capture. The current run reports 0–1 Hz peak error and `files=6`.
-This closes the independent simulation/frequency-observability portion of
-Task 8.5. Standalone synthesis/resource evidence and final top CSR/I2S/board
-integration remain open; the mode cannot substitute for LIVE/LOOP audio
-validation.
+peak magnitude to exceed 1.0. The current run reports 0–1 Hz peak error and
+`files=6`. The script prints `sideband_ratio=0.0000` as a reserved report
+field; it does not yet perform an FFT or a sideband search, so the no-sideband
+acceptance item remains open. This closes the independent RTL and fundamental
+frequency portion of Task 8.5. Standalone synthesis/resource evidence and
+final top CSR/I2S/board integration remain separate gates; the mode cannot
+substitute for LIVE/LOOP audio validation.
+
+The current top now routes `TEST_SELECT_0` writes and delayed readback through
+the V2 UART command boundary. While `test_active` is asserted, the test sample
+and valid pulse bypass the disabled FX instance and feed the existing I2S
+transmitter; the normal voice sample path is selected otherwise. The fresh
+`scripts/test_v2_top.ps1` regression writes N=1, reads back the packed active
+count, observes an I2S sample-valid pulse, and confirms that the voice bitmap
+stays zero. This is a top-level simulation smoke check, not board or timing
+evidence.
+
+### Task 8.5 standalone synthesis/resource probe — 2026-10-28
+
+The independent synthesis command is:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
+  -TclScript (Resolve-Path scripts/synth_v2_test_mode.tcl).Path
+```
+
+It completes with `V2_TEST_MODE_SYNTH_PASS` and writes
+`impl/v2_test_mode_synth_20261028/impl/gwsynthesis/v2_test_mode_syn.rpt.html`.
+The probe keeps every status/sample output observable and is deliberately
+synthesis-only because its 158 I/O ports exceed the GW5A package. Current
+resource usage is **9,252 LUT**, **782 ALU**, **1,060 registers**, **0 latch**,
+and **0 BSRAM** (the phase array is extracted during synthesis but maps to
+logic in the final report). The report's aggregate logic figure is **10,036**;
+the LUT resource summary is used for the LUT count. The synthesis estimate is
+**12.337 MHz** with 114 logic levels; this is a standalone unpipelined probe
+estimate, not a routed 100 MHz claim. A first P&R attempt is retained as
+diagnostic only and stops at Gowin PA2112/PA2024 for the over-sized probe
+interface, so this does not close final-top P&R timing.
 
 ## Task 1 contract increment — 2026-10-27
 

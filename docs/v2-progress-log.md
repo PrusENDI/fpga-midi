@@ -48,12 +48,33 @@ Task 8.5 now has an independent `v2_test_mode` with selector-1 N-tone control,
 1–32 tone counts, phase reset, active bitmap, sample counter, fault readback and
 fixed 220 Hz × k sine tones. `scripts/test_v2_test_mode.ps1` generates N=1, 2,
 4, 8, 16 and 32 captures; `tools/test_v2_spectrum.py` reports all expected
-peaks within 1 Hz and zero measured sideband ratio for the current fixed-point
-capture. This mode is isolated from EventTable/LIVE/LOOP and is not yet wired
-into the final top UART/CSR path.
+peaks within 1 Hz for the current fixed-point capture. The checker prints a
+reserved `sideband_ratio=0.0000` field but does not yet perform FFT/sideband
+search, so that acceptance item remains open. This mode remains isolated from EventTable/LIVE/LOOP; the top now
+routes TEST_SELECT_0 through UART read/write and bypasses FX to I2S while the
+test mode is active. The top smoke checks readback, I2S sample-valid and zero
+voice allocation.
 
 The Task 9 and Task 8.5 validation commits are kept separate from the initial
 checkpoint so each gate can be reverted or reviewed independently.
+
+## 2026-10-28 — Task 8.5 top integration and synthesis checkpoint
+
+The final-top smoke path now includes `rtl/v2_test_mode.sv` in
+`rtl/mgc3130_v2_top.sv`. A0 writes/reads are delivered through the existing V2
+UART command boundary with a one-cycle delayed read response. Active test
+samples bypass the currently disabled FX instance and drive the existing I2S
+transmitter; LIVE/LOOP voice samples remain selected when test mode is idle.
+`scripts/test_v2_top.ps1` passes the new N=1 readback/I2S/zero-voice checks and
+the prior LIVE/LOOP smoke checks.
+
+The standalone resource probe is reproducible with
+`scripts/synth_v2_test_mode.tcl`. Synthesis passes and records 9,252 LUT,
+782 ALU, 1,060 registers, 0 latch and 0 BSRAM. Its 158-port probe cannot be
+placed on the GW5A package (PA2112/PA2024), so it is resource evidence only;
+the final top timing and board gates remain open. All tracked
+`scripts/synth_v2_top*.tcl` manifests now include `rtl/v2_test_mode.sv`, so a
+future top synthesis cannot silently omit the newly instantiated module.
 
 ## Git checkpoint policy
 
