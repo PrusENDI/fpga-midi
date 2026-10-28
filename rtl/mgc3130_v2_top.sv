@@ -239,8 +239,8 @@ module mgc3130_v2_top #(
     wire mode_play = (mode_reg == PLAY);
     v2_live_rule_engine #(.PIPELINE_NOTE(1)) u_live (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .frame_in_valid(cursor_frame_done),
-        .frame_valid(cursor_frame_done && cursor_point_valid && (cursor_state != 2'd3)), .frame_degraded(1'b0),
-        .frame_gap(1'b0), .rebased(cursor_rebased), .left_edge(1'b1),
+        .frame_valid(cursor_frame_done && cursor_point_valid && (cursor_state != 2'd3)), .frame_degraded(degraded_frame),
+        .frame_gap(calibrated_gap), .rebased(cursor_rebased), .left_edge(1'b1),
         .x(audio_cursor_x[15:0]), .y(audio_cursor_y[15:0]), .z(audio_cursor_z[15:0]),
         .touch(calibrated_touch), .bow(calibrated_presence), .tick(sample_index),
         .velocity_in(audio_velocity[7:0]), .brightness_in(audio_depth), .gain_in(16'hffff),

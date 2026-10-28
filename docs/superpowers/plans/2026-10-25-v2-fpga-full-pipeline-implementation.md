@@ -600,6 +600,7 @@ band/octave selector、最终 top 的非零 FX 接线、UART/CSR shadow/active �
 
 **Steps**
 - [ ] 建独立 top 和仿真 MGC3130 source；断言不实例化 V1 top。
+- [x] top smoke 断言 `frame_degraded`/`frame_gap` 真实连到 LIVE rule engine；主 top 仍需补 invalid/gap 行为向量。
 - [ ] 顶层测试左到右 LIVE、纯 Z、invalid/gap、六轨 record/overdub/commit/play、STOP、CRC/APPLY、1/8/32 voice、33rd voice-steal、bounded steal-release、vibrato、N-tone test mode、I2S sample count、telemetry；LOOP commit 必须把真实 recorder contour 送入 Potts。
 - [ ] V2 synthesis/P&R/timing 使用真实可达路径：valid input、实际 reader 或等价可达输入、LIVE/LOOP、real Potts、32×2 voice、非零 reduced FX、UART/telemetry 和 I2S 全部保留；记录 logic/FF/DSP/BSRAM/Fmax/slack/sample cycles/FIFO/FX level，并保存无 `NL0002 swept` 的日志。
 - [ ] 结构 probe、stub、关闭 `USE_POTTS`、关闭 `PRESERVE_INPUT_VALID`、常量 contour、不可达 preserve net 只能放在诊断章节，不能填最终 P&R acceptance 表。

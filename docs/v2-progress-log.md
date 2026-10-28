@@ -84,6 +84,10 @@ bank state and a combined protocol/recorder/timeout/test fault bit. This is a
 small top CSR slice only; POSITION/DIAG/PATCH/WT/TLM readback, PLAY/RESET/STOP,
 BPM timebase, telemetry TX and final top P&R/board evidence remain open.
 
+The top smoke also now asserts the LIVE rule engine receives the actual
+`degraded_frame` and `calibrated_gap` signals. The old constant-zero wiring was
+removed; behavior-level invalid/gap vectors are still pending.
+
 ## Git checkpoint policy
 
 Create a commit after each independently verified task or a material root-cause

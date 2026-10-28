@@ -95,6 +95,13 @@ module tb_mgc3130_v2_top;
         repeat (25) @(posedge clk_50m);
         if (!dut.rst_sys_n) $fatal(1, "V2 reset did not release");
         if (!dut.pll_locked) $fatal(1, "V2 simulation PLL boundary not locked");
+        force dut.degraded_frame = 1'b1;
+        force dut.calibrated_gap = 1'b1;
+        #1;
+        if (dut.u_live.frame_degraded !== 1'b1 || dut.u_live.frame_gap !== 1'b1)
+            $fatal(1, "LIVE rule engine did not receive degraded/gap validity");
+        release dut.degraded_frame;
+        release dut.calibrated_gap;
 
         // A valid control frame reaches the single V2 parser and changes mode.
         inject_control(8'h02, 8'h04, 8'h21, 32'h00000001);

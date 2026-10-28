@@ -599,6 +599,12 @@ remaining POSITION/DIAG/PATCH/WT/TLM registers, PLAY/RESET/STOP semantics,
 telemetry TX arbitration, BPM timing and final top P&R/board gates remain
 open.
 
+The same top smoke now forces the validity outputs and asserts that
+`frame_degraded` and `frame_gap` arrive at the LIVE rule engine ports. The
+previous constant-zero connections were removed. This is a wiring invariant;
+full invalid/gap event vectors and end-to-end qualification remain part of the
+open Task 12 top test.
+
 ## Task 7 top-level Potts contour measurement — 2026-10-27
 
 `scripts/test_v2_top_potts.ps1` runs `mgc3130_v2_top` with `USE_POTTS=1` and
