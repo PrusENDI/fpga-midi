@@ -4,6 +4,16 @@ This file records reproducible implementation checkpoints. Generated
 `impl/`, ModelSim work libraries, transcripts and local captures remain outside
 Git; source, tests, scripts and evidence summaries are committed.
 
+## 2026-10-28 — lightweight long-run workflow checkpoint
+
+Added the repository-local explicit skill
+`.codex/skills/fpga-long-run/SKILL.md` (commit `9275223`). It keeps ordinary
+documentation, audits and single-command checks on a short checkpoint path;
+full `subagent-driven-development` is reserved for multi-file RTL/interface
+changes, timing closure or repeated unresolved failures. The skill requires
+fresh evidence for each gate, records source revision and bitstream hash, and
+preserves the existing no-reset/no-clean recovery rule.
+
 ## 2026-10-28 — pre-Task-8.5 checkpoint
 
 The V2 contract is frozen for 32-slot/two-bank Loop storage, 16-bit voice-steal
