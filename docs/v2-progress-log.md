@@ -30,6 +30,13 @@ metadata, partial-upload status and incomplete APPLY errors. Complete WT active
 sample readback remains covered by the standalone 1024-sample gate; final top
 FX enable, telemetry TX and current-source P&R remain open.
 
+The V2 board P&R Tcl manifest now includes the patch/wavetable RTL and both E2
+regular-IO overrides. A fresh `gw_sh` invocation returned exit code 1 without
+console output and left the retained P&R files dated 2026-10-26; their old
+`device.cfg` still says `CPU regular_io = false`. No new E2 package result is
+claimed until the CLI produces a refreshed report with both CPU and SSPI set to
+regular IO.
+
 ## 2026-10-28 — pre-Task-8.5 checkpoint
 
 The V2 contract is frozen for 32-slot/two-bank Loop storage, 16-bit voice-steal
