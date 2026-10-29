@@ -1,6 +1,18 @@
 // Bounded fixed-point Potts DP: one (end,start,degree) cell is evaluated per
-// clock. Costs saturate at 63'h3fff...; ties prefer longer segments then lower
-// degree. Backpointers are traced before the held event stream is published.
+// cell sequence. Costs saturate at 32'h3fffffff; ties prefer longer segments
+// then lower degree. Backpointers are traced before the held event stream is
+// published.
+//
+// Resource shape (2026-10-29 B stream):
+// - the board profile (HORIZON<=63) keeps the dp table in explicit GW5A DPB
+//   lanes, so the two 32-bit variable-index read muxes disappear from fabric
+//   logic.  A cell is then evaluated as SEGMENT -> RD1 -> RD2 -> CELL_COMMIT,
+//   with the registered DPB read replacing the asynchronous array read.
+// - larger horizons (the portable HORIZON=128 default) keep the previous
+//   register-array dp table; they are simulation-only and never placed.
+// - the event holding RAM is sized by the DP segment bound (EV_CAP).
+// - cost/err arithmetic stays 32-bit signed, the cell order, tie-break and
+//   saturation are unchanged, so emitted events are bit-identical.
 module v2_potts_commit_fsm #(
  parameter integer MAX_EVENTS=32,
  parameter integer MIN_LENGTH=4,
@@ -13,7 +25,7 @@ module v2_potts_commit_fsm #(
  input logic signed [15:0] contour [0:127], output logic busy,output logic [7:0] progress,
  output logic done,output logic overflow,output logic backtrace_valid,output logic event_valid,
  input logic event_ready,output logic [95:0] event_data,output logic [5:0] event_count);
- localparam [2:0] IDLE=0,CELL=1,SEGMENT=2,CELL_COMMIT=3,TRACE=4,EMIT=5;
+ localparam [3:0] IDLE=0,INIT=1,CELL=2,SEGMENT=3,RD1=4,RD2=5,CELL_COMMIT=6,TRACE=7,EMIT=8;
  // A contour of HORIZON ticks with MIN_LENGTH minimum segment length can never
  // emit more than HORIZON/MIN_LENGTH+1 segments.  The board profile is
  // HORIZON=32/MIN_LENGTH=4, so 9 entries are enough there; HORIZON=128 still
@@ -21,14 +33,94 @@ module v2_potts_commit_fsm #(
  // bound removes the 32:1 read mux from the board build without changing any
  // event that the DP can produce.
  localparam integer EV_CAP = ((HORIZON/MIN_LENGTH+1) < MAX_EVENTS) ? (HORIZON/MIN_LENGTH+1) : MAX_EVENTS;
- logic [2:0] state; integer e,s,d,t,seg_t; integer signed cost,err,sum,err_acc; integer has_rest,has_data,has_rest_acc,has_data_acc; integer trace_end,trace_start,trace_deg; logic [31:0] dp[0:HORIZON]; logic [7:0] bp_s[0:HORIZON],bp_d[0:HORIZON]; logic [95:0] events[0:EV_CAP-1]; logic [5:0] wr,rd; logic [95:0] temp_event;
+ // DPB lanes hold HORIZON+1 words; the board profile needs 33, so 6 address
+ // bits are enough and fit the 1024-row DPB view.
+ localparam integer DP_RAM = (HORIZON <= 63);
+ logic [3:0] state;
+ integer e,s,d,t,seg_t,init_idx;
+ integer signed cost,err,sum,err_acc;
+ integer has_rest,has_data,has_rest_acc,has_data_acc;
+ integer trace_end,trace_start,trace_deg;
+ logic [7:0] bp_s[0:HORIZON],bp_d[0:HORIZON];
+ logic [95:0] events[0:EV_CAP-1];
+ logic [5:0] wr,rd;
+ logic [95:0] temp_event;
+ logic [7:0] dp_rd_addr,dp_wr_addr;
+ logic [31:0] dp_wr_data,dp_s_val,dp_rd_data;
+ logic dp_wr_en;
+ logic [31:0] commit_cost;
+ logic commit_upd;
  function automatic integer note(input integer k); case(k)0:note=57;1:note=60;2:note=62;3:note=64;default:note=67;endcase endfunction
- function automatic integer sat(input integer v); if(v>32'sh3fffffff)sat=32'sh3fffffff; else if(v<0)sat=0; else sat=v; endfunction
+ function automatic [31:0] sat(input integer v); if(v>32'sh3fffffff)sat=32'sh3fffffff; else if(v<0)sat=32'd0; else sat=v[31:0]; endfunction
  assign busy=state!=IDLE; assign event_valid=state==EMIT&&rd<wr; assign event_data=event_valid?events[rd]:96'd0;
+ assign dp_rd_addr = (state==RD1) ? s[7:0] : e[7:0];
+ assign dp_wr_addr = (state==INIT) ? init_idx[7:0] : e[7:0];
+ assign dp_wr_data = (state==INIT) ? ((init_idx==0) ? 32'd0 : 32'h3fffffff) : commit_cost;
+ assign dp_wr_en   = (state==INIT) || ((state==CELL_COMMIT) && commit_upd);
+ always_comb begin
+  integer signed c,errc;
+  errc = err_acc;
+  if (errc > 32'sh3fffffff) errc = 32'sh3fffffff;
+  c = dp_s_val + errc + ((s==0) ? 0 : lambda_q16);
+  commit_cost = sat(c);
+  commit_upd = 1'b0;
+  if (state==CELL_COMMIT && (!has_rest_acc || !has_data_acc) && ((e-s)>=MIN_LENGTH || s==0))
+   commit_upd = (c<dp_rd_data) || ((c==dp_rd_data) && ((e-s)>=(e-bp_s[e])));
+ end
+ generate
+  if (DP_RAM) begin : g_dp_ram
+   logic [15:0] dp_rd_lo,dp_rd_hi;
+   assign dp_rd_data = {dp_rd_hi,dp_rd_lo};
+   DPB #(
+    .BIT_WIDTH_0(16), .BIT_WIDTH_1(16),
+    .READ_MODE0(1'b0), .READ_MODE1(1'b0),
+    .WRITE_MODE0(2'b00), .WRITE_MODE1(2'b00),
+    .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
+    .RESET_MODE("SYNC")
+   ) dp_lo (
+    .CLKA(clk), .CLKB(clk),
+    .CEA(1'b1), .CEB(dp_wr_en),
+    .OCEA(1'b1), .OCEB(1'b1),
+    .WREA(1'b0), .WREB(dp_wr_en),
+    .RESETA(1'b0), .RESETB(1'b0),
+    .BLKSELA(3'b000), .BLKSELB(3'b000),
+    .ADA({4'b0, dp_rd_addr[5:0], 4'b0011}),
+    .ADB({4'b0, dp_wr_addr[5:0], 4'b0011}),
+    .DIA(16'd0), .DIB(dp_wr_data[15:0]),
+    .DOA(dp_rd_lo), .DOB()
+   );
+   DPB #(
+    .BIT_WIDTH_0(16), .BIT_WIDTH_1(16),
+    .READ_MODE0(1'b0), .READ_MODE1(1'b0),
+    .WRITE_MODE0(2'b00), .WRITE_MODE1(2'b00),
+    .BLK_SEL_0(3'b000), .BLK_SEL_1(3'b000),
+    .RESET_MODE("SYNC")
+   ) dp_hi (
+    .CLKA(clk), .CLKB(clk),
+    .CEA(1'b1), .CEB(dp_wr_en),
+    .OCEA(1'b1), .OCEB(1'b1),
+    .WREA(1'b0), .WREB(dp_wr_en),
+    .RESETA(1'b0), .RESETB(1'b0),
+    .BLKSELA(3'b000), .BLKSELB(3'b000),
+    .ADA({4'b0, dp_rd_addr[5:0], 4'b0011}),
+    .ADB({4'b0, dp_wr_addr[5:0], 4'b0011}),
+    .DIA(16'd0), .DIB(dp_wr_data[31:16]),
+    .DOA(dp_rd_hi), .DOB()
+   );
+  end else begin : g_dp_reg
+   logic [31:0] dp[0:HORIZON];
+   assign dp_rd_data = (state==RD2) ? dp[s[7:0]] : dp[e[7:0]];
+   always_ff @(posedge clk) if (dp_wr_en) dp[dp_wr_addr] <= dp_wr_data;
+  end
+ endgenerate
  always_ff @(posedge clk or negedge rst_n) begin
-  if(!rst_n)begin state<=IDLE;done<=0;overflow<=0;backtrace_valid<=0;progress<=0;e<=0;s<=0;d<=0;wr<=0;rd<=0;event_count<=0;end else begin done<=0;
+  if(!rst_n)begin state<=IDLE;done<=0;overflow<=0;backtrace_valid<=0;progress<=0;e<=0;s<=0;d<=0;wr<=0;rd<=0;event_count<=0;init_idx<=0;end else begin done<=0;
    case(state)
-    IDLE: if(start)begin state<=CELL;e<=1;s<=0;d<=0;dp[0]<=0;for(t=1;t<=HORIZON;t=t+1)dp[t]<=32'h3fffffff;wr<=0;rd<=0;overflow<=0;backtrace_valid<=0;progress<=0;end
+    IDLE: if(start)begin state<=INIT;init_idx<=0;wr<=0;rd<=0;overflow<=0;backtrace_valid<=0;progress<=0;end
+    INIT: begin
+      if(init_idx==HORIZON)begin e<=1;s<=0;d<=0;state<=CELL;end
+      else init_idx<=init_idx+1;
+    end
     CELL: begin
       err_acc=0; has_rest_acc=0; has_data_acc=0; seg_t=s; state<=SEGMENT;
     end
@@ -40,12 +132,13 @@ module v2_potts_commit_fsm #(
           err_acc=err_acc+(contour[seg_t]-note(d))*(contour[seg_t]-note(d));
         end
         seg_t=seg_t+1;
-      end else state<=CELL_COMMIT;
+      end else state<=RD1;
     end
+    RD1: state<=RD2;
+    RD2: begin dp_s_val<=dp_rd_data; state<=CELL_COMMIT; end
     CELL_COMMIT: begin
       err=err_acc; has_rest=has_rest_acc; has_data=has_data_acc;
-      if(err>32'sh3fffffff)err=32'sh3fffffff;
-      cost=dp[s]+err+((s==0)?0:lambda_q16); if((has_rest==0 || has_data==0) && ((e-s)>=MIN_LENGTH || s==0))begin if(cost<dp[e] || (cost==dp[e]&&((e-s)>=(e-bp_s[e]))))begin dp[e]<=sat(cost);bp_s[e]<=s[7:0];bp_d[e]<=d[7:0];end end
+      if(commit_upd)begin bp_s[e]<=s[7:0]; bp_d[e]<=d[7:0]; end
       if(d==4)begin d<=0;if(s==e-1)begin s<=0;e<=e+1;progress<=e;end else s<=s+1;end else d<=d+1;
       if(e==HORIZON&&s==HORIZON-1&&d==4)begin state<=TRACE;trace_end<=HORIZON;wr<=0;end
       else state<=CELL;

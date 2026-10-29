@@ -33,4 +33,17 @@ try {
     if (Select-String -Path v2_top_potts.log -Pattern '\*\* (Error|Fatal):' -Quiet) { Get-Content v2_top_potts.log; throw 'V2 top Potts assertion failed' }
     if (!(Select-String -Path v2_top_potts.log -SimpleMatch 'tb_mgc3130_v2_top_potts PASS' -Quiet)) { Get-Content v2_top_potts.log; throw 'V2 top Potts did not reach PASS' }
     Write-Output "V2 top Potts simulation PASS: $buildDir"
+    # Board profile: HORIZON=32 is the only profile that maps the dp table to
+    # explicit DPB lanes, so it needs its own regression.
+    $h32 = @(
+      (Join-Path $projectRoot 'rtl/v2_potts_commit_fsm.sv'),
+      (Join-Path $projectRoot 'sim/tb_v2_potts_commit_fsm.sv')
+    )
+    & (Join-Path $ModelSimBin 'vlog.exe') +define+V2_SIM -sv -work work @h32 *> compile_h32.log
+    if ($LASTEXITCODE -ne 0) { Get-Content compile_h32.log; throw 'H32 vlog failed' }
+    & (Join-Path $ModelSimBin 'vsim.exe') -c -novopt -onfinish stop -l v2_potts_h32.log work.tb_v2_potts_commit_fsm -do 'run -all; quit -code 0 -f' *> v2_potts_h32.console.log
+    if ($LASTEXITCODE -ne 0) { Get-Content v2_potts_h32.log; throw 'H32 Potts simulation failed' }
+    if (Select-String -Path v2_potts_h32.log -Pattern '\*\* (Error|Fatal):' -Quiet) { Get-Content v2_potts_h32.log; throw 'H32 Potts assertion failed' }
+    if (!(Select-String -Path v2_potts_h32.log -SimpleMatch 'tb_v2_potts_commit_fsm PASS' -Quiet)) { Get-Content v2_potts_h32.log; throw 'H32 Potts did not reach PASS' }
+    Write-Output "V2 H32 Potts (DPB) simulation PASS: $buildDir"
 } finally { Pop-Location }
