@@ -206,11 +206,40 @@ Diagnostic FS SHA256:
 `2E97E19A20F76756435B41FF693750AC74A20EDBBEC4D65A079C1981C81F4CF4`.
 It is not an accepted 100 MHz board artifact.
 
-No clean integrated baseline delta is claimed here. The historical dirty
-`tm_serial_1` run is unsuitable as a clean baseline; a clean `ec10de4` rerun
-is queued separately. The combined candidate has passed review, 983-frame
-timed checks, top regression and 175 Python tests; its P&R is in progress
-in integration and is not evidence for this isolated median candidate.
+### Matched clean baseline comparison
+
+The clean baseline has now completed at source
+`ec10de4623648e957c56db06e3fbe628ae763ec9`, dirty state `[]`, in
+`.worktrees/v2-cursor-baseline/impl/v2_top_fullpath_cursor_baseline_ec10de4_1`.
+Its wrapper exited 0; Acceptance verifier exited 1, `BLOCKED`, with touch
+decoder inlining accepted. This clean baseline replaces historical dirty
+`tm_serial_1` comparisons.
+
+| metric | clean baseline ec10de4 | clean median 3f62a8a | median delta |
+|---|---:|---:|---:|
+| logic | 15,302 | 14,542 | -760 |
+| registers | 8,996 | 8,676 | -320 |
+| CLS | 10,250 | 10,142 | -108 |
+| BSRAM | 36 | 36 | 0 |
+| DSP | 16 | 16 | 0 |
+| raw `.tr` Fmax, MHz | 71.342 | 66.898 | -4.444 |
+| HTML/verifier Fmax, MHz | 71.342 | 66.897 | distinct report rounding |
+| setup violating endpoints | 2,650 | 3,102 | +452 |
+| setup TNS, ns | -5,223.233 | -8,989.670 | -3,766.437 |
+| worst setup slack, ns | -4.017 | -4.948 | -0.931 |
+| hold violations | 0 | 0 | 0 |
+
+The median saves integrated resources while reducing raw-report Fmax by
+4.444 MHz against the matched clean baseline. Baseline FS SHA256 is
+`25D1FE873A47B5FBC362A247D0809F1C1DD2D806E161BBD6A68A58900FCDF78B`.
+Both clean runs remain below 100 MHz and Acceptance `BLOCKED`.
+
+The combined median/DSP candidate has also completed H0 at clean `b1ed70a`:
+logic 14,431, registers 8,804, CLS 10,148, BSRAM 36, DSP 8,
+Fmax 66.536 MHz, 3,265 setup violations, TNS -7,987.394 ns,
+worst slack -5.029 ns, hold violations 0. Its review, 983-frame timed checks,
+top regression and 175 Python tests passed, but H0 remains `BLOCKED`.
+These combined figures are distinct from the isolated median candidate above.
 
 ## Risk and recommendation
 
@@ -227,9 +256,9 @@ the 500,000-cycle 200 Hz budget. Sustained burst service rate is lower, so this
 does not claim arbitrary-rate FIFO losslessness.
 
 The standalone resource reduction is material (318 FF and 623 logic units),
-and the candidate remains a timed-behavior preserving resource optimization
-for integration assessment. Existing timed/scalar differences remain separate
-open issues. Its clean full-path H0 is still **100 MHz BLOCKED**; adoption as a
-timing solution is not supported by the result. Compare only against the
-pending clean integrated baseline and completed combined-candidate P&R before
-drawing integrated resource or timing improvement conclusions.
+and the candidate remains a timed-behavior preserving resource optimization.
+Existing timed/scalar differences remain separate open issues. Keep this branch
+as a resource alternative; do not include it in this round's main integrated
+100 MHz timing solution. The clean median and combined H0 results are both
+**100 MHz BLOCKED**, and the clean comparison shows worse timing despite the
+resource savings.
