@@ -168,3 +168,43 @@ vsim -c -novopt work.tb_h1_fullpath -do 'run -all; quit -f'
 gw_sh impl\ms_h1\diag_canonical.tcl     # canonical profile，仅 syn
 gw_sh impl\ms_h1\diag_reader0.tcl       # stub sensor，仅 syn
 ```
+## 12. 网表级定论（canonical profile，`clean_baseline_1`）
+
+### 12.1 `v2_touch_info_decoder`：被内联，功能存在
+
+网表里 `calibrated_touch` 不是常量，而是一个真实触发器：
+
+```text
+DFFCE v2_touch_s0 ( .Q(calibrated_touch), .D(n349_6), .CLK(clk_pll), .CLEAR(n2030_6), .CE(VCC) );
+LUT4 n349_s1 ( .F(n349_6), .I0(report_error_Z), .I1(n349_7), .I2(report_valid_Z), .I3(touch_valid_Z) );
+```
+
+而且 `v2_live_rule_engine u_live` 的端口表里有
+`.calibrated_touch(calibrated_touch)` 与 `.calibrated_presence(calibrated_presence)`。
+
+即：**输入 → latch → decoder → calibration → LIVE 的功能锥在综合网表里是存在的**，
+decoder 只是被展平进上层，所以层次名消失、报 NL0002。这一条**属于合法的工具优化**，
+功能等价证据充分（触发器 + LUT + LIVE 端口三级都在网表里可见）。
+
+### 12.2 `v2_test_mode`：确实被删除
+
+- 网表里没有 `test_active` / `test_sample` 等任何相关网络；
+- `v2_test_mode` 的 `phase` 数组在编译期被识别为 RAM，但网表 BSRAM 只有 36 块，
+  逐模块统计为 35 块（voice 16、store 5、patch 4、wavetable 6、fx 2、potts 2），
+  **没有为 test_mode 留下任何 RAM**；
+- 顶层模块自身只有 156 FF，全设计 7,839 FF，与各子模块之和相符，
+  **没有额外 ~1,000 个 DDS 相位寄存器**；
+- 逻辑预算同样没有余量（12,787 已基本被各子模块占满）。
+
+结论：`v2_test_mode` 不是被展平，是**整模块被删掉**。H1 已证明它在同样参数下可达，
+因此这不是合法的死代码消除。
+
+## 13. 两条 sweep 的处理建议（按主线程要求）
+
+| 模块 | 性质 | 建议 |
+| --- | --- | --- |
+| `v2_touch_info_decoder` | 合法优化（内联） | 可以给 verifier 制定**精确例外**：仅当该模块缺失、但网表里存在 touch 触发器且 `u_live` 的 touch/presence 端口已连接时放行；并在报告里附本节网表证据 |
+| `v2_test_mode` | 功能确实缺失 | **不得例外**。它属于合同 0xA0–0xAF 与验收第 8 条要求的可观测测试模式；当前位流不含该功能，Task 8.5 的"已接入顶层"结论必须降级为"仅仿真可达，综合后缺失" |
+
+`v2_test_mode` 的修复不在 verifier 层，需要工具层或 RTL 层解决（三种 keep 手段已全部
+无效），应作为独立问题跟踪，不能靠放宽门禁绕过。
