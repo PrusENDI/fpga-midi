@@ -26,7 +26,7 @@ historical.
 | N-tone test mode | N=1/2/4/8/16/32 capture, radix-2 FFT sideband gate, standalone synthesis, A0 top smoke | Diagnostic path substantially closed; not a LIVE/LOOP substitute |
 | Patch/wavetable/FX | Standalone patch, wavetable and reduced-FX gates | Final top has no patch/loader instances; FX remains `enable=0`, `level=0` |
 | UART/telemetry | Byte parser, ACK/NACK, duplicate and snapshot standalone gates | Top telemetry `frame_ready` is tied low; no physical TX/CSR evidence |
-| Final top P&R | Fresh E2 package-legal current-source run; 2.615 MHz actual Fmax, 3151 setup violations, 0 hold violations | Package gate closed; 100 MHz timing gate open |
+| Final top P&R | Fresh E2 package-legal current-source rerun after `e9c0486`; 3.072 MHz actual Fmax, 1977 setup violations, 0 hold violations | Package gate closed; 100 MHz timing gate open |
 | Board measurement | No final V2 programming, UART capture, I2S waveform or latency measurement | Not started |
 
 ## Remaining critical path
@@ -45,7 +45,7 @@ historical.
    UART/telemetry and I2S all retained. Resolve the known front-end and voice
    timing violations, then rerun synthesis and P&R from the current commit.
 5. Repair the banked voice state path that currently maps `age` and
-   `steal_hold` to RAMREG and produces the 2.615 MHz result; preserve the
+   `releasing` metadata to RAMREG and produces the 3.072 MHz result; preserve the
    functional replay while adding explicit latency/BRAM boundaries.
 6. Recheck package constraints and I2S output timing against the actual top
    ports. A successful probe with stub inputs or swept modules cannot close this

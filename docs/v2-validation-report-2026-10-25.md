@@ -691,6 +691,19 @@ run through the banked voice `age`/`steal_hold` RAMREG structures, so this
 bitstream is retained as diagnostic timing evidence and is not a final board
 programming image.
 
+### Voice metadata timing reduction — 2026-10-29
+
+Commit `e9c0486` scalarizes the bounded-release countdown that had been
+implemented as a 32-entry RAMREG array. The voice engine and replay gates pass
+for both portable and GW5A DPB state banks. A fresh E2 rerun remains package
+legal and generates a bitstream, but timing is still far below the 100 MHz
+requirement: actual Fmax **3.072 MHz**, setup violations **1977**, setup TNS
+**-18635.975 ns**, and hold violations **0**. The worst path is now the
+32-way `age` metadata priority result to `releasing` write enables. The
+artifact hash is
+`F196E20522780C59157F46C1F62A5809B3A88CD75C3E127E3BB4131901458542`; it is
+retained as incremental timing evidence only.
+
 ## Task 8 voice-steal/vibrato continuation — 2026-10-28
 
 The previous banked replay failure was root-caused before changing the oracle.

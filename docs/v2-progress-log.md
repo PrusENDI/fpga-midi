@@ -39,6 +39,18 @@ Fresh functional gates after the run remain green: `scripts/test_v2_top.ps1`,
 `scripts/test_v2_patch_bank.ps1`, `scripts/test_v2_wavetable_fx.ps1`, and the
 Python suite (`175 tests`).
 
+## 2026-10-29 — voice metadata timing reduction checkpoint
+
+Commit `e9c0486` replaces the per-voice bounded-release countdown RAMREG array
+with one scalar countdown paired with the registered victim slot. The voice
+engine and replay gates pass for both portable and GW5A DPB models. A fresh E2
+rerun remains package-legal and generates a bitstream, while timing improves to
+actual Fmax **3.072 MHz**, setup violations **1977**, setup TNS
+**-18635.975 ns**, hold violations **0**, with 16,329 logic, 2,440 registers,
+33 DPB and 1 DSP. The remaining critical path is the 32-way `age` metadata
+priority result driving `releasing` write enables (about -315 ns worst slack).
+This is still timing-failure evidence and must not be programmed.
+
 ## 2026-10-28 — lightweight long-run workflow checkpoint
 
 Added the repository-local explicit skill
