@@ -4,6 +4,41 @@ This file records reproducible implementation checkpoints. Generated
 `impl/`, ModelSim work libraries, transcripts and local captures remain outside
 Git; source, tests, scripts and evidence summaries are committed.
 
+## 2026-10-29 — fresh E2 board P&R and timing checkpoint
+
+The verified Gowin wrapper was rerun with license-server access against the
+current `eb87408` source:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 \
+  -TclScript (Resolve-Path scripts/synth_v2_top_board_20261026.tcl).Path \
+  -LicenseServer 106.55.34.119:10559
+```
+
+The run entered Tcl, passed synthesis and completed placement, routing, timing,
+power analysis and bitstream generation (`V2_TOP_BOARD_PNR_PASS`, exit 0).
+The fresh report is under `impl/v2_top_board_20261026/impl/pnr/` for device
+`GW5A-LV25MG121NES`; `mgc3130_v2.cst` is loaded and `clk_50m` is constrained at
+**E2/5**. The generated `device.cfg` now contains both `SSPI regular_io = true`
+and `CPU regular_io = true`; the previous PR2017/PR2028 errors are absent.
+The bitstream is
+`impl/v2_top_board_20261026/impl/pnr/v2_top_board.fs` (7,250,286 bytes) with
+SHA-256
+`8F3741A3F14F31F6E0002983B75B860DF0C53CDD95B93B23285CC899D9EF9129`.
+
+This is a current-source, package-legal board artifact, but it is **not** a
+timing pass. The report uses the generated 100 MHz PLL clock and records actual
+Fmax **2.615 MHz**, **3,151** setup-violated endpoints, setup TNS
+**-211686.406 ns**, and zero hold violations. Resource usage is 18,043 logic,
+2,936 registers, 33 DPB, 1 DSP and 10 I/O ports. The worst paths are through
+the banked voice `age`/`steal_hold` RAMREG structures (about -372 ns slack), so
+the artifact must not be programmed as a final V2 image. The next phase is a
+structural voice-state timing repair followed by a fresh full-path P&R.
+
+Fresh functional gates after the run remain green: `scripts/test_v2_top.ps1`,
+`scripts/test_v2_patch_bank.ps1`, `scripts/test_v2_wavetable_fx.ps1`, and the
+Python suite (`175 tests`).
+
 ## 2026-10-28 — lightweight long-run workflow checkpoint
 
 Added the repository-local explicit skill

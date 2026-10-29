@@ -1,18 +1,18 @@
 # V2 board-readiness review — 2026-10-28
 
-This review uses the current checkout at `d595fad` on
+This review uses the current checkout at `eb87408` on
 `feat/loop-event-store`. It separates an early board smoke from the final V2
 full-path acceptance gate.
 
 ## Current conclusion
 
-The project is ready to continue RTL integration and timing closure. It is not
-yet ready for a final V2 board test. The current source has a fresh top-level
-ModelSim smoke (`scripts/test_v2_top.ps1`), but no current-source final-top
-P&R/bitstream evidence. The `.fs` under `impl/v2_audio_smoke_20261027/` is an
-early audio smoke artifact. The `.fs` under `impl/v2_top/` is dated 2026-10-26,
-contains swept diagnostic logic, and predates the current top integration; it
-must not be used as the V2 acceptance bitstream.
+The project now has a fresh current-source E2 board P&R/bitstream artifact, but
+it is not yet ready for a final V2 board test because the 100 MHz timing gate
+fails. The run is package-legal: CPU and SSPI are regular IO, `clk_50m` is at
+E2/5, and PR2017/PR2028 are absent. The generated bitstream is retained as
+timing-failure evidence only. The `.fs` under `impl/v2_audio_smoke_20261027/`
+remains an early audio smoke artifact, and older `impl/v2_top/` outputs remain
+historical.
 
 ## Gate classification
 
@@ -26,7 +26,7 @@ must not be used as the V2 acceptance bitstream.
 | N-tone test mode | N=1/2/4/8/16/32 capture, radix-2 FFT sideband gate, standalone synthesis, A0 top smoke | Diagnostic path substantially closed; not a LIVE/LOOP substitute |
 | Patch/wavetable/FX | Standalone patch, wavetable and reduced-FX gates | Final top has no patch/loader instances; FX remains `enable=0`, `level=0` |
 | UART/telemetry | Byte parser, ACK/NACK, duplicate and snapshot standalone gates | Top telemetry `frame_ready` is tied low; no physical TX/CSR evidence |
-| Final top P&R | Structural/stub probes exist; current top source changed after retained artifacts | Not closed; no valid current full-path bitstream |
+| Final top P&R | Fresh E2 package-legal current-source run; 2.615 MHz actual Fmax, 3151 setup violations, 0 hold violations | Package gate closed; 100 MHz timing gate open |
 | Board measurement | No final V2 programming, UART capture, I2S waveform or latency measurement | Not started |
 
 ## Remaining critical path
@@ -44,10 +44,13 @@ must not be used as the V2 acceptance bitstream.
    LIVE/LOOP, non-empty recorder contour, `USE_POTTS=1`, 32×2 voice, nonzero FX,
    UART/telemetry and I2S all retained. Resolve the known front-end and voice
    timing violations, then rerun synthesis and P&R from the current commit.
-5. Recheck package constraints and I2S output timing against the actual top
+5. Repair the banked voice state path that currently maps `age` and
+   `steal_hold` to RAMREG and produces the 2.615 MHz result; preserve the
+   functional replay while adding explicit latency/BRAM boundaries.
+6. Recheck package constraints and I2S output timing against the actual top
    ports. A successful probe with stub inputs or swept modules cannot close this
    gate.
-6. Only after the current-source P&R succeeds should the project generate the
+7. Only after the current-source P&R succeeds should the project generate the
    final `.fs`, hash it, program the board, and record board revision, UART
    frames, BCLK/LRCK/DIN captures, underrun status and trigger-to-waveform
    latency.

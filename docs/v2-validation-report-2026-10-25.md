@@ -661,6 +661,36 @@ oscillator allocation remains unresolved, and no DAC-side capture has been
 performed. This closes the smoke simulation, I/O-constraint, and independent
 P&R gate only; it is not board-level audio evidence and does not close Task 12.
 
+## Fresh E2 V2 board P&R — 2026-10-29
+
+The current `eb87408` source was run through the repository's verified Gowin
+wrapper with the configured license server:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 \
+  -TclScript (Resolve-Path scripts/synth_v2_top_board_20261026.tcl).Path \
+  -LicenseServer 106.55.34.119:10559
+```
+
+The run entered Tcl and completed synthesis, placement, routing, timing,
+power analysis and bitstream generation (`V2_TOP_BOARD_PNR_PASS`, exit 0).
+The fresh artifact is under `impl/v2_top_board_20261026/impl/pnr/` for
+`GW5A-LV25MG121NES`. The report loads `mgc3130_v2.cst`, places `clk_50m` at
+E2/5, and the generated `device.cfg` contains both `set SSPI regular_io = true`
+and `set CPU regular_io = true`. No PR2017 or PR2028 is present in the new P&R
+log. This closes the E2 package-legality gate.
+
+The bitstream is `impl/v2_top_board_20261026/impl/pnr/v2_top_board.fs`,
+7,250,286 bytes, SHA-256
+`8F3741A3F14F31F6E0002983B75B860DF0C53CDD95B93B23285CC899D9EF9129`.
+Timing is still a hard failure: generated 100 MHz clock actual Fmax is
+**2.615 MHz**, setup violated endpoints are **3151**, setup TNS is
+**-211686.406 ns**, and hold violated endpoints are **0**. Resource usage is
+18,043 logic, 2,936 registers, 33 DPB, 1 DSP and 10 I/O ports. The worst paths
+run through the banked voice `age`/`steal_hold` RAMREG structures, so this
+bitstream is retained as diagnostic timing evidence and is not a final board
+programming image.
+
 ## Task 8 voice-steal/vibrato continuation — 2026-10-28
 
 The previous banked replay failure was root-caused before changing the oracle.
