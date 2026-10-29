@@ -1,0 +1,8 @@
+# Keep the H0 manifest hashes byte-stable across worktrees with
+# core.autocrlf enabled on Windows.
+scripts/run_gowin_cli.ps1 text eol=lf
+scripts/synth_v2_top_fullpath_20261029.tcl text eol=lf
+scripts/verify_v2_fullpath_run.ps1 text eol=lf
+sim/v2_top_fullpath_probe.sv text eol=lf
+mgc3130_v2.cst text eol=lf
+mgc3130_v2_top_observable.sdc text eol=lf
