@@ -109,6 +109,42 @@ Final ModelSim SE-64 10.6d logs are under
 `impl/cursor_timed_e47d470ee3e94c7cbd63fb6482c024c7` (candidate), each containing
 `compile.log`, `replay.log`, and `console.log`.
 
+### Strict latency gate and source identity follow-up
+
+`-ExpectSameLatency` now passes `EXPECT_SAME_LATENCY=1` to the bench. It checks
+each corresponding completed frame's measured acceptance-to-completion latency,
+including FIFO waiting, and requires exactly 983 latency checks before PASS.
+This is used for DSP sharing; median serialization deliberately omits it.
+Script output and `source_identity.log` record resolved full baseline/candidate
+commit SHAs. A current-file candidate is explicitly labeled `working tree`
+with its HEAD and actual RTL SHA256, instead of mislabeling HEAD as the selected
+candidate commit.
+
+Verified commands and outputs:
+
+```powershell
+./scripts/test_v2_cursor_timed.ps1 -CandidateRef ec10de4 -ExpectSameLatency
+./scripts/test_v2_cursor_timed.ps1 -CandidateRef cd381e9 -ExpectSameLatency
+./scripts/test_v2_cursor_timed.ps1 -ExpectSampleWindowDifference
+```
+
+| candidate | frames | isolated cycles | burst cycles | latency assertions | sample window differences |
+|---|---:|---:|---:|---:|---:|
+| `ec10de4623648e957c56db06e3fbe628ae763ec9` | 983/983 | 127/127 | 296/296 | 983 | 0 |
+| `cd381e9e5e1e003764bff0805377740cd9904716` | 983/983 | 127/127 | 296/296 | 983 | 0 |
+| median working tree | 983/983 | 127/141 | 296/352 | disabled | 1 |
+
+All passed. Logs respectively:
+`impl/cursor_timed_84e567a159b345849ba235b9cd7aefac`,
+`impl/cursor_timed_03369de1362e4cdea0ae143539e44964`,
+`impl/cursor_timed_a8d6602aa1cd4bd4b6469ac12669ef9c`.
+The baseline SHA is `ec10de4623648e957c56db06e3fbe628ae763ec9` in all runs.
+The working-tree HEAD at invocation was `16e66860d47c57b7ee8b8c42201cc139cb85534e`;
+median RTL SHA256 remained `D4ACDE9AF90F0003DE8EBDA3AA9545D5B625CE4974D843CE1A73EAF80F09212C`.
+DSP extracted RTL SHA256 was `5FFF32D409BBFDD875D00ABA643A4E64E1B669D4174A6FD21F09DBFC00A8161A`.
+This follow-up changes only test scripts/bench and this report; no RTL, H0
+harness, or Gowin run was changed or started.
+
 The last row is a pre-existing discrepancy, not relaxed DUT comparison:
 baseline timed differs from the scalar vector golden beginning at row 0
 (timed Z=0 versus scalar Z=45592). The timed startup sorts five values including

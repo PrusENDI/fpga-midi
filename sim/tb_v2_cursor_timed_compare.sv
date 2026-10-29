@@ -34,6 +34,7 @@ module tb_v2_cursor_timed_compare;
   integer counts[0:1];
   integer cycles=0, launched=0, start_cycle[0:1023], max_latency[0:1];
   integer latency[0:1][0:1023], replay_max[0:1];
+  integer same_latency_checks=0, expect_same_latency;
   logic [15:0] accepted_sequence[0:1023];
   logic [31:0] accepted_timestamp[0:1023];
   wire [15:0] completed_sequence[0:1];
@@ -88,6 +89,11 @@ module tb_v2_cursor_timed_compare;
         if(timeout>2083) $fatal(1,"frame missed one audio sample interval row=%0d counts=%0d/%0d",row,counts[0],counts[1]);
       end
       if(results[0][row]!==results[1][row]) $fatal(1,"frame mismatch row=%0d baseline=%h candidate=%h",row,results[0][row],results[1][row]);
+      if(expect_same_latency) begin
+        if(latency[0][row]!==latency[1][row])
+          $fatal(1,"frame latency mismatch row=%0d baseline=%0d candidate=%0d",row,latency[0][row],latency[1][row]);
+        same_latency_checks=same_latency_checks+1;
+      end
       // Normal replay waits for the next independent audio enable. Burst
       // replay scores every completion while the FIFO continues draining.
       if(check_audio) begin
@@ -114,6 +120,7 @@ module tb_v2_cursor_timed_compare;
     model_stable_valid[0]=0; model_stable_valid[1]=0; model_audio_valid[0]=0; model_audio_valid[1]=0;
     repeat(3) @(negedge clk); rst_n=1;
     if(!$value$plusargs("EXPECT_SAMPLE_WINDOW=%d",expect_sample_window)) $fatal(1,"missing EXPECT_SAMPLE_WINDOW");
+    if(!$value$plusargs("EXPECT_SAME_LATENCY=%d",expect_same_latency)) $fatal(1,"missing EXPECT_SAME_LATENCY");
     if(!$value$plusargs("VECTORS=%s",vector_path)) $fatal(1,"missing VECTORS");
     fd=$fopen(vector_path,"r"); if(!fd) $fatal(1,"cannot open vectors %s",vector_path);
     n=0;
@@ -187,7 +194,8 @@ module tb_v2_cursor_timed_compare;
     if(audio_checks<100) $fatal(1,"insufficient independent audio coverage %0d",audio_checks);
     if(expect_sample_window && sample_window_differences==0) $fatal(1,"publication/sample boundary case not exercised");
     if(!expect_sample_window && sample_window_differences!=0) $fatal(1,"baseline self-check audio differs");
-    $display("tb_v2_cursor_timed_compare PASS rows=976 adjacent=4 frames=%0d/%0d replay_max_cycles=%0d/%0d burst_max_cycles=%0d/%0d audio_checks=%0d baseline_scalar_differences=%0d sample_window_differences=%0d",counts[0],counts[1],replay_max[0],replay_max[1],max_latency[0],max_latency[1],audio_checks,reference_differences,sample_window_differences);
+    if(expect_same_latency && same_latency_checks!=983) $fatal(1,"incomplete latency coverage %0d",same_latency_checks);
+    $display("tb_v2_cursor_timed_compare PASS rows=976 adjacent=4 frames=%0d/%0d replay_max_cycles=%0d/%0d burst_max_cycles=%0d/%0d audio_checks=%0d baseline_scalar_differences=%0d sample_window_differences=%0d same_latency_checks=%0d",counts[0],counts[1],replay_max[0],replay_max[1],max_latency[0],max_latency[1],audio_checks,reference_differences,sample_window_differences,same_latency_checks);
     $finish;
   end
 endmodule
