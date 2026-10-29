@@ -45,6 +45,7 @@ module v2_potts_commit_fsm #(
  logic [95:0] events[0:EV_CAP-1];
  logic [5:0] wr,rd;
  logic [95:0] temp_event;
+ logic [95:0] ev_q;
  logic [7:0] dp_rd_addr,dp_wr_addr;
  logic [31:0] dp_wr_data,dp_s_val,dp_rd_data;
  logic dp_wr_en;
@@ -52,7 +53,7 @@ module v2_potts_commit_fsm #(
  logic commit_upd;
  function automatic integer note(input integer k); case(k)0:note=57;1:note=60;2:note=62;3:note=64;default:note=67;endcase endfunction
  function automatic [31:0] sat(input integer v); if(v>32'sh3fffffff)sat=32'sh3fffffff; else if(v<0)sat=32'd0; else sat=v[31:0]; endfunction
- assign busy=state!=IDLE; assign event_valid=state==EMIT&&rd<wr; assign event_data=event_valid?events[rd]:96'd0;
+ assign busy=state!=IDLE; assign event_valid=state==EMIT&&rd<wr; assign event_data=event_valid?ev_q:96'd0;
  assign dp_rd_addr = (state==RD1) ? s[7:0] : e[7:0];
  assign dp_wr_addr = (state==INIT) ? init_idx[7:0] : e[7:0];
  assign dp_wr_data = (state==INIT) ? ((init_idx==0) ? 32'd0 : 32'h3fffffff) : commit_cost;
@@ -144,10 +145,10 @@ module v2_potts_commit_fsm #(
       else state<=CELL;
     end
     TRACE: begin
-      if(trace_end==0)begin backtrace_valid<=1;event_count<=wr;state<=EMIT;rd<=0;end
+      if(trace_end==0)begin backtrace_valid<=1;event_count<=wr;state<=EMIT;rd<=0;ev_q<=events[0];end
       else begin trace_start=bp_s[trace_end];trace_deg=bp_d[trace_end];if(!rest_mask[trace_start]&&wr<EV_CAP)begin temp_event=0;temp_event[94:91]=4'd1;temp_event[87:80]=trace_start;temp_event[79:72]=trace_end-trace_start;temp_event[71:64]=note(trace_deg);temp_event[63:56]=8'd100;events[wr]<=temp_event;wr<=wr+1;end else if(wr>=EV_CAP)overflow<=1;trace_end<=trace_start;end
     end
-    EMIT: if(event_valid&&event_ready)begin if(rd+1>=wr)begin state<=IDLE;done<=1;end else rd<=rd+1;end
+    EMIT: if(event_valid&&event_ready)begin if(rd+1>=wr)begin state<=IDLE;done<=1;end else begin rd<=rd+1;ev_q<=events[rd+1];end end
    endcase
   end
  end

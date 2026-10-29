@@ -70,3 +70,52 @@ Fmax/setup/hold 与 E2/5、CPU/SSPI regular_io、PR2017/PR2028 **均未评估**�
 1. 以 Potts 增量（3,678 → 2,531）作为 B 的验收量；资源门禁改在 A+B 合并分支上评估。
 2. 按 A 的 voice 目标（≈6,000），合并后约 `24,391 − 9,000 ≈ 15,400`，余量充足。
 3. 合并后跑一次 H0 full-path，取得首个真实逻辑资源 + P&R/timing 数字。
+
+## Integration probe result (2026-10-29, A+B)
+
+A throwaway worktree `.worktrees/v2-integration-probe` (branch
+`work/v2-integration-probe`) was created from the shared base `5abe390` and the
+three stream commits were cherry-picked in order:
+
+~~~text
+3d24f74  A: pipeline banked voice victim selection   (from 38302a1)
+95eac88  B: bound the Potts event buffer by the DP segment limit
+0a47678  B: map the board-profile Potts dp table to DPB lanes
+~~~
+
+The shared H0 harness then produced the first full-path synthesis **and P&R**
+of this line: `V2_FULLPATH_SYNTH_PASS` and `V2_FULLPATH_PNR_PASS`, exit 0,
+`device.cfg` carries `SSPI regular_io = true` and `CPU regular_io = true`, and
+the run has no `PR2017`/`PR2028`.
+
+| configuration | logic | FF | Fmax | worst slack | setup violations | TNS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A+B (`ab_probe_1`) | 13,285 | 7,842 | 59.668 MHz | −6.759 ns | 2,974 | −8,846.8 ns |
+| A+B + contour prefetch + ev_q (`ab_probe_2_pipe`) | 14,325 | 8,871 | 61.447 MHz | −6.274 ns | 3,198 | −10,301.3 ns |
+| **A+B + ev_q only (`ab_probe_3_evonly`, accepted)** | **13,137** | 7,839 | **63.909 MHz** | **−5.647 ns** | 3,009 | **−8,021.7 ns** |
+
+The contour prefetch variant was rejected: it bought 1.8 MHz while adding
+1,040 logic and 1,029 registers, and it made TNS worse by 2,280 ns because the
+extra registers increased placement congestion (the worst path is ~50% routing
+at 86% CLS utilisation).
+
+The accepted change registers the event-stream read (`ev_q`) so the 96-bit
+`events[rd]` mux no longer feeds the voice bank write-data path combinationally.
+It is the only variant that improves Fmax, worst slack and TNS together.
+
+Bitstream `impl/v2_top_fullpath_ab_probe_3_evonly/impl/pnr/v2_top_fullpath.fs`
+SHA-256 `AE2D79675EE7B5E5C73BD7869B4F2A932BECE7B489E9BBB33B88BF4A2B3E1B27`.
+It is a diagnostic artifact: 3,009 setup endpoints still violate at 100 MHz, so
+it must not be programmed as a final image.
+
+Remaining blockers, measured:
+
+- the worst path is still the Potts segment accumulate
+  (`seg_t` → `err_acc`, 15.6 ns, 23 levels); the multiply→accumulate chain is
+  ~8 ns by itself, so a contour prefetch alone cannot help;
+- the verifier still reports `NL0002` for `v2_touch_info_decoder` and
+  `v2_test_mode`; both are pre-existing (they appear in builds without the A or
+  B changes) and need a main-lane ruling on whether they are required paths;
+- 63.9 MHz against the 100 MHz gate is a congestion/placement problem, not a
+  logic-depth problem: 24 levels with ~0.4 ns cell delay and ~0.66 ns per level
+  end-to-end.
