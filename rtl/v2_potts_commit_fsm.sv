@@ -13,7 +13,15 @@ module v2_potts_commit_fsm #(
  input logic signed [15:0] contour [0:127], output logic busy,output logic [7:0] progress,
  output logic done,output logic overflow,output logic backtrace_valid,output logic event_valid,
  input logic event_ready,output logic [95:0] event_data,output logic [5:0] event_count);
- localparam [2:0] IDLE=0,CELL=1,SEGMENT=2,CELL_COMMIT=3,TRACE=4,EMIT=5; logic [2:0] state; integer e,s,d,t,seg_t; integer signed cost,err,sum,err_acc; integer has_rest,has_data,has_rest_acc,has_data_acc; integer trace_end,trace_start,trace_deg; logic [31:0] dp[0:HORIZON]; logic [7:0] bp_s[0:HORIZON],bp_d[0:HORIZON]; logic [95:0] events[0:MAX_EVENTS-1]; logic [5:0] wr,rd; logic [95:0] temp_event;
+ localparam [2:0] IDLE=0,CELL=1,SEGMENT=2,CELL_COMMIT=3,TRACE=4,EMIT=5;
+ // A contour of HORIZON ticks with MIN_LENGTH minimum segment length can never
+ // emit more than HORIZON/MIN_LENGTH+1 segments.  The board profile is
+ // HORIZON=32/MIN_LENGTH=4, so 9 entries are enough there; HORIZON=128 still
+ // uses the full MAX_EVENTS=32 contract.  Sizing the holding RAM by the smaller
+ // bound removes the 32:1 read mux from the board build without changing any
+ // event that the DP can produce.
+ localparam integer EV_CAP = ((HORIZON/MIN_LENGTH+1) < MAX_EVENTS) ? (HORIZON/MIN_LENGTH+1) : MAX_EVENTS;
+ logic [2:0] state; integer e,s,d,t,seg_t; integer signed cost,err,sum,err_acc; integer has_rest,has_data,has_rest_acc,has_data_acc; integer trace_end,trace_start,trace_deg; logic [31:0] dp[0:HORIZON]; logic [7:0] bp_s[0:HORIZON],bp_d[0:HORIZON]; logic [95:0] events[0:EV_CAP-1]; logic [5:0] wr,rd; logic [95:0] temp_event;
  function automatic integer note(input integer k); case(k)0:note=57;1:note=60;2:note=62;3:note=64;default:note=67;endcase endfunction
  function automatic integer sat(input integer v); if(v>32'sh3fffffff)sat=32'sh3fffffff; else if(v<0)sat=0; else sat=v; endfunction
  assign busy=state!=IDLE; assign event_valid=state==EMIT&&rd<wr; assign event_data=event_valid?events[rd]:96'd0;
@@ -44,7 +52,7 @@ module v2_potts_commit_fsm #(
     end
     TRACE: begin
       if(trace_end==0)begin backtrace_valid<=1;event_count<=wr;state<=EMIT;rd<=0;end
-      else begin trace_start=bp_s[trace_end];trace_deg=bp_d[trace_end];if(!rest_mask[trace_start]&&wr<MAX_EVENTS)begin temp_event=0;temp_event[94:91]=4'd1;temp_event[87:80]=trace_start;temp_event[79:72]=trace_end-trace_start;temp_event[71:64]=note(trace_deg);temp_event[63:56]=8'd100;events[wr]<=temp_event;wr<=wr+1;end else if(wr>=MAX_EVENTS)overflow<=1;trace_end<=trace_start;end
+      else begin trace_start=bp_s[trace_end];trace_deg=bp_d[trace_end];if(!rest_mask[trace_start]&&wr<EV_CAP)begin temp_event=0;temp_event[94:91]=4'd1;temp_event[87:80]=trace_start;temp_event[79:72]=trace_end-trace_start;temp_event[71:64]=note(trace_deg);temp_event[63:56]=8'd100;events[wr]<=temp_event;wr<=wr+1;end else if(wr>=EV_CAP)overflow<=1;trace_end<=trace_start;end
     end
     EMIT: if(event_valid&&event_ready)begin if(rd+1>=wr)begin state<=IDLE;done<=1;end else rd<=rd+1;end
    endcase
