@@ -96,6 +96,9 @@ before Tcl with `License verification failed  Connection timeout` and exit
 code 1. The wrapper wrote a manifest and the verifier returned `BLOCKED`; no
 new synthesis, P&R or bitstream artifact exists for this run. This H0 entry
 does not accept a bitstream and requires a later license-available rerun.
+Follow-up commit `b8dcc02` pins the six manifest-input files to LF with
+`.gitattributes`, so the H0 SHA-256 values remain identical across Windows
+worktrees even when `core.autocrlf` is enabled.
 
 ## 2026-10-29 — voice metadata timing reduction checkpoint
 
