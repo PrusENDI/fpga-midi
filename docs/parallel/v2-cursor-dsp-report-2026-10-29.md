@@ -16,14 +16,14 @@ RTL commit：`2c6aea8`；clean H0 source：`cd381e9e5e1e003764bff0805377740cd990
 
 早期 `tb_v2_cursor_replay PASS rows=976 adjacent=A/B` 与 `tb_v2_cursor_filter PASS` 仅验证 scalar reference，不能证明 timed 修改。`tb_v2_cursor_filter_timed PASS` 是 timed smoke。
 
-主线程使用 resource 分支 `3f62a8a` 的独立 timed 双 DUT 脚本，固定提取基线 `ec10de4` 与候选 `cd381e9`，新鲜实跑：
+本分支仅从 resource 分支 `3f62a8a` 引入 `scripts/test_v2_cursor_timed.ps1` 与 `sim/tb_v2_cursor_timed_compare.sv`，没有引入 median RTL 或其报告。独立 timed 双 DUT 脚本固定提取基线 `ec10de4`，对本地 DSP working tree 新鲜实跑：
 
 ```powershell
-# 在 .worktrees/v2-cursor-resource 中执行
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_cursor_timed.ps1 -Baseline ec10de4 -CandidateRef cd381e9 -ExpectSameLatency
+# 在本 DSP worktree 中执行
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_cursor_timed.ps1 -Baseline ec10de4 -ExpectSameLatency
 ```
 
-日志：`../v2-cursor-resource/impl/cursor_timed_03369de1362e4cdea0ae143539e44964/replay.log`。
+日志：`impl/cursor_timed_32797b9074b6473585890d6260e6a4e9/replay.log`。脚本记录 baseline 完整 commit `ec10de4623648e957c56db06e3fbe628ae763ec9`，working-tree HEAD `3925b0c25328ec1b2768c164fec94a631d93b1ea`，实际编译 DSP RTL SHA256 `A3AFA5B9C3F04F9D64A4DC24EB5B9255EA7F238ED864FFCFE220245CFE96BBE1`。该 RTL 与 H0 source `cd381e9` 相同；本次新增 tests 不改变 H0 artifact 来源。
 
 ```text
 PASS rows=976 adjacent=4 frames=983/983
@@ -76,4 +76,4 @@ Wrapper exit 0，acceptance verifier exit 1 / BLOCKED。touch decoder NL0002 inl
 
 共享变量乘法的资源目标已被网表归因和 8/28 物理 DSP 报表支持；建议保留为 DSP 资源备选，并以匹配 clean 基线及后续合并构建评估最终取舍。当前 Fmax 68.671 MHz，100 MHz gate 明确 BLOCKED，不能宣布 timing closure 或板级就绪。操作数 mux/控制布线仍可能影响时序，但现有历史对照不足以确定其因果贡献。
 
-本次只更新报告，未改变 RTL、tests、H0 harness 或主进度台账，未启动新 Gowin run。
+本分支新增上述两份可独立复现的 timed tests 并更新本报告，未改变 RTL、H0 harness 或主进度台账，未启动新 Gowin run。
