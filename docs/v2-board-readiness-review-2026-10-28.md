@@ -24,9 +24,9 @@ historical.
 | Potts | Real recorder contour reaches the top simulation; measured `busy_cycles=1,868,573` | Simulation evidence only; final top uses `USE_POTTS=0` by default |
 | Voice | 32×2 banked functional replay, release/revoice/vibrato and DPB model checks | Current-source 100 MHz P&R is open; old routed artifacts are historical |
 | N-tone test mode | N=1/2/4/8/16/32 capture, radix-2 FFT sideband gate, standalone synthesis, A0 top smoke | Diagnostic path substantially closed; not a LIVE/LOOP substitute |
-| Patch/wavetable/FX | Standalone patch, wavetable and reduced-FX gates | Final top has no patch/loader instances; FX remains `enable=0`, `level=0` |
-| UART/telemetry | Byte parser, ACK/NACK, duplicate and snapshot standalone gates | Top telemetry `frame_ready` is tied low; no physical TX/CSR evidence |
-| Final top P&R | Fresh E2 package-legal current-source rerun after `e9c0486`; 3.072 MHz actual Fmax, 1977 setup violations, 0 hold violations | Package gate closed; 100 MHz timing gate open |
+| Patch/wavetable/FX | Standalone patch, wavetable and reduced-FX gates; board probe now enables FX level 1 | Top CSR-driven FX configuration remains open; resource usage is 94% and timing is invalid |
+| UART/telemetry | Byte parser, ACK/NACK, duplicate and snapshot gates; top smoke observes real telemetry TX advancement | Physical board baud/capture evidence remains open |
+| Final top P&R | Fresh E2 package-legal current-source rerun after `6960501`; nonzero FX, 2.616 MHz actual Fmax, 2383 setup violations, 0 hold violations | Package/bitstream gate closed; 100 MHz timing and resource gates open |
 | Board measurement | No final V2 programming, UART capture, I2S waveform or latency measurement | Not started |
 
 ## Remaining critical path

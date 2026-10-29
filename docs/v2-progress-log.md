@@ -39,6 +39,25 @@ Fresh functional gates after the run remain green: `scripts/test_v2_top.ps1`,
 `scripts/test_v2_patch_bank.ps1`, `scripts/test_v2_wavetable_fx.ps1`, and the
 Python suite (`175 tests`).
 
+## 2026-10-29 — telemetry TX and nonzero FX checkpoint
+
+Commit `6960501` closes the top telemetry consumer boundary. ACK/NACK response
+bytes retain priority; the double-buffered telemetry snapshot now sees
+`frame_ready` only when the physical UART is idle, and the top regression checks
+SOF plus byte advancement under 1 Mbaud backpressure. The same commit adds
+build-time FX parameters and enables reduced FX level 1 in the board probe, so
+the P&R manifest cannot silently sweep the FX block. `scripts/test_v2_top.ps1`
+passes with the new telemetry check.
+
+The fresh E2 P&R still completes package placement and bitstream generation with
+CPU/SSPI regular IO and `clk_50m` at E2/5, but the nonzero FX path raises usage to
+21,513 logic (94%), 5,966 registers, 33 DPB and 15 DSP. Actual Fmax is **2.616
+MHz**, setup violations **2383**, setup TNS **-19983.029 ns**, and hold
+violations **0**. Bitstream SHA-256 is
+`00FC2C478387315515DBCB207529946304663B4936102E50E8C628D444FE7649`.
+This remains diagnostic timing evidence; resource headroom and voice metadata
+timing must be resolved before any board programming.
+
 ## 2026-10-29 — voice metadata timing reduction checkpoint
 
 Commit `e9c0486` replaces the per-voice bounded-release countdown RAMREG array

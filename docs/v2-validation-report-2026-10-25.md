@@ -704,6 +704,23 @@ artifact hash is
 `F196E20522780C59157F46C1F62A5809B3A88CD75C3E127E3BB4131901458542`; it is
 retained as incremental timing evidence only.
 
+## Telemetry TX and nonzero FX — 2026-10-29
+
+Commit `6960501` connects the double-buffered telemetry snapshot to the actual
+UART TX path. ACK/NACK replies have priority, and `frame_ready` is asserted only
+when the UART is idle and no response byte is pending. The top ModelSim smoke
+checks the telemetry SOF and confirms that its byte index advances under the
+1 Mbaud transmitter. The board probe now enables reduced FX with level 1 through
+top parameters instead of tying the block off.
+
+The fresh E2 P&R completes synthesis, placement, routing, timing analysis,
+power analysis and bitstream generation with CPU/SSPI regular IO and E2/5 clock
+placement. Resource usage is 21,513 logic (94%), 5,966 registers, 33 DPB and 15
+DSP. Timing remains invalid: actual Fmax **2.616 MHz**, setup violations **2383**,
+setup TNS **-19983.029 ns**, and hold violations **0**. The bitstream hash is
+`00FC2C478387315515DBCB207529946304663B4936102E50E8C628D444FE7649`; it is
+diagnostic only and must not be programmed.
+
 ## Task 8 voice-steal/vibrato continuation — 2026-10-28
 
 The previous banked replay failure was root-caused before changing the oracle.
