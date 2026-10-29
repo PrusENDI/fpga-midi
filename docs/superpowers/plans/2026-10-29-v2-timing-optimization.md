@@ -4,18 +4,44 @@
 
 **Goal:** Close the real GW5A final-top resource and 100 MHz timing gates while preserving the V2 reader, LIVE/LOOP, real Potts, 32×2 voice, nonzero reduced FX, UART telemetry, and I2S path needed for board acceptance.
 
-**Architecture:** Keep the portable/reference Potts contract at its existing 128-point default, and use an explicit 32-point board horizon only where the board Loop capacity is 32 slots. Reduce logic and timing through registered multi-cycle boundaries in Potts, voice metadata allocation, and front-end control paths; do not close a gate by disabling a required path or relying on a swept preserve net. Every structural change is checked with ModelSim first and then a fresh `gw_sh` synthesis/P&R in a new output directory.
+**Architecture:** Keep the portable/reference Potts contract at its existing 128-point default. A Loop spans 128 musical ticks independently of its 32 event slots per track; a 32-point board horizon requires an explicit, verified full-loop contour and output-time mapping. That mapping is not yet implemented. Reduce logic and timing through registered multi-cycle boundaries in Potts, voice metadata allocation, and front-end control paths; do not close a gate by disabling a required path or relying on a swept preserve net. Every structural change is checked with ModelSim first and then a fresh `gw_sh` synthesis/P&R in a new output directory.
 
 **Tech Stack:** SystemVerilog RTL, Gowin V1.9.12.04 `gw_sh`, ModelSim 10.6d, PowerShell, Python `unittest`, GW5A-LV25MG121NES, and the existing verified wrapper `scripts/run_gowin_cli.ps1`.
 
 **Spec:** `docs/superpowers/plans/2026-10-25-v2-fpga-full-pipeline-implementation.md` and `docs/v2-fpga-contract-2026-10-25.md`.
+
+## Current Audit Amendment (2026-10-29)
+
+Read `docs/v2-design-progress-gap-audit-2026-10-29.md` before resuming this
+plan. It supersedes historical current-status statements and the old assumption
+that 32 event slots justify a 32-tick contour. Existing unchecked steps below
+remain the original acceptance criteria, not a completion percentage.
+
+H0 is implemented and has run successfully. A+B is integrated at `338435c`;
+clean run `clean_baseline_1` records **12,787 logic, 68.013 MHz, 3,125 setup
+violations, -7,704.703 ns TNS, zero hold violations, CLS 85%, 36 BSRAM and
+16 DSP sites**. E2/5 and CPU/SSPI regular IO are correct. The verifier still
+blocks NL0002/setup and incorrectly parses the 100 MHz constraint as actual
+Fmax. This resource-legal diagnostic run does not close Task 5.
+
+Before final timing acceptance, close the audit's functional gates: musical
+transport and full-loop H32 mapping, contour/rest semantics, Potts writeback
+before atomic shadow publication, continued active playback, CSR/STOP/APPLY,
+UART frame ownership, parameter consumers and I2S format/constraints. These
+are requirements of the full design, not optional timing improvements.
+
+The latest critical path is Potts event control to voice DPB write data through
+note/delta logic (18 levels, 14.773 ns). Fix the commit dataflow before accepting
+optimizations to that route; use fresh reports to choose subsequent paths.
+Both cell depth and routing matter. Task 1's sweep support must be introduced
+as a shared versioned harness/profile extension, not separate worker forks.
 
 ## Global Constraints
 
 - The final top path must retain valid sensor input, actual MGC3130 reader or an equivalent reachable input, LIVE/LOOP, a non-empty recorder contour, real Potts, 32 simultaneous voices × 2 oscillators, nonzero reduced FX, actual UART/telemetry TX, and I2S.
 - The board clock is the 50 MHz oscillator at E2/5. The Tcl flow must set `-use_sspi_as_gpio 1` and `-use_cpu_as_gpio 1`; final reports must contain neither PR2017 nor PR2028.
 - The final timing gate is a fresh current-source P&R at 100 MHz with no setup or hold violations. A probe, stub, `USE_POTTS=0`, constant contour, or swept preserve net is diagnostic evidence only.
-- Portable Potts behavior remains `HORIZON=128` by default. A board build may use `POTTS_HORIZON=32` only when the 32-point contour-to-32-slot mapping is covered by RTL tests and recorded in the validation report.
+- Portable Potts behavior remains `HORIZON=128` by default. A board build may use `POTTS_HORIZON=32` only when the full 128-tick contour-to-32-point mapping and inverse event tick/duration mapping are covered by RTL tests and recorded in the validation report. The 32 event slots per track do not define the time horizon.
 - The fixed voice acceptance target remains 32 voices × 2 oscillators. Reducing voice count, disabling FX, or changing the clock to 80 MHz is a separately reviewed fallback and cannot be reported as the 100 MHz pass.
 - Each independently verified change gets a local Git commit and an entry in `docs/v2-progress-log.md`; generated `impl/` and simulator work directories remain untracked.
 
@@ -164,9 +190,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
 
 **Interfaces:**
 - Consumes the 128-point contour input and 128-bit rest mask.
-- Produces the same 96-bit event stream, backtrace, event count, overflow, progress, and completion semantics; `HORIZON=32` is a board-only capacity match and `HORIZON=128` remains the default.
+- Produces the same 96-bit event stream, backtrace, event count, overflow, progress, and completion semantics; `HORIZON=128` remains the default. `HORIZON=32` is currently a diagnostic board profile and requires explicit full-128-tick contour/output mapping before semantic acceptance; event-slot capacity alone is not such a mapping.
 
 - [ ] Add a reference-vector assertion covering H32 and H128 event equivalence on the shared first 32 points.
+- [ ] Independently verify the full 128-tick board mapping (including ticks 32–127 and output durations); shared-prefix equivalence alone does not close the board semantic gate.
 - [ ] Replace implementation-wide `integer` arithmetic or repeated wide operations only with explicitly sized fixed-point intermediates; keep saturated cost and tie-breaking behavior unchanged.
 - [ ] Ensure the FSM remains multi-cycle and never blocks `sample_ce`, UART status reads, or active-bank playback.
 - [ ] Run the Potts top regression and Python reference tests before synthesis.

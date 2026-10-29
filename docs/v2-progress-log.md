@@ -4,6 +4,60 @@ This file records reproducible implementation checkpoints. Generated
 `impl/`, ModelSim work libraries, transcripts and local captures remain outside
 Git; source, tests, scripts and evidence summaries are committed.
 
+## 2026-10-29 — complete-design gap audit after A+B integration
+
+The current evidence and remaining functional/timing gates are reconciled in
+[the complete-design audit](v2-design-progress-gap-audit-2026-10-29.md). This
+entry supersedes older current-status claims below; earlier measurements are
+retained as historical checkpoints.
+
+A+B plus registered Potts event read and cursor shift-add are integrated at
+`338435c`; `.worktrees/v2-integration` HEAD `b0f6a40` adds the environment note.
+The retained `impl/v2_top_fullpath_clean_baseline_1` manifest records clean
+source `338435c` and wrapper exit 0. Raw timing reports show **68.013 MHz**,
+**3,125 setup violations**, **-7,704.703 ns setup TNS**, **-4.703 ns worst
+slack**, zero hold violations, **12,787 logic**, **9,752/11,520 CLS**, 36 BSRAM
+and 16 DSP sites. E2/5 and both CPU/SSPI regular-IO settings are correct. This
+is resource-legal diagnostic evidence, not final timing or board acceptance.
+
+Fresh audit checks: `scripts/test_v2_top.ps1` exits 0 and the Python suite
+exits 0 with **175 tests OK** in integration-probe at `338435c`. Running
+`scripts/verify_v2_fullpath_run.ps1 -RunDir
+impl/v2_top_fullpath_clean_baseline_1 -Acceptance` in integration exits **1 /
+BLOCKED** (NL0002 and setup=3125). Its reported Fmax=100 incorrectly reads the
+constraint column; raw actual Fmax=68.013 is authoritative until fixed.
+
+The complete-design review finds blockers beyond timing: musical BPM/tick and
+128-tick/H32 mapping, contour/rest construction, Potts-to-shadow-table writeback
+and natural-boundary publication, uninterrupted active-bank reads, CSR/STOP and
+APPLY semantics, UART frame arbitration, patch/wavetable/vibrato consumers, and
+I2S format/output constraints. The latest worst path is Potts event control to
+voice state DPB through note/delta logic (18 levels, 14.773 ns), with substantial
+cell and route delay. Touch NL0002 cannot alone prove loss of touch logic; its
+functional cone remains visible in the netlist and needs precise classification.
+
+No RTL changes or new Gowin P&R were made by this audit. Two temporary
+`keep_hierarchy` edits observed in integration were later reverted by the other
+workflow, which committed the NL0002 diagnosis as `e76ccde`. The worktree is
+clean and `git diff --quiet 338435c e76ccde -- rtl` exits 0. The warnings remain;
+the diagnosis does not override the observed surviving touch netlist cone.
+Next: repair the evidence gate, then close the musical transport/Potts commit
+dataflow before final-top timing closure.
+Under the user's standing Git-backup instruction, `git push origin` with four
+explicit commit-to-branch refspecs exited 0. `git ls-remote --heads origin
+'work/v2-*'` independently confirmed these remote checkpoints:
+
+| Remote branch | Commit |
+| --- | --- |
+| `work/v2-voice-timing` | `38302a1` |
+| `work/v2-potts-resource` | `4b47514` |
+| `work/v2-integration-probe` | `338435c` |
+| `work/v2-integration` | `e76ccde` |
+
+This audit document checkpoint is committed on `feat/loop-event-store` and its
+push result is reported in the audit response. Generated implementation
+artifacts remain local and ignored; no other worktree was edited for backup.
+
 ## 2026-10-29 — fresh E2 board P&R and timing checkpoint
 
 The verified Gowin wrapper was rerun with license-server access against the

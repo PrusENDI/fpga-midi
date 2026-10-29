@@ -1,6 +1,11 @@
 
 # V2 FPGA 全链路合成器实施计划
 
+> 2026-10-29 完整设计复审：参见 `docs/v2-design-progress-gap-audit-2026-10-29.md`。
+> A+B 已有干净联合 P&R（338435c，68.013 MHz，12,787 logic），尚未通过最终时序和系统验收。
+> 本文历史 as-built 状态须结合该审查阅读；Potts 写回、音乐 tick/H32 映射、参数消费者、
+> UART/APPLY 和 I2S 等顶层功能缺口仍需关闭，不能把专项通过当成完整链路验收。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
 **Goal:** 在 GW5A-25A 上交付可独立综合、布局布线、烧录和验收的 V2 全链路：MGC3130 输入、FPGA 固定点坐标处理、LIVE 出音、六轨 Loop、提交时 Potts 精修、32 声部双振荡器、混音/有限 FX、I2S 输出，以及 PC 参数和遥测 UI。
