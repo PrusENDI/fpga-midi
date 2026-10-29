@@ -185,6 +185,11 @@ module v2_cursor_filter_timed #(
   logic signed [31:0] dx_q, dy_q, dz_q;
   logic signed [63:0] product_q;
   logic signed [63:0] product_x, product_y, product_z;
+  // One shared wide multiplier feeds the sequential IIR and motion states.
+  // The FSM already serializes these operations, so a state-selected operand
+  // mux preserves latency while allowing synthesis to infer one DSP block.
+  logic signed [31:0] mul_a, mul_b;
+  logic signed [63:0] mul_product;
   logic signed [31:0] step_x_q, step_y_q;
   logic signed [31:0] cursor_next_x, cursor_next_y;
   logic signed [31:0] proximity_q, speed_q, velocity_q;
@@ -216,6 +221,23 @@ module v2_cursor_filter_timed #(
   // This removes 320 FFs and two parallel compare/swap networks.
   logic signed [31:0] sort_x [0:4];
   logic [1:0] median_axis;
+
+  // All five variable-coefficient multiplies use this one combinational
+  // operator. Every consuming FSM state captures the selected result.
+  always_comb begin
+    mul_a = 32'sd0;
+    mul_b = 32'sd0;
+    case (fsm_state)
+      ST_MUL_X:       begin mul_a = dx_q; mul_b = alpha_mz; end
+      ST_MUL_Y:       begin mul_a = dy_q; mul_b = alpha_mz; end
+      ST_MUL_Z,
+      ST_MUL_Z_ONLY:  begin mul_a = dz_q; mul_b = alpha_mz; end
+      ST_MOTION_PREP: begin mul_a = dx_q; mul_b = alpha_motion; end
+      ST_MOTION_Y:    begin mul_a = dy_q; mul_b = alpha_motion; end
+      default:        begin end
+    endcase
+  end
+  assign mul_product = $signed(mul_a) * $signed(mul_b);
 
   function automatic signed [31:0] alpha_from_ratio(input [31:0] ratio);
     reg signed [63:0] p;
@@ -413,10 +435,10 @@ module v2_cursor_filter_timed #(
           end
         end
 
-        ST_MUL_X: begin product_x <= $signed(dx_q) * $signed(alpha_mz); fsm_state <= ST_MUL_Y; end
-        ST_MUL_Y: begin product_y <= $signed(dy_q) * $signed(alpha_mz); fsm_state <= ST_MUL_Z; end
-        ST_MUL_Z: begin product_z <= $signed(dz_q) * $signed(alpha_mz); fsm_state <= ST_IIR_APPLY; end
-        ST_MUL_Z_ONLY: begin product_z <= $signed(dz_q) * $signed(alpha_mz); fsm_state <= ST_IIR_APPLY; end
+        ST_MUL_X: begin product_x <= mul_product; fsm_state <= ST_MUL_Y; end
+        ST_MUL_Y: begin product_y <= mul_product; fsm_state <= ST_MUL_Z; end
+        ST_MUL_Z: begin product_z <= mul_product; fsm_state <= ST_IIR_APPLY; end
+        ST_MUL_Z_ONLY: begin product_z <= mul_product; fsm_state <= ST_IIR_APPLY; end
 
         ST_IIR_APPLY: begin
           if (hist_count == 0) begin
@@ -508,12 +530,12 @@ module v2_cursor_filter_timed #(
         end
 
         ST_MOTION_PREP: begin
-          product_x <= $signed(dx_q) * $signed(alpha_motion);
+          product_x <= mul_product;
           fsm_state <= ST_MOTION_Y;
         end
 
         ST_MOTION_Y: begin
-          product_y <= $signed(dy_q) * $signed(alpha_motion);
+          product_y <= mul_product;
           fsm_state <= ST_MOTION_APPLY;
         end
 
