@@ -21,7 +21,7 @@ historical.
 | Contract, codec and parameter ranges | Python/SV contract and mutation checks; 32-slot, voice-steal, N-tone and wavetable field definitions | Scoped gate closed; downstream consumers still incomplete |
 | Clock and sample cadence | 50 MHz → 100 MHz PLL, 48 kHz fractional scheduler, early I2S smoke P&R | Early hardware gate closed; final top I2S constraints remain open |
 | Input/cursor/LIVE/Loop | Replay and standalone RTL gates; top smoke covers basic recorder/commit/play | Scoped evidence only; full-path timing and invalid/gap vectors remain open |
-| Potts | Real recorder contour reaches the top simulation; measured `busy_cycles=1,868,573` | Simulation evidence only; final top uses `USE_POTTS=0` by default |
+| Potts | Real recorder contour reaches the top simulation; measured `busy_cycles=1,868,573` | `USE_POTTS=1` full-path retention currently exceeds device logic (30,092/23,040); board probe remains `USE_POTTS=0` |
 | Voice | 32×2 banked functional replay, release/revoice/vibrato and DPB model checks | Current-source 100 MHz P&R is open; old routed artifacts are historical |
 | N-tone test mode | N=1/2/4/8/16/32 capture, radix-2 FFT sideband gate, standalone synthesis, A0 top smoke | Diagnostic path substantially closed; not a LIVE/LOOP substitute |
 | Patch/wavetable/FX | Standalone patch, wavetable and reduced-FX gates; board probe now enables FX level 1 | Top CSR-driven FX configuration remains open; resource usage is 94% and timing is invalid |
@@ -44,6 +44,8 @@ historical.
    LIVE/LOOP, non-empty recorder contour, `USE_POTTS=1`, 32×2 voice, nonzero FX,
    UART/telemetry and I2S all retained. Resolve the known front-end and voice
    timing violations, then rerun synthesis and P&R from the current commit.
+   The first retained full-path experiment failed synthesis at RP0006 before
+   timing analysis, so resource reduction is a prerequisite to timing closure.
 5. Repair the banked voice state path that currently maps `age` and
    `releasing` metadata to RAMREG and produces the 3.072 MHz result; preserve the
    functional replay while adding explicit latency/BRAM boundaries.

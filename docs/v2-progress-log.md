@@ -58,6 +58,14 @@ violations **0**. Bitstream SHA-256 is
 This remains diagnostic timing evidence; resource headroom and voice metadata
 timing must be resolved before any board programming.
 
+The stricter full-path experiment temporarily enabled `USE_POTTS=1`,
+`PRESERVE_LOOP_PLANE=1` and `PRESERVE_POTTS_PLANE=1` alongside the real reader,
+telemetry and nonzero FX. Gowin synthesis rejected that current design before
+P&R with `RP0006`: **30,092 logic** (26,165 LUTs + 3,927 ALUs) exceeds the
+GW5A-25A limit of 23,040. The probe was restored to the last reproducible
+resource-legal configuration (`USE_POTTS=0`); this experiment confirms that the
+remaining full-path gap is resource closure as well as timing closure.
+
 ## 2026-10-29 — voice metadata timing reduction checkpoint
 
 Commit `e9c0486` replaces the per-voice bounded-release countdown RAMREG array

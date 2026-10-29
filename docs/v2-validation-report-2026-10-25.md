@@ -721,6 +721,16 @@ setup TNS **-19983.029 ns**, and hold violations **0**. The bitstream hash is
 `00FC2C478387315515DBCB207529946304663B4936102E50E8C628D444FE7649`; it is
 diagnostic only and must not be programmed.
 
+### Full-path Potts/Loop retention experiment — 2026-10-29
+
+To measure the actual remaining path, the board probe was temporarily changed
+to `USE_POTTS=1`, `PRESERVE_LOOP_PLANE=1` and `PRESERVE_POTTS_PLANE=1` while
+retaining the real MGC3130 reader, telemetry TX and nonzero FX. Gowin synthesis
+failed before P&R with `RP0006`: **30,092 logic** (26,165 LUTs + 3,927 ALUs)
+exceeds the GW5A-25A limit of 23,040. The probe was restored to the
+resource-legal diagnostic configuration. This is a current-source resource
+failure, not a timing or package pass.
+
 ## Task 8 voice-steal/vibrato continuation — 2026-10-28
 
 The previous banked replay failure was root-caused before changing the oracle.
