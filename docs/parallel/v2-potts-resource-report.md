@@ -92,7 +92,8 @@ the run has no `PR2017`/`PR2028`.
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | A+B (`ab_probe_1`) | 13,285 | 7,842 | 59.668 MHz | −6.759 ns | 2,974 | −8,846.8 ns |
 | A+B + contour prefetch + ev_q (`ab_probe_2_pipe`) | 14,325 | 8,871 | 61.447 MHz | −6.274 ns | 3,198 | −10,301.3 ns |
-| **A+B + ev_q only (`ab_probe_3_evonly`, accepted)** | **13,137** | 7,839 | **63.909 MHz** | **−5.647 ns** | 3,009 | **−8,021.7 ns** |
+| A+B + ev_q only (`ab_probe_3_evonly`) | 13,137 | 7,839 | 63.909 MHz | −5.647 ns | 3,009 | −8,021.7 ns |
+| **A+B + ev_q + cursor shift-add (`ab_probe_5_cursor_sa`, accepted)** | **12,787** | 7,839 | **68.014 MHz** | **−4.703 ns** | 3,125 | **−7,704.7 ns** |
 
 The contour prefetch variant was rejected: it bought 1.8 MHz while adding
 1,040 logic and 1,029 registers, and it made TNS worse by 2,280 ns because the
@@ -102,6 +103,14 @@ at 86% CLS utilisation).
 The accepted change registers the event-stream read (`ev_q`) so the 96-bit
 `events[rd]` mux no longer feeds the voice bank write-data path combinationally.
 It is the only variant that improves Fmax, worst slack and TNS together.
+
+The cursor filter change is documented separately in
+`docs/parallel/v2-cursor-dsp-note-2026-10-29.md`: the two small constant
+multiplies (x7 proximity, x3 velocity) became shift-add forms, which dropped
+the cursor from 8 to 6 DSP blocks and moved Fmax from 63.909 to 68.014 MHz
+with a bit-exact 976-frame cursor replay. Three `x 65536` sites were also
+rewritten as shifts, with measurably zero effect, because synthesis already
+folds them.
 
 Bitstream `impl/v2_top_fullpath_ab_probe_3_evonly/impl/pnr/v2_top_fullpath.fs`
 SHA-256 `AE2D79675EE7B5E5C73BD7869B4F2A932BECE7B489E9BBB33B88BF4A2B3E1B27`.

@@ -192,6 +192,8 @@ module v2_cursor_filter_timed #(
 
   logic div_start, div_busy, div_done;
   logic [31:0] div_dividend;
+ // Unsigned shift-add forms for the two small constant multiplies.
+ logic [31:0] depth_term, depth_x7, speed_x3;
   logic [15:0] div_divisor;
   logic [31:0] div_quotient;
   v2_cursor_divider_u32 u_div (
@@ -408,7 +410,7 @@ module v2_cursor_filter_timed #(
           if (mz <= Z_LOW) begin alpha_mz <= ALPHA_HIGH_Q16; fsm_state <= ST_IIR_PREP; end
           else if (mz >= Z_HIGH) begin alpha_mz <= ALPHA_LOW_Q16; fsm_state <= ST_IIR_PREP; end
           else begin
-            div_dividend <= (mz - Z_LOW) * 32'd65536;
+            div_dividend <= (mz - Z_LOW) << 16;
             div_divisor <= Z_HIGH - Z_LOW;
             div_start <= 1'b1;
             fsm_state <= ST_WAIT_ALPHA_MZ;
@@ -452,7 +454,7 @@ module v2_cursor_filter_timed #(
           if (nz <= Z_LOW) begin alpha_motion <= ALPHA_HIGH_Q16; fsm_state <= ST_DEPTH; end
           else if (nz >= Z_HIGH) begin alpha_motion <= ALPHA_LOW_Q16; fsm_state <= ST_DEPTH; end
           else begin
-            div_dividend <= (nz - Z_LOW) * 32'd65536;
+            div_dividend <= (nz - Z_LOW) << 16;
             div_divisor <= Z_HIGH - Z_LOW;
             div_start <= 1'b1;
             fsm_state <= ST_WAIT_ALPHA_NZ;
@@ -467,7 +469,7 @@ module v2_cursor_filter_timed #(
           if (nz <= Z_LOW) begin depth_q <= 0; fsm_state <= ST_FILTER_COMMIT; end
           else if (nz >= Z_HIGH) begin depth_q <= Q16_ONE; fsm_state <= ST_FILTER_COMMIT; end
           else begin
-            div_dividend <= (nz - Z_LOW) * 32'd65536;
+            div_dividend <= (nz - Z_LOW) << 16;
             div_divisor <= Z_HIGH - Z_LOW;
             div_start <= 1'b1;
             fsm_state <= ST_WAIT_DEPTH;
@@ -494,7 +496,9 @@ module v2_cursor_filter_timed #(
           if (hist_count >= 3) begin hist_x[3] <= hist_x[2]; hist_y[3] <= hist_y[2]; hist_z[3] <= hist_z[2]; end
           if (hist_count >= 4) begin hist_x[4] <= hist_x[3]; hist_y[4] <= hist_y[3]; hist_z[4] <= hist_z[3]; end
           proximity_q <= Q16_ONE - depth_q;
-          velocity_q <= 32'sd32768 + ((Q16_ONE - depth_q) * 32'd7 >>> 4);
+          depth_term = Q16_ONE - depth_q;
+          depth_x7 = (depth_term << 3) - depth_term;
+          velocity_q <= 32'sd32768 + (depth_x7 >> 4);
           depth_control <= q16_u16(depth_q);
           fsm_state <= ST_STATE;
         end
@@ -553,9 +557,10 @@ module v2_cursor_filter_timed #(
           speed_q <= ((step_x_q < 0) ? -step_x_q : step_x_q);
           if ((step_y_q < 0) && (-step_y_q > ((step_x_q < 0) ? -step_x_q : step_x_q))) speed_q <= -step_y_q;
           else if (step_y_q > ((step_x_q < 0) ? -step_x_q : step_x_q)) speed_q <= step_y_q;
-          velocity_control <= q16_u16(velocity_q + ((speed_q * 32'd3) >>> 4));
+          speed_x3 = (speed_q[31:0] << 1) + speed_q[31:0];
+          velocity_control <= q16_u16(velocity_q + (speed_x3 >> 4));
           stable_cursor_x <= cursor_next_x; stable_cursor_y <= cursor_next_y; stable_cursor_z <= nz;
-          stable_pitch <= q16_u16(cursor_next_y); stable_velocity <= q16_u16(velocity_q + ((speed_q * 32'd3) >>> 4));
+          stable_pitch <= q16_u16(cursor_next_y); stable_velocity <= q16_u16(velocity_q + (speed_x3 >> 4));
           stable_depth <= q16_u16(depth_q); stable_sequence <= in_sequence; stable_timestamp <= in_timestamp;
           state <= in_degraded ? STATE_DEGRADED : STATE_ENGAGED;
           have_frame <= 1'b1; frame_output_valid <= 1'b1; fsm_state <= ST_IDLE;
