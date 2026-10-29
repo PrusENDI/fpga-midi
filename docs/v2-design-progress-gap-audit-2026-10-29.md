@@ -27,7 +27,7 @@ e76ccde  concurrent NL0002 diagnosis documentation (RTL unchanged)
 
 | 计划项 | 当前结论 | 剩余门槛 |
 | --- | --- | --- |
-| H0 共享 harness | 已实现、A/B 共用，并成功跑通 | verifier 解析和最终验收校验需修复 |
+| H0 共享 harness | 已实现、A/B 共用，并成功跑通 | verifier 需保留合法内联证据并继续阻断真实删除 |
 | Task 1 受控 sweep | 有连续实验 | 统一脚本、归因表、版本化 variant/profile 未交付 |
 | Task 2 / A voice | 专项仿真通过，进入联合 P&R | 当前 A 单独 voice P&R 归因仍缺；100 MHz gate 未过 |
 | Task 3 / B Potts | 功能专项和资源优化有证据，A+B 可放入器件 | H32 全圈映射、写回、不中断播放未闭环 |
@@ -152,11 +152,11 @@ Potts wr_3_s0/Q
 
 ## 5. Harness 和证据管理缺口
 
-1. **Fmax 解析错误已复现。** verifier 在 `Actual Fmax` 表头后抓第一个 MHz 数字，得到 Constraint=100；应按表格列解析，用真实 HTML 固定样例回归。
+1. **verifier 解析已修正。** 它现在按 timing HTML 行的 Actual Fmax 列读取，clean baseline 复核值为 68.013 MHz，而不是约束列的 100 MHz。
 2. Acceptance 应拒绝 dirty 源码、诊断 preserve profile、缺 device.cfg、缺失/未绑定哈希的位流，并覆盖完整 RTL/IP/约束依赖和真实工具版本。五个 harness-input hashes 不等于完整源码锁定；PR2017/PR2028 应查全套当次日志。
 3. 当前共享 H0 锁死 H32/FX1；计划的 H128/H32、FX0/1 sweeps 需要主线统一扩展具名 profile/参数，不能让 A/B 私自分叉。
-4. **touch decoder 层级被扫不等于 touch 功能被删。** clean `.vg` 仍有 reader touch_info/touch_valid/report_error 到 latch 的连接和归约 LUT（约 20002、20142–20175、191630 行）。`v2_test_mode` 功能保留待证明。不能 blanket allowlist，也不能仅加 keep 属性就宣布功能已保留。
-5. 原计划要求无 NL0002。如证明是合法层级内联，应单独修订精确判据，继续阻断所需功能被扫；当前仍按原门槛记录 BLOCKED。
+4. **touch decoder 层级被扫不等于 touch 功能被删。** clean `.vg` 仍有 reader touch_info/touch_valid/report_error 到 latch 的连接、归约 LUT、`calibrated_touch` 寄存器和 `u_live.calibrated_touch` 连接（约 20002、20142–20175、20752–20759、191630 行）。verifier 现已实现精确判定：仅在这些网表证据齐全时放行该一条 NL0002。
+5. 其它 NL0002 仍严格阻断。clean baseline 中真实被删除的 `v2_test_mode` 仍会使 verifier 返回 BLOCKED；这不是允许清单，也不能靠 blanket allowlist 或 `keep_hierarchy` 伪造通过。
 6. 本报告采用原始 **68.013 MHz**，纠正旧文档“touch 必然消失”“仅拥塞”“32 slots 等于 32 ticks”的推断；旧实验记录作为历史保留。并行新增的 `docs/parallel/nl0002-sweep-diagnosis-2026-10-29.md` 中“两模块都真删除”的总括也不能用于 touch：已发现的实际连接和 LUT 锥需要分别解释。单凭父层无 DPB 还不能替代功能等价/可达性证明。
 
 计划交付物仍缺：`scripts/sweep_v2_fullpath_resources.ps1`、`docs/v2-fullpath-resource-baseline-2026-10-29.md`、`docs/v2-final-top-pnr-2026-10-29.md`、`scripts/measure_v2_latency.ps1`。文件存在也须绑定实际测量才能关闭 gate。
@@ -167,7 +167,8 @@ Potts wr_3_s0/Q
 | --- | --- | --- |
 | `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_top.ps1`，integration-probe / 338435c | 0，PASS | 现有 smoke，不证明上述未覆盖语义 |
 | `python -m unittest discover -s tools -p 'test_*.py'`，同上 | 0，175 tests OK | PC/参考模型单测，不替代真实 UART/FPGA/板测 |
-| `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_v2_fullpath_run.ps1 -RunDir impl/v2_top_fullpath_clean_baseline_1 -Acceptance`，integration | **1，BLOCKED**：NL0002、setup=3125 | 原验收未过；同时复现错误 `fmax_mhz=100` |
+| `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_v2_fullpath_run.ps1 -RunDir impl/v2_top_fullpath_clean_baseline_1 -Acceptance`，integration | **1，BLOCKED**：touch NL0002 放行，`v2_test_mode` 和 setup=3125 仍阻塞；实际 `fmax_mhz=68.013` | 合法内联不再误阻塞；真实删除和时序仍阻塞 |
+| 同一 verifier 对 `impl/v2_top_fullpath_tm_serial_1` | **1，BLOCKED**：touch NL0002 放行，setup=2650，Fmax=71.342 | 证明单条合法内联可以放行，未降低时序门槛 |
 | 原始 timing/P&R/device.cfg/manifest/网表检查 | 见第 2/4/5 节 | 保留 clean run 的 synthesis/timing/bitstream 证据，本轮无新 P&R |
 
 当前没有 `board` 级证据关闭传感器物理链路、PC UI 真串口往返、1/8/32 voice、33rd steal、实际 I2S、无 underrun、fault recovery 和 trigger-to-waveform 延迟。离线 UI/模型通过不代表实机联调通过。

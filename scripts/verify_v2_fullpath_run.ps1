@@ -14,6 +14,32 @@ function Add-Failure([string]$Message) {
     [void]$failures.Add($Message)
 }
 
+function Test-TouchDecoderInlineEvidence([string]$NetlistText) {
+    # Gowin may remove the v2_touch_info_decoder hierarchy while retaining its
+    # Boolean function in mgc3130_input_latch. Accept that one NL0002 only when
+    # the synthesized cone is structurally visible all the way to LIVE.
+    if ([string]::IsNullOrWhiteSpace($NetlistText)) { return $false }
+    $latchMatch = [regex]::Match(
+        $NetlistText,
+        '(?s)module\s+mgc3130_input_latch\s*\(.*?endmodule\s*/\*\s*mgc3130_input_latch\s*\*/'
+    )
+    if (!$latchMatch.Success) { return $false }
+    $latch = $latchMatch.Value
+    $hasTouchInputs = @(
+        'touch_info_Z\[0\]', 'touch_info_Z\[1\]', 'touch_info_Z\[2\]',
+        'touch_info_Z\[3\]', 'touch_info_Z\[4\]', 'touch_valid_Z',
+        'report_error_Z', 'report_valid_Z'
+    ) | ForEach-Object { $latch -match $_ } | Where-Object { $_ -eq $false }
+    if ($hasTouchInputs.Count -ne 0) { return $false }
+    $hasReductionLuts =
+        ($latch -match '(?s)LUT[234]\s+\S+\s*\(.*?touch_info_Z\[0\].*?touch_info_Z\[1\].*?touch_info_Z\[2\]') -and
+        ($latch -match '(?s)LUT[234]\s+\S+\s*\(.*?touch_info_Z\[3\].*?touch_info_Z\[4\]')
+    if (!$hasReductionLuts) { return $false }
+    $hasTouchRegister = $latch -match '(?s)DFFCE\s+\S+\s*\(.*?\.Q\(calibrated_touch\).*?\.D\('
+    if (!$hasTouchRegister) { return $false }
+    return $NetlistText -match '(?s)v2_live_rule_engine\s+u_live\s*\(.*?\.calibrated_touch\(calibrated_touch\)'
+}
+
 if (!(Test-Path -LiteralPath $runPath -PathType Container)) {
     throw "Run directory does not exist: $runPath"
 }
@@ -50,15 +76,29 @@ if (!(Test-Path -LiteralPath $manifestPath)) {
     }
 }
 
+$synthDir = Join-Path $runPath 'impl/gwsynthesis'
+$pnrDir = Join-Path $runPath 'impl/pnr'
 $textFiles = Get-ChildItem -LiteralPath $runPath -Recurse -File -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -match '\\impl\\(gwsynthesis|pnr)\\' -and $_.Extension -in @('.log', '.txt', '.html', '.cfg') }
 $allText = ($textFiles | ForEach-Object { Get-Content -Raw -LiteralPath $_.FullName -ErrorAction SilentlyContinue }) -join "`n"
-foreach ($marker in @('RP0006', 'RP0008', 'NL0002')) {
+$netlistPath = Get-ChildItem -LiteralPath $synthDir -Filter '*.vg' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+$netlistText = if ($netlistPath) { Get-Content -Raw -LiteralPath $netlistPath.FullName -ErrorAction SilentlyContinue } else { '' }
+foreach ($marker in @('RP0006', 'RP0008')) {
     if ($allText -match $marker) { Add-Failure "tool marker $marker found" }
 }
+$nlMatches = [regex]::Matches($allText, 'NL0002[^\r\n]*module\s+"([^"]+)"')
+if ($nlMatches.Count -eq 0 -and $allText -match 'NL0002') {
+    Add-Failure 'tool marker NL0002 found but swept module could not be identified'
+}
+foreach ($nlMatch in $nlMatches) {
+    $sweptModule = [string]$nlMatch.Groups[1].Value
+    if ($sweptModule -eq 'v2_touch_info_decoder' -and (Test-TouchDecoderInlineEvidence $netlistText)) {
+        $observations.Add('NL0002 touch decoder accepted: synthesized Boolean cone is inlined into mgc3130_input_latch and connected to LIVE')
+    } else {
+        Add-Failure "tool marker NL0002 found for $sweptModule"
+    }
+}
 
-$synthDir = Join-Path $runPath 'impl/gwsynthesis'
-$pnrDir = Join-Path $runPath 'impl/pnr'
 $synthLog = Get-ChildItem -LiteralPath $synthDir -Filter '*.log' -File -ErrorAction SilentlyContinue | Select-Object -First 1
 if (!$synthLog) { Add-Failure 'missing synthesis log' }
 if (!$SynthesisOnly -and !(Test-Path -LiteralPath $pnrDir -PathType Container)) { Add-Failure 'missing P&R directory' }
@@ -92,7 +132,9 @@ if ($rptText) {
 if ($timingText) {
     $setupMatch = [regex]::Match($timingText, 'Numbers of Setup Violated Endpoints</td>\s*<td>([0-9]+)')
     $holdMatch = [regex]::Match($timingText, 'Numbers of Hold Violated Endpoints</td>\s*<td>([0-9]+)')
-    $fmaxMatch = [regex]::Match($timingText, '<th>Actual Fmax</th>[\s\S]*?<td[^>]*>([0-9]+(?:\.[0-9]+)?)\(MHz\)</td>')
+    # The first MHz cell after the header is the constraint (100 MHz). Match
+    # the row's fourth cell so the observation is the actual measured Fmax.
+    $fmaxMatch = [regex]::Match($timingText, '<th>Actual Fmax</th>[\s\S]*?<tr>\s*<td>\s*[0-9]+\s*</td>\s*<td>[\s\S]*?</td>\s*<td>[\s\S]*?</td>\s*<td[^>]*>\s*([0-9]+(?:\.[0-9]+)?)\s*\(MHz\)</td>')
     if ($setupMatch.Success) {
         $setup = [int]$setupMatch.Groups[1].Value
         $observations.Add("setup_violations=$setup")

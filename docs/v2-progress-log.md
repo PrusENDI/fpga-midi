@@ -21,11 +21,12 @@ and 16 DSP sites. E2/5 and both CPU/SSPI regular-IO settings are correct. This
 is resource-legal diagnostic evidence, not final timing or board acceptance.
 
 Fresh audit checks: `scripts/test_v2_top.ps1` exits 0 and the Python suite
-exits 0 with **175 tests OK** in integration-probe at `338435c`. Running
-`scripts/verify_v2_fullpath_run.ps1 -RunDir
-impl/v2_top_fullpath_clean_baseline_1 -Acceptance` in integration exits **1 /
-BLOCKED** (NL0002 and setup=3125). Its reported Fmax=100 incorrectly reads the
-constraint column; raw actual Fmax=68.013 is authoritative until fixed.
+exits 0 with **175 tests OK** in integration-probe at `338435c`. The verifier
+now recognizes the touch decoder's legal netlist inlining and reads the actual
+Fmax column. On `clean_baseline_1` it exits **1 / BLOCKED** because
+`v2_test_mode` is genuinely absent and setup=3125; observations are
+`fmax_mhz=68.013`, not the 100 MHz constraint. On the serial-test-mode run,
+touch NL0002 is accepted while setup=2650/Fmax=71.342 still block acceptance.
 
 The complete-design review finds blockers beyond timing: musical BPM/tick and
 128-tick/H32 mapping, contour/rest construction, Potts-to-shadow-table writeback
