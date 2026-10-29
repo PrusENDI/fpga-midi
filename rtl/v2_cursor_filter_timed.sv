@@ -212,7 +212,10 @@ module v2_cursor_filter_timed #(
     ST_OUTPUT, ST_DROP
   } state_t;
   state_t fsm_state;
-  logic signed [31:0] sort_x [0:4], sort_y [0:4], sort_z [0:4];
+  // One registered median network is reused for X/Y/Z in separate FSM slots.
+  // This removes 320 FFs and two parallel compare/swap networks.
+  logic signed [31:0] sort_x [0:4];
+  logic [1:0] median_axis;
 
   function automatic signed [31:0] alpha_from_ratio(input [31:0] ratio);
     reg signed [63:0] p;
@@ -326,24 +329,17 @@ module v2_cursor_filter_timed #(
             frame_output_valid <= 1'b1;
             fsm_state <= ST_IDLE;
           end else begin
+            median_axis <= 0;
             fsm_state <= ST_MEDIAN;
           end
         end
 
         ST_MEDIAN: begin
-          if (hist_count < 5) begin
-            sort_x[0] <= in_x; sort_y[0] <= in_y; sort_z[0] <= in_z;
-            sort_x[1] <= hist_x[0]; sort_y[1] <= hist_y[0]; sort_z[1] <= hist_z[0];
-            sort_x[2] <= hist_x[1]; sort_y[2] <= hist_y[1]; sort_z[2] <= hist_z[1];
-            sort_x[3] <= hist_x[2]; sort_y[3] <= hist_y[2]; sort_z[3] <= hist_z[2];
-            sort_x[4] <= hist_x[3]; sort_y[4] <= hist_y[3]; sort_z[4] <= hist_z[3];
-          end else begin
-            sort_x[0] <= in_x; sort_y[0] <= in_y; sort_z[0] <= in_z;
-            sort_x[1] <= hist_x[0]; sort_y[1] <= hist_y[0]; sort_z[1] <= hist_z[0];
-            sort_x[2] <= hist_x[1]; sort_y[2] <= hist_y[1]; sort_z[2] <= hist_z[1];
-            sort_x[3] <= hist_x[2]; sort_y[3] <= hist_y[2]; sort_z[3] <= hist_z[2];
-            sort_x[4] <= hist_x[3]; sort_y[4] <= hist_y[3]; sort_z[4] <= hist_z[3];
-          end
+          sort_x[0] <= (median_axis == 0) ? in_x : (median_axis == 1) ? in_y : in_z;
+          sort_x[1] <= (median_axis == 0) ? hist_x[0] : (median_axis == 1) ? hist_y[0] : hist_z[0];
+          sort_x[2] <= (median_axis == 0) ? hist_x[1] : (median_axis == 1) ? hist_y[1] : hist_z[1];
+          sort_x[3] <= (median_axis == 0) ? hist_x[2] : (median_axis == 1) ? hist_y[2] : hist_z[2];
+          sort_x[4] <= (median_axis == 0) ? hist_x[3] : (median_axis == 1) ? hist_y[3] : hist_z[3];
           fsm_state <= ST_MEDIAN_S0;
         end
 
@@ -353,51 +349,36 @@ module v2_cursor_filter_timed #(
         ST_MEDIAN_S0: begin
           if (sort_x[0] > sort_x[1]) begin sort_x[0] <= sort_x[1]; sort_x[1] <= sort_x[0]; end
           if (sort_x[2] > sort_x[3]) begin sort_x[2] <= sort_x[3]; sort_x[3] <= sort_x[2]; end
-          if (sort_y[0] > sort_y[1]) begin sort_y[0] <= sort_y[1]; sort_y[1] <= sort_y[0]; end
-          if (sort_y[2] > sort_y[3]) begin sort_y[2] <= sort_y[3]; sort_y[3] <= sort_y[2]; end
-          if (sort_z[0] > sort_z[1]) begin sort_z[0] <= sort_z[1]; sort_z[1] <= sort_z[0]; end
-          if (sort_z[2] > sort_z[3]) begin sort_z[2] <= sort_z[3]; sort_z[3] <= sort_z[2]; end
           fsm_state <= ST_MEDIAN_S1;
         end
         ST_MEDIAN_S1: begin
           if (sort_x[1] > sort_x[2]) begin sort_x[1] <= sort_x[2]; sort_x[2] <= sort_x[1]; end
           if (sort_x[3] > sort_x[4]) begin sort_x[3] <= sort_x[4]; sort_x[4] <= sort_x[3]; end
-          if (sort_y[1] > sort_y[2]) begin sort_y[1] <= sort_y[2]; sort_y[2] <= sort_y[1]; end
-          if (sort_y[3] > sort_y[4]) begin sort_y[3] <= sort_y[4]; sort_y[4] <= sort_y[3]; end
-          if (sort_z[1] > sort_z[2]) begin sort_z[1] <= sort_z[2]; sort_z[2] <= sort_z[1]; end
-          if (sort_z[3] > sort_z[4]) begin sort_z[3] <= sort_z[4]; sort_z[4] <= sort_z[3]; end
           fsm_state <= ST_MEDIAN_S2;
         end
         ST_MEDIAN_S2: begin
           if (sort_x[0] > sort_x[1]) begin sort_x[0] <= sort_x[1]; sort_x[1] <= sort_x[0]; end
           if (sort_x[2] > sort_x[3]) begin sort_x[2] <= sort_x[3]; sort_x[3] <= sort_x[2]; end
-          if (sort_y[0] > sort_y[1]) begin sort_y[0] <= sort_y[1]; sort_y[1] <= sort_y[0]; end
-          if (sort_y[2] > sort_y[3]) begin sort_y[2] <= sort_y[3]; sort_y[3] <= sort_y[2]; end
-          if (sort_z[0] > sort_z[1]) begin sort_z[0] <= sort_z[1]; sort_z[1] <= sort_z[0]; end
-          if (sort_z[2] > sort_z[3]) begin sort_z[2] <= sort_z[3]; sort_z[3] <= sort_z[2]; end
           fsm_state <= ST_MEDIAN_S3;
         end
         ST_MEDIAN_S3: begin
           if (sort_x[1] > sort_x[2]) begin sort_x[1] <= sort_x[2]; sort_x[2] <= sort_x[1]; end
           if (sort_x[3] > sort_x[4]) begin sort_x[3] <= sort_x[4]; sort_x[4] <= sort_x[3]; end
-          if (sort_y[1] > sort_y[2]) begin sort_y[1] <= sort_y[2]; sort_y[2] <= sort_y[1]; end
-          if (sort_y[3] > sort_y[4]) begin sort_y[3] <= sort_y[4]; sort_y[4] <= sort_y[3]; end
-          if (sort_z[1] > sort_z[2]) begin sort_z[1] <= sort_z[2]; sort_z[2] <= sort_z[1]; end
-          if (sort_z[3] > sort_z[4]) begin sort_z[3] <= sort_z[4]; sort_z[4] <= sort_z[3]; end
           fsm_state <= ST_MEDIAN_S4;
         end
         ST_MEDIAN_S4: begin
           if (sort_x[0] > sort_x[1]) begin sort_x[0] <= sort_x[1]; sort_x[1] <= sort_x[0]; end
           if (sort_x[2] > sort_x[3]) begin sort_x[2] <= sort_x[3]; sort_x[3] <= sort_x[2]; end
-          if (sort_y[0] > sort_y[1]) begin sort_y[0] <= sort_y[1]; sort_y[1] <= sort_y[0]; end
-          if (sort_y[2] > sort_y[3]) begin sort_y[2] <= sort_y[3]; sort_y[3] <= sort_y[2]; end
-          if (sort_z[0] > sort_z[1]) begin sort_z[0] <= sort_z[1]; sort_z[1] <= sort_z[0]; end
-          if (sort_z[2] > sort_z[3]) begin sort_z[2] <= sort_z[3]; sort_z[3] <= sort_z[2]; end
           fsm_state <= ST_MEDIAN_FINISH;
         end
         ST_MEDIAN_FINISH: begin
-          mx <= sort_x[2]; my <= sort_y[2]; mz <= sort_z[2];
-          fsm_state <= ST_MAP;
+          if (median_axis == 0) begin
+            mx <= sort_x[2]; median_axis <= 1; fsm_state <= ST_MEDIAN;
+          end else if (median_axis == 1) begin
+            my <= sort_x[2]; median_axis <= 2; fsm_state <= ST_MEDIAN;
+          end else begin
+            mz <= sort_x[2]; fsm_state <= ST_MAP;
+          end
         end
 
         ST_MAP: begin
