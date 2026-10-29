@@ -1,58 +1,79 @@
-# V2 cursor DSP sharing candidate report (2026-10-29)
+# Cursor DSP sharing candidate report (2026-10-29)
 
-状态：NEEDS_REVIEW
+状态：资源候选 VERIFIED；100 MHz acceptance BLOCKED。
 worktree：`C:\weizijian\documents\gowin fpga\mgc3130_uart\.worktrees\v2-cursor-dsp`
 branch：`work/v2-cursor-dsp`
 base commit：`ec10de4`
-H0 commit：未运行（主线程协调 license）
-stream commit：见本报告对应提交
+RTL commit：`2c6aea8`；clean H0 source：`cd381e9e5e1e003764bff0805377740cd9904716`。
 
-## 候选
+## 候选与语义复查
 
-`rtl/v2_cursor_filter_timed.sv` 的 5 个变量系数乘法（IIR X/Y/Z 和 motion X/Y）现在共享一个 32x32 有符号乘法网。FSM 状态选择 `mul_a/mul_b`，每个原有乘法状态在同一拍捕获 `mul_product`。状态数量、帧处理顺序、FIFO、divider、`sample_ce` 音频快照契约均未改动；因此预计吞吐和输出拍位置保持不变。相比“增加多周期乘法器调度状态”的方案，此最小候选不增加帧延迟，代价是操作数 mux 和控制扇出。
+`rtl/v2_cursor_filter_timed.sv` 将 IIR X/Y/Z 和 motion X/Y 五个变量系数乘法收敛为一个按 FSM 状态选择操作数的乘法网。状态、帧延迟、FIFO、divider 和 `sample_ce` 快照逻辑不变；代价是操作数 mux 与控制扇出。
 
-预期资源收益是从 cursor 的 5 个变量乘法器降为 1 个（若 Gowin 综合识别该共享网），预期减少 4 个乘法功能块。`MULT27X36` 元件/功能块数量与 Gowin 报表物理 DSP 站点数量不是同一计数，本文不将两者等同；最终物理站点数还取决于器件映射、alpha 常量乘法及其它模块。实际 Gowin 综合/P&R 数字待 H0 license 窗口执行，不能以预期替代实测。
+`dx_q/dy_q/dz_q`、`alpha_mz/alpha_motion`、`mul_a/mul_b` 均为 signed32，无切片或缩窄；原表达式与共享表达式都是 signed32×signed32，赋值上下文为 signed64，后续 `>>>16` 不变。六处捕获 X/Y/Z/Z_ONLY/motion PREP/Y 都有对应 mux 分支。`ST_MOTION_X` 为原有不可达枚举。
 
-## 基线与验证
+## 功能验证
 
-基线在修改前运行 reference cursor replay（`tb_v2_cursor_replay` 仅实例化 `v2_cursor_filter`，没有实例化 timed DUT）：
+早期 `tb_v2_cursor_replay PASS rows=976 adjacent=A/B` 与 `tb_v2_cursor_filter PASS` 仅验证 scalar reference，不能证明 timed 修改。`tb_v2_cursor_filter_timed PASS` 是 timed smoke。
 
-```text
-vlog -sv -work work rtl/v2_input_pkg.sv rtl/v2_touch_info_decoder.sv rtl/mgc3130_input_latch.sv rtl/v2_input_calibration.sv rtl/v2_position_validity.sv rtl/v2_cursor_filter.sv rtl/v2_cursor_filter_timed.sv sim/tb_v2_cursor_replay.sv
-vsim -c -novopt work.tb_v2_cursor_replay -do 'run -all; quit -f'
-tb_v2_cursor_replay PASS rows=976 adjacent=A/B
+主线程使用 resource 分支 `3f62a8a` 的独立 timed 双 DUT 脚本，固定提取基线 `ec10de4` 与候选 `cd381e9`，新鲜实跑：
+
+```powershell
+# 在 .worktrees/v2-cursor-resource 中执行
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_cursor_timed.ps1 -Baseline ec10de4 -CandidateRef cd381e9 -ExpectSameLatency
 ```
 
-候选后新鲜 ModelSim 验证：
+日志：`../v2-cursor-resource/impl/cursor_timed_03369de1362e4cdea0ae143539e44964/replay.log`。
 
-- Reference：`tb_v2_cursor_replay PASS rows=976 adjacent=A/B`（同一编译/运行命令）；此结果不覆盖本次 timed RTL 修改，不能用作 timed 逐帧等价证据。
-- Timed：`tb_v2_cursor_filter_timed PASS`，仅为有限 smoke 场景覆盖。
-- Reference：`tb_v2_cursor_filter PASS`。
-- `git diff --check` 通过
+```text
+PASS rows=976 adjacent=4 frames=983/983
+replay_max_cycles=127/127 burst_max_cycles=296/296
+audio_checks=1938 baseline_scalar_differences=893
+sample_window_differences=0 same_latency_checks=983
+```
 
-## 有符号位宽与状态调用复查
+该检查覆盖完整帧输出和 FIFO sequence/timestamp、独立 48 kHz 音频快照 oracle、4 个相邻 burst、发布/sample 边沿，以及 983 帧逐帧同延迟。893 个 scalar 差异是基线 timed/reference 差异统计，不是候选与 timed 基线不一致。未覆盖满 8 深 FIFO、所有 reason/degraded 标志、处理中复位或任意 signed32 极值；因此是所测轨迹等价证据。
 
-- `dx_q/dy_q/dz_q`、`alpha_mz/alpha_motion`、新 `mul_a/mul_b` 均为 `logic signed [31:0]`。mux 是同宽有符号赋值，没有缩窄、切片或无符号字面量参与。
-- 原表达式与共享表达式均为 `$signed(32-bit operand) * $signed(32-bit operand)`，目标均为 signed 64-bit；SystemVerilog 赋值上下文将乘法扩展到 64-bit，保留完整有符号 32x32 乘积。后续 `product_x/y/z >>> 16` 不变。
-- 消费状态完整映射：`ST_MUL_X`→dx/alpha_mz，`ST_MUL_Y`→dy/alpha_mz，`ST_MUL_Z`和`ST_MUL_Z_ONLY`→dz/alpha_mz，`ST_MOTION_PREP`→dx/alpha_motion，`ST_MOTION_Y`→dy/alpha_motion。全部六处产品捕获都有对应 mux 分支。
-- `ST_MOTION_X` 是原有未使用枚举值，无状态跳转指向它，也无乘法捕获。共享逻辑未改变这点。
-- 每个乘法状态前原有寄存器准备/更新边界不变，捕获使用该状态期间的 mux 输出；没有新增时钟边界或状态。该静态复查支持同拍语义，但不替代 timed 全回放。
+## 新鲜 H0 full-path 证据
 
-Timed 976-frame replay、48 kHz `sample_ce` 与吞吐验证等待主线程提供新的 timed test/script；目前不能声称 timed 逐帧等价或整个契约已由回归验证。
+由主线程执行，目录 `impl/v2_top_fullpath_cursor_dsp_cd381e9_1`；manifest source 为 clean `cd381e9`，dirty_state 为空。器件 `GW5A-LV25MG121NES`，Gowin `V1.9.12.04 (64-bit)`（PnR report 确认；manifest gw_sh_version 字段为 null）。profile 为真实 reader、Loop、Potts H32、32×2 voice、FX enable1/level1、CPU/SSPI GPIO。
 
-## 综合/P&R
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 -TclScript (Resolve-Path scripts/synth_v2_top_fullpath_20261029.tcl).Path -LicenseServer '106.55.34.119:10559' -RunId cursor_dsp_cd381e9_1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_v2_fullpath_run.ps1 -RunDir impl/v2_top_fullpath_cursor_dsp_cd381e9_1 -Acceptance
+```
 
-本 stream 暂不启动 full-path Gowin P&R；没有新的资源、Fmax、TNS 或 NL0002 证据。主线程应在 H0 harness/license 可用时运行唯一 RunId 的 full-path acceptance profile，并确认 multiplier cell 归因及 cursor DSP 数量。
+Wrapper exit 0，acceptance verifier exit 1 / BLOCKED。touch decoder NL0002 inline 被接受；阻塞项为 3144 个 setup violation 及 Fmax 低于 100 MHz。
 
-## 修改文件
+| 指标 | clean cd381e9 H0 |
+|---|---:|
+| Logic | 15163/23040 (12633 LUT + 2530 ALU) |
+| Registers | 9123 (9118 logic FF + 5 I/O FF) |
+| CLS | 10346/11520 |
+| BSRAM | 36/56 |
+| 物理 DSP 站点 | 8/28 |
+| 全设计乘法元件 | 3 MULT27X36 + 2 MULTALU27X18 |
+| Cursor MULT27X36 元件 | 2 |
+| Fmax raw / verifier rounded | 68.671 / 68.67 MHz |
+| Setup / hold violations | 3144 / 0 |
+| Setup TNS / worst slack | -7815.501 / -4.562 ns |
 
-- `rtl/v2_cursor_filter_timed.sv`
-- 本报告
+综合网表 cursor 的两个 `MULT27X36` 为 `n3459_s0`（alpha 常量乘法）与 `mul_product2_0_s`（共享变量乘法）。旧 `tm_serial_1` 的 cursor 有 6 个乘法元件，因此变量乘法 5→1 的结构归因成立；乘法元件数量与物理 DSP 站点数量分别计数。
 
-## 未解决问题
+历史 `tm_serial_1` 为 15302 logic、8996 registers、10250 CLS、16 DSP、71.342 MHz。其 manifest 是 `85c2f89` 加 3 个 dirty 文件（serial RTL 后由 `fec4008` 包含），不是 clean `ec10de4` 基线。当前与该历史 run 的数值比较只能作为背景，不能确定地将 Fmax 降低、CLS/FF 变化归因于本候选。严格量化前后效应需匹配 clean source/profile 的新鲜基线。
 
-Gowin 是否将共享乘法网映射为单一乘法功能块、实际占用多少物理 DSP 站点、mux 是否影响时序，仍需新鲜综合/P&R 结果确认。若工具复制乘法器，下一候选应增加显式两阶段 operand/result 调度或 vendor DSP primitive。
+证据文件：run 内 `harness-manifest.json`、`harness-verification.json`、`impl/gwsynthesis/v2_top_fullpath.vg`、`impl/pnr/v2_top_fullpath.rpt.txt`、`impl/pnr/v2_top_fullpath_tr_content.html`。
 
-## 主线程下一步
+生成的 `impl/pnr/v2_top_fullpath.fs` SHA256：
 
-先使用主线程提供的新 timed replay/script 验证 976-frame 逐帧结果、音频快照和吞吐；再在 H0 license 可用时运行 full-path harness，分别采集乘法元件归因、物理 DSP 站点和 timing 机器检查，再决定是否保留该候选。
+```text
+4B86CC0FC6012AB6FE7F7B028602E302828D686147CE998FEA3A3783C559077A
+```
+
+此 hash 仅标识本次失败 timing gate 的构建产物，不代表板级验收或可发布 bitstream。
+
+## 风险与建议
+
+共享变量乘法的资源目标已被网表归因和 8/28 物理 DSP 报表支持；建议保留为 DSP 资源备选，并以匹配 clean 基线及后续合并构建评估最终取舍。当前 Fmax 68.671 MHz，100 MHz gate 明确 BLOCKED，不能宣布 timing closure 或板级就绪。操作数 mux/控制布线仍可能影响时序，但现有历史对照不足以确定其因果贡献。
+
+本次只更新报告，未改变 RTL、tests、H0 harness 或主进度台账，未启动新 Gowin run。
