@@ -74,7 +74,21 @@ P&R resource and timing reports. Generated diagnostic bitstream SHA256:
 `36AA8223E2396F1C224A9B47336B28D35D0F471E8CAA4BDB429C3ED7F198BF18`.
 This identifies the artifact and does not mark it accepted for board use.
 
-A fresh clean `ec10de4` full-path control is running in
-`.worktrees/v2-cursor-baseline`. Final matched-source deltas and selection will
-be recorded in the main progress ledger/phase record when it completes. The
-older dirty `tm_serial_1` run is historical context, not the clean control.
+A fresh clean `ec10de4` full-path control completed in
+`.worktrees/v2-cursor-baseline/impl/v2_top_fullpath_cursor_baseline_ec10de4_1`.
+Its manifest source is `ec10de4623648e957c56db06e3fbe628ae763ec9`, dirty state
+empty, wrapper exit 0 and verifier exit 1 / BLOCKED. It reports 15,302 logic,
+8,996 registers, 10,250 CLS, 36 BSRAM, 16 DSP, actual Fmax 71.342 MHz, setup
+2,650/TNS -5,223.233 ns, worst -4.017 ns and zero hold violations.
+
+The combined candidate therefore saves 871 logic, 192 registers, 102 CLS and
+eight DSP sites, but Fmax falls by 4.806 MHz. Preserve it as a resource
+alternative and **do not merge it into the timing lane in this phase**. This
+result does not improve 100 MHz timing; the measured Potts/voice critical paths
+remain the next performance priority. Re-measure any future adoption against
+the then-current integrated design. The inherited timed/scalar functional
+discrepancy remains open before functional acceptance.
+
+The complete comparison is retained in
+[the cursor phase record](v2-cursor-optimization-2026-10-29.md). The older dirty
+`tm_serial_1` run is historical context; the new clean run is the control.
