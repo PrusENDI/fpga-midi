@@ -4,6 +4,41 @@ This file records reproducible implementation checkpoints. Generated
 `impl/`, ModelSim work libraries, transcripts and local captures remain outside
 Git; source, tests, scripts and evidence summaries are committed.
 
+## 2026-10-29 — cursor parallel optimization verification checkpoint
+
+Two isolated candidates and a separate combination worktree now exist from
+`ec10de4623648e957c56db06e3fbe628ae763ec9`. See
+[the cursor phase record](parallel/v2-cursor-optimization-2026-10-29.md) for
+commands, provenance, results, and remaining gates. This phase preserves the
+**timed baseline's frame values**, rather than claiming scalar-reference
+equivalence. A new direct timed-versus-timed regression checks 983 completed
+frames, FIFO sequence/timestamp and an independent 48 kHz audio oracle.
+
+DSP sharing passes all 983 per-frame same-latency assertions. Its clean-source
+H0 run `cursor_dsp_cd381e9_1` completes with wrapper exit 0: 15,163 logic,
+9,123 registers, 10,346/11,520 CLS, 36 BSRAM, **8/28 physical DSP sites**.
+The cursor netlist has two MULT27X36 cells (one shared variable multiplier
+and the remaining alpha multiplier). Actual Fmax is **68.671 MHz**, setup
+violations **3,144**, setup TNS **-7,815.501 ns**, worst slack **-4.562 ns**,
+hold violations zero. Acceptance verifier exits **1 / BLOCKED**. The touch
+decoder's NL0002 is accepted with surviving functional-cone evidence.
+
+Median sharing independently synthesizes to 623 fewer logic units and 318
+fewer registers than the standalone `ec10de4` cursor. Its 983-frame timed
+comparison and the combined candidate's timed/top simulations pass. Valid
+frames publish 14 cycles later (127 to 141 maximum isolated cycles); four-frame
+burst latency rises from 296 to 352 cycles. An audio sample inside the new
+publication window may retain the prior complete snapshot for one more sample.
+Full-path median and combination measurements remain pending at this checkpoint.
+
+The new gate exposes **893/976 pre-existing timed-versus-scalar differing
+rows**, beginning with startup median history; the timed velocity expression
+also uses the preceding frame's `speed_q`. These separate semantic issues are
+open. They are not waived by preservation of the timed baseline and must be
+resolved against the intended cursor contract before functional acceptance.
+The tests do not yet cover full-depth FIFO overflow, all enqueue/dequeue
+coincidences, nonzero degradation/reason flags, or reset during processing.
+
 ## 2026-10-29 — complete-design gap audit after A+B integration
 
 The current evidence and remaining functional/timing gates are reconciled in
@@ -68,11 +103,12 @@ Two independent worktrees were created from the clean integration reference
 
 | Worktree | Branch | Focus |
 | --- | --- | --- |
-| `.worktrees/v2-cursor-dsp` | `work/v2-cursor-dsp` | Share the five IIR multipliers across a multi-cycle cursor FSM; preserve bit-exact replay and throughput |
+| `.worktrees/v2-cursor-dsp` | `work/v2-cursor-dsp` | Share five variable IIR/motion multipliers across existing FSM slots; preserve timed-baseline frame values and latency |
 | `.worktrees/v2-cursor-resource` | `work/v2-cursor-resource` | Reduce cursor FF/fanout and address cursor-to-telemetry timing/congestion without changing the DSP hypothesis |
 
-Both streams must start with the existing 976-frame cursor replay and cursor
-filter checks, keep the shared H0 harness unchanged, and report independent
+Both streams started with the existing reference replay and cursor filter
+checks. Those benches do not cover timed RTL; the new direct timed differential
+gate above supersedes them for candidate equivalence. Keep the shared H0 harness unchanged and report independent
 logic/FF/DSP/CLS/Fmax/resource deltas before any integration. Full-path Gowin
 runs are held for the main lane so the license is not consumed concurrently.
 
