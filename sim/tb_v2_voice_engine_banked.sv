@@ -30,6 +30,17 @@ module tb_v2_voice_engine_banked;
       if(active_voice_count!==32) $fatal(1,"32 voices");
       send_event(1,100,0,255);
       if(voice_overflow) $fatal(1,"full voice event incorrectly reported overflow");
+      // A full-bank NOTE_ON must cross a registered metadata scan boundary;
+      // arming the bounded-release mailbox directly from the 32-way scan is
+      // the pre-pipeline timing hazard this test drives out.
+      if(dut.steal_pending)
+        $fatal(1,"victim selection armed without registered scan boundary");
+      i=0;
+      while(!dut.steal_pending) begin
+        @(posedge clk); i=i+1;
+        if(i>100) $fatal(1,"registered victim scan timeout active=%b index=%0d",
+                          dut.victim_scan_active, dut.victim_scan_index);
+      end
       if(voice_steal_count !== 16'd1 || !dut.steal_pending || !dut.releasing[0])
         $fatal(1,"deterministic steal was not armed count=%0d pending=%b releasing=%b",
                voice_steal_count, dut.steal_pending, dut.releasing[0]);

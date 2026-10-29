@@ -132,7 +132,6 @@ module v2_voice_engine_banked #(
     integer i;
     integer count_idx;
     integer free_slot;
-    integer steal_slot;
     integer revoice_hits;
     integer count_i;
     logic event_accept;
@@ -141,6 +140,25 @@ module v2_voice_engine_banked #(
     logic [7:0] revoice_note_pending;
     logic [31:0] revoice_target_a_pending, revoice_target_b_pending;
     logic direct_note_on, pending_activate;
+
+    // Full-bank victim selection is deliberately serialized.  The metadata
+    // arrays are read into one registered stage, then compared against the
+    // registered candidate on the following cycle.  This removes the old
+    // 32-way array-read/comparator cone from the event acceptance edge while
+    // preserving released -> oldest -> velocity -> voice-ID priority.
+    logic        victim_scan_active;
+    logic [5:0]  victim_scan_index;
+    logic        victim_scan_meta_valid;
+    logic        victim_scan_meta_active;
+    logic        victim_scan_meta_releasing;
+    logic [15:0] victim_scan_meta_age;
+    logic [7:0]  victim_scan_meta_velocity;
+    logic        victim_candidate_valid;
+    logic [4:0]  victim_candidate_slot;
+    logic        victim_candidate_releasing;
+    logic [15:0] victim_candidate_age;
+    logic [7:0]  victim_candidate_velocity;
+    logic        sample_pending;
 
     always_comb begin
         for (count_idx = 0; count_idx < VOICES; count_idx = count_idx + 1)
@@ -155,28 +173,16 @@ module v2_voice_engine_banked #(
         active_bitmap = active;
 
         free_slot = -1;
-        steal_slot = -1;
         if (event_data[94:91] == V2_EV_NOTE_ON) begin
             for (count_idx = 0; count_idx < VOICES; count_idx = count_idx + 1)
                 if (!active[count_idx] && free_slot < 0)
                     free_slot = count_idx;
-            for (count_idx = 0; count_idx < VOICES; count_idx = count_idx + 1)
-                if (active[count_idx]) begin
-                    if (steal_slot < 0 ||
-                        (releasing[count_idx] && !releasing[steal_slot]) ||
-                        ((releasing[count_idx] == releasing[steal_slot]) &&
-                         ((age[count_idx] < age[steal_slot]) ||
-                          ((age[count_idx] == age[steal_slot]) &&
-                           ((velocity[count_idx] < velocity[steal_slot]) ||
-                            ((velocity[count_idx] == velocity[steal_slot]) &&
-                             (count_idx < steal_slot)))))))
-                        steal_slot = count_idx;
-                end
         end
 
         // A command is held by its producer during the complete scan. This
         // gives the bank a single deterministic write port.
-        event_ready = rst_n && !scan_busy && !revoice_pending && !steal_pending;
+        event_ready = rst_n && !scan_busy && !revoice_pending &&
+                      !steal_pending && !victim_scan_active;
         event_accept = event_valid && event_ready;
         direct_note_on = event_accept && !event_data[95] &&
                          (event_data[94:91] == V2_EV_NOTE_ON) && (free_slot >= 0);
@@ -399,6 +405,19 @@ module v2_voice_engine_banked #(
             revoice_note_pending <= 8'd0;
             revoice_target_a_pending <= 32'd0;
             revoice_target_b_pending <= 32'd0;
+            victim_scan_active <= 1'b0;
+            victim_scan_index <= 6'd0;
+            victim_scan_meta_valid <= 1'b0;
+            victim_scan_meta_active <= 1'b0;
+            victim_scan_meta_releasing <= 1'b0;
+            victim_scan_meta_age <= 16'd0;
+            victim_scan_meta_velocity <= 8'd0;
+            victim_candidate_valid <= 1'b0;
+            victim_candidate_slot <= 5'd0;
+            victim_candidate_releasing <= 1'b0;
+            victim_candidate_age <= 16'd0;
+            victim_candidate_velocity <= 8'd0;
+            sample_pending <= 1'b0;
         end else begin
             sample_valid <= 1'b0;
 
@@ -411,11 +430,10 @@ module v2_voice_engine_banked #(
                         velocity[free_slot] <= event_data[63:56];
                         age[free_slot] <= age_counter;
                         age_counter <= age_counter + 16'd1;
-                    end else if (steal_slot >= 0) begin
-                        // Keep the victim active through a bounded release;
-                        // the incoming note is held in a one-entry mailbox.
-                        steal_pending <= 1'b1;
-                        steal_slot_pending <= steal_slot[4:0];
+                    end else if (free_slot < 0) begin
+                        // Keep the incoming note in the one-entry mailbox
+                        // while the registered metadata scan selects a
+                        // deterministic victim over several cycles.
                         steal_note_pending <= event_data[71:64];
                         steal_velocity_pending <= event_data[63:56];
                         steal_pitch_pending <= $signed(event_data[55:40]);
@@ -425,8 +443,10 @@ module v2_voice_engine_banked #(
                         steal_tick_pending <= event_data[87:80];
                         steal_duration_pending <= event_data[79:72];
                         steal_flags_pending <= event_data[7:0];
-                        releasing[steal_slot] <= 1'b1;
-                        steal_hold_value <= STEAL_RELEASE_SAMPLES;
+                        victim_scan_active <= 1'b1;
+                        victim_scan_index <= 6'd0;
+                        victim_scan_meta_valid <= 1'b0;
+                        victim_candidate_valid <= 1'b0;
                         voice_steal_count <= voice_steal_count + 16'd1;
                     end else voice_overflow <= 1'b1;
                 end else if (event_data[94:91] == V2_EV_NOTE_OFF) begin
@@ -450,6 +470,48 @@ module v2_voice_engine_banked #(
                 end else if (event_data[94:91] == V2_EV_ALL_NOTES_OFF) begin
                     for (i = 0; i < VOICES; i = i + 1)
                         if (active[i]) releasing[i] <= 1'b1;
+                end
+            end
+
+            // Read one metadata row into registers, then compare that row
+            // with the registered candidate on the next cycle.  The final
+            // candidate is armed only after the complete scan has drained.
+            if (victim_scan_active) begin
+                if (victim_scan_meta_valid && victim_scan_meta_active) begin
+                    if (!victim_candidate_valid ||
+                        (victim_scan_meta_releasing && !victim_candidate_releasing) ||
+                        ((victim_scan_meta_releasing == victim_candidate_releasing) &&
+                         ((victim_scan_meta_age < victim_candidate_age) ||
+                          ((victim_scan_meta_age == victim_candidate_age) &&
+                           ((victim_scan_meta_velocity < victim_candidate_velocity) ||
+                            ((victim_scan_meta_velocity == victim_candidate_velocity) &&
+                             (victim_scan_index - 1'b1 < victim_candidate_slot))))))) begin
+                        victim_candidate_valid <= 1'b1;
+                        victim_candidate_slot <= victim_scan_index - 1'b1;
+                        victim_candidate_releasing <= victim_scan_meta_releasing;
+                        victim_candidate_age <= victim_scan_meta_age;
+                        victim_candidate_velocity <= victim_scan_meta_velocity;
+                    end
+                end
+                if (victim_scan_index < VOICES) begin
+                    victim_scan_meta_valid <= 1'b1;
+                    victim_scan_meta_active <= active[victim_scan_index];
+                    victim_scan_meta_releasing <= releasing[victim_scan_index];
+                    victim_scan_meta_age <= age[victim_scan_index];
+                    victim_scan_meta_velocity <= velocity[victim_scan_index];
+                    victim_scan_index <= victim_scan_index + 6'd1;
+                end else if (victim_scan_meta_valid) begin
+                    victim_scan_meta_valid <= 1'b0;
+                end else begin
+                    victim_scan_active <= 1'b0;
+                    if (victim_candidate_valid) begin
+                        steal_pending <= 1'b1;
+                        steal_slot_pending <= victim_candidate_slot;
+                        releasing[victim_candidate_slot] <= 1'b1;
+                        steal_hold_value <= STEAL_RELEASE_SAMPLES;
+                    end else begin
+                        voice_overflow <= 1'b1;
+                    end
                 end
             end
 
@@ -585,11 +647,23 @@ module v2_voice_engine_banked #(
                     scan_slot <= (scan_slot == VOICES - 1) ? 6'd0 : scan_slot + 6'd1;
                 end
             end else if (sample_ce && !scan_busy) begin
+                if (victim_scan_active) begin
+                    sample_pending <= 1'b1;
+                end else begin
+                    scan_busy <= 1'b1;
+                    scan_active <= 1'b1;
+                    scan_index <= 6'd0;
+                    scan_slot <= scan_base;
+                    mix_acc <= 48'sd0;
+                    sample_pending <= 1'b0;
+                end
+            end else if (sample_pending && !scan_busy && !victim_scan_active) begin
                 scan_busy <= 1'b1;
                 scan_active <= 1'b1;
                 scan_index <= 6'd0;
                 scan_slot <= scan_base;
                 mix_acc <= 48'sd0;
+                sample_pending <= 1'b0;
             end
         end
     end
