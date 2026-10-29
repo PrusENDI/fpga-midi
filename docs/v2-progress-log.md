@@ -4,7 +4,7 @@ This file records reproducible implementation checkpoints. Generated
 `impl/`, ModelSim work libraries, transcripts and local captures remain outside
 Git; source, tests, scripts and evidence summaries are committed.
 
-## 2026-10-29 — cursor parallel optimization verification checkpoint
+## 2026-10-29 — cursor parallel resource experiments completed; timing blocked
 
 Two isolated candidates and a separate combination worktree now exist from
 `ec10de4623648e957c56db06e3fbe628ae763ec9`. See
@@ -33,10 +33,36 @@ Median H0 `cursor_median_3f62a8a_1` also completes from clean `3f62a8a`:
 14,542 logic, 8,676 registers, 10,142 CLS, 36 BSRAM and 16 DSP. Raw text
 Fmax is 66.898 MHz (HTML/verifier 66.897), setup count 3,102, TNS -8,989.670 ns,
 worst slack -4.948 ns, hold zero; acceptance exits 1 / BLOCKED. The worst
-path is still Potts to voice RAM. Combination P&R and a new clean `ec10de4`
-matched-source baseline remain queued/running. The combination also passes all
+path is still Potts to voice RAM. Combination H0 and a new clean `ec10de4`
+matched-source baseline have now completed. The combination also passes all
 175 Python tests; a deliberate same-latency negative control rejects median
 at row 0 (16 versus 30 cycles), confirming the new assertion is effective.
+
+| Clean full-path source | Logic | Registers | CLS | Physical DSP | Actual Fmax MHz |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline `ec10de4` | 15,302 | 8,996 | 10,250 | 16 | 71.342 |
+| DSP `cd381e9` | 15,163 | 9,123 | 10,346 | 8 | 68.671 |
+| Median `3f62a8a` | 14,542 | 8,676 | 10,142 | 16 | 66.898 |
+| Combined `b1ed70a` | 14,431 | 8,804 | 10,148 | 8 | 66.536 |
+
+The matched control is `cursor_baseline_ec10de4_1`, wrapper exit 0 with empty
+dirty state, setup 2,650/TNS -5,223.233 ns, worst -4.017 ns and hold zero.
+It reproduces the historical serial-mode metrics with clean provenance.
+Combined `cursor_combined_b1ed70a_1` is also clean, wrapper exit 0, setup
+3,265/TNS -7,987.394 ns, worst -5.029 ns, hold zero. Both acceptance checks
+exit 1 / BLOCKED; all four runs retain identical H0 inputs and the 100 MHz target.
+
+Decision: keep the three candidate branches as resource alternatives and do
+not merge them into the timing lane in this phase. Combined saves 871 logic,
+192 registers, 102 CLS and eight DSP sites, but its full-path Fmax is 4.806 MHz
+below the clean control. DSP sharing alone adds 127 registers and 96 CLS while
+saving eight DSP sites. Median sharing saves 320 global registers/108 CLS but
+adds 14 processing cycles and does not improve whole-design timing. These
+single-run measurements support resource tradeoffs, not timing closure. Next
+performance work belongs on the measured Potts/voice critical paths; recheck
+any resource alternative against the later integrated design before adopting it.
+All candidate sources, reproducible tests and reports were pushed to their
+explicit `work/v2-cursor-*` branches; this ledger remains on the root lane.
 
 The new gate exposes **893/976 pre-existing timed-versus-scalar differing
 rows**, beginning with startup median history; the timed velocity expression

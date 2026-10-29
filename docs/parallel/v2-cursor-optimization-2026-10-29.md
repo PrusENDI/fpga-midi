@@ -93,18 +93,22 @@ License-consuming runs are serialized with existing `gw_sh` processes.
 
 | Run | Source | Logic | Registers | CLS / 11,520 | BSRAM | Physical DSP / 28 | Actual Fmax MHz | Setup count / TNS ns | Hold count |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |
-| Historical `tm_serial_1` | `85c2f89` + 3 dirty files | 15,302 | 8,996 | 10,250 | 36 | 16 | 71.342 | 2,650 / -5,223.233 | 0 |
+| `cursor_baseline_ec10de4_1` | clean `ec10de4` | 15,302 | 8,996 | 10,250 | 36 | 16 | 71.342 | 2,650 / -5,223.233 | 0 |
 | `cursor_dsp_cd381e9_1` | clean `cd381e9` | 15,163 | 9,123 | 10,346 | 36 | 8 | 68.671 | 3,144 / -7,815.501 | 0 |
 | `cursor_median_3f62a8a_1` | clean `3f62a8a` | 14,542 | 8,676 | 10,142 | 36 | 16 | 66.898 | 3,102 / -8,989.670 | 0 |
-| Combined | pending | pending | pending | pending | pending | pending | pending | pending | pending |
-| Clean matched baseline | queued | pending | pending | pending | pending | pending | pending | pending | pending |
+| `cursor_combined_b1ed70a_1` | clean `b1ed70a` | 14,431 | 8,804 | 10,148 | 36 | 8 | 66.536 | 3,265 / -7,987.394 | 0 |
 
-The historical run includes the serial-mode RTL later committed as `fec4008`,
-but its manifest is dirty and does not independently prove clean `ec10de4`
-source identity. A new clean `ec10de4` run is queued after the combination.
-Deltas against the historical run are indicative comparisons;
-do not present it as a clean matched-source baseline. The older `338435c`
+All four manifests record empty dirty state, matching H0 file hashes and
+wrapper exit 0. All four acceptance verifiers exit 1 / BLOCKED for setup
+and Fmax. The clean control independently reproduces the historical dirty
+`tm_serial_1` metrics; the table now uses the new clean run as its control.
+The older `338435c`
 run omits the serial test-mode cone and is unsuitable for these resource deltas.
+
+Clean baseline full source is `ec10de4623648e957c56db06e3fbe628ae763ec9`,
+with worst slack -4.017 ns, Fmax 71.342 MHz in text/HTML/verifier. Its diagnostic
+bitstream SHA256 is
+`25D1FE873A47B5FBC362A247D0809F1C1DD2D806E161BBD6A68A58900FCDF78B`.
 
 DSP H0 manifest records full source `cd381e9e5e1e003764bff0805377740cd9904716`,
 empty dirty state, wrapper exit 0. P&R creates a bitstream but acceptance exits
@@ -133,6 +137,14 @@ independent. E2/5, CPU/SSPI regular IO and touch-inline evidence are retained.
 Its diagnostic bitstream SHA256 is
 `2E97E19A20F76756435B41FF693750AC74A20EDBBEC4D65A079C1981C81F4CF4`.
 
+Combined full source is `b1ed70a9f5908eaf9ed97ea81d7c9e56a618d1d9`, worst
+slack -5.029 ns. Its cursor has 2,023 registers, 571 ALU, 2,106 LUT and two
+MULT27X36 cells; the worst timing path is Potts control to voice RAM.
+Diagnostic bitstream SHA256:
+`36AA8223E2396F1C224A9B47336B28D35D0F471E8CAA4BDB429C3ED7F198BF18`.
+See `docs/parallel/v2-cursor-combined-report-2026-10-29.md` in the combination
+branch for the commands, simulation and complete H0 evidence record.
+
 Median standalone synthesis (`scripts/synth_v2_cursor_timed_resource.tcl`)
 compares immutable `ec10de4` against its candidate: logic 3,605 to 2,982
 (-623), registers 2,343 to 2,025 (-318), BSRAM 5 to 5. See the candidate's
@@ -140,8 +152,29 @@ compares immutable `ec10de4` against its candidate: logic 3,605 to 2,982
 the two standalone output directories. These numbers are not full-path CLS
 or timing evidence.
 
-## Next gate
+## Decision and next gate
 
-Measure the combination and clean matched baseline; update this table and
-choose candidates based on actual resource and timing tradeoffs.
-Keep the 100 MHz constraint and outstanding functional/board gates visible.
+| Candidate versus clean control | Logic delta | Register delta | CLS delta | DSP site delta | Fmax delta MHz |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| DSP | -139 | +127 | +96 | -8 | -2.671 |
+| Median | -760 | -320 | -108 | 0 | -4.444 |
+| Combined | -871 | -192 | -102 | -8 | -4.806 |
+
+Keep all three branches as resource alternatives; **do not merge them into
+the timing lane in this phase**. This round validates resource reductions,
+but no candidate improves full-path timing. The combined design halves DSP
+usage and removes 871 logic units, while packed CLS improves by only 102 sites
+and actual Fmax falls to 66.536 MHz. DSP sharing alone raises register and CLS
+usage, so it is a tradeoff rather than a uniform resource improvement.
+
+These are matched-source/profile, single-run comparisons. They do not isolate
+every physical placement effect, and future integrated changes must be measured
+again. The next timing work should address the observed Potts/voice critical
+paths. Resolve the inherited timed/scalar semantic gap separately before
+functional acceptance. Keep the 100 MHz constraint, setup/hold, I2S/output
+constraints and outstanding board measurements as final acceptance gates.
+
+Reproducible source, tests and candidate reports are pushed to
+`work/v2-cursor-dsp`, `work/v2-cursor-resource` and `work/v2-cursor-combined`;
+the root ledger/this phase record are retained on `feat/loop-event-store`.
+Generated `impl/` artifacts remain local and ignored in each preserved worktree.
