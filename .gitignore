@@ -1,6 +1,7 @@
 # Gowin generated build outputs
 impl/
 bitstream/
+.worktrees/
 *.log
 *.rpt
 *.rpt.txt
