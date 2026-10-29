@@ -160,4 +160,4 @@ P&R证据：<Fmax/setup/hold/pins/device.cfg, or not run>
 
 ## 给 dsh 的可复制提示词
 
-见同目录的 dsh-project-b-prompt.txt；它是上面要求的压缩版，适合直接粘贴到 dsh。
+见主仓库绝对路径 C:\weizijian\documents\gowin fpga\mgc3130_uart\docs\parallel\dsh-project-b-prompt.txt；它是上面要求的压缩版，适合直接粘贴到 dsh。B worktree 从 af447aa 派生，因此不要求交接文档出现在 B worktree 内。

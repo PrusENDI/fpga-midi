@@ -7,9 +7,9 @@ git rev-parse HEAD
 
 必须在这个 worktree 和分支 work/v2-potts-resource 工作，基线必须是 af447aa。禁止进入主工作区，禁止 git reset --hard、git clean 和 push。
 
-阅读：
-- docs/superpowers/plans/2026-10-29-v2-timing-optimization.md
-- docs/parallel/dsh-project-b-handoff.md
+阅读主仓库中的计划和交接文档（B worktree 从 af447aa 派生，下面两个文件可能不在 B worktree 内）：
+- C:\weizijian\documents\gowin fpga\mgc3130_uart\docs\superpowers\plans\2026-10-29-v2-timing-optimization.md
+- C:\weizijian\documents\gowin fpga\mgc3130_uart\docs\parallel\dsh-project-b-handoff.md
 
 任务范围：
 1. 创建 sim/v2_top_fullpath_probe.sv，保留真实 reader、Loop、Potts、32×2 voice、FX=1/level=1、UART/telemetry、I2S。
