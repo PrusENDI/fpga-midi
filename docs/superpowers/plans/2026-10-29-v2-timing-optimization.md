@@ -105,16 +105,17 @@ shared harness is rejected or split into a separately reviewed H0 fix.
 - Produces a named top that explicitly sets `USE_MGC_READER=1`, `USE_GOWIN_RAM=1`, `USE_POTTS=1`, `PRESERVE_LOOP_PLANE=1`, `PRESERVE_POTTS_PLANE=1`, `POTTS_HORIZON=32`, `FX_ENABLE=1`, and `FX_LEVEL=1`.
 
 - [ ] Add the full-path probe as a separate source so the resource-legal diagnostic probe remains available for comparison.
-- [ ] Add a Tcl manifest that writes to `impl/v2_top_fullpath_20261029`, opens the GW5A-LV25MG121NES project, enables both E2 regular-IO options, runs `syn` and `pnr`, and exits nonzero on tool failure.
+- [ ] Add a Tcl manifest that writes to a unique `impl/v2_top_fullpath_<run-id>` directory, opens the GW5A-LV25MG121NES project, enables both E2 regular-IO options, runs `syn` and `pnr`, and exits nonzero on tool failure. Refuse to reuse an existing run directory.
 - [ ] Run the exact command below from the repository root and retain the logs:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
   -TclScript (Resolve-Path scripts/synth_v2_top_fullpath_20261029.tcl).Path `
-  -LicenseServer 106.55.34.119:10559
+  -LicenseServer 106.55.34.119:10559 `
+  -RunId h0_baseline_20261029
 ```
 
-- [ ] Record the source commit, tool exit code, top parameter string, `RP0006` result, `device.cfg`, and whether P&R produced a new report.
+- [ ] Require the wrapper manifest and run `scripts/verify_v2_fullpath_run.ps1 -RunDir impl/v2_top_fullpath_h0_baseline_20261029` to record the source commit, tool exit code, top parameter string, `RP0006` result, `device.cfg`, and whether P&R produced a new report.
 - [ ] Commit the harness as H0, then cherry-pick that exact commit into both A and B worktrees before any optimization edit.
 
 ### Task 1: Attribute Logic and Timing by Controlled Sweeps

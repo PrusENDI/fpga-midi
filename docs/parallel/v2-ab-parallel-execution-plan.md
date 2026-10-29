@@ -123,7 +123,8 @@ H0 通过 review 后，主线程把同一个 H0 commit 提供给 A、B。两个 
 A、B 从各自 worktree 调用同一 wrapper 和 Tcl，命令形式为：
 
 ~~~powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 -TclScript (Resolve-Path scripts/synth_v2_top_fullpath_20261029.tcl).Path -LicenseServer '106.55.34.119:10559'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 -TclScript (Resolve-Path scripts/synth_v2_top_fullpath_20261029.tcl).Path -LicenseServer '106.55.34.119:10559' -RunId 'h0_<stream>_<commit>'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_v2_fullpath_run.ps1 -RunDir "impl/v2_top_fullpath_h0_<stream>_<commit>"
 ~~~
 
 每个 agent 使用独立 run id，例如：

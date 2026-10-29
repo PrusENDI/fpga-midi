@@ -135,10 +135,11 @@ git diff --check
 impl/v2_fullpath_h0_b_potts_<commit>/
 ~~~
 
-命令由 H0 文档定义，形式为：
+命令由 H0 文档定义，必须显式传入唯一 run id，形式为：
 
 ~~~powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 -TclScript (Resolve-Path scripts/synth_v2_top_fullpath_20261029.tcl).Path -LicenseServer '106.55.34.119:10559'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 -TclScript (Resolve-Path scripts/synth_v2_top_fullpath_20261029.tcl).Path -LicenseServer '106.55.34.119:10559' -RunId "h0_b_potts_<commit>"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_v2_fullpath_run.ps1 -RunDir "impl/v2_top_fullpath_h0_b_potts_<commit>"
 ~~~
 
 检查 synthesis、P&R、timing、pin、device.cfg 和 verifier 输出。许可证连接失败时保留原始错误并报告 BLOCKED；不能读取旧目录补充结果。

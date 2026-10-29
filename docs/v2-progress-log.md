@@ -75,6 +75,25 @@ but produces no new routed netlist or bitstream. The probe was restored to
 `USE_POTTS=0`; the 32-horizon parameter remains available for future resource
 experiments.
 
+## 2026-10-29 — H0 shared full-path harness
+
+The canonical H0 harness is checked in for both parallel worktrees. It uses
+`sim/v2_top_fullpath_probe.sv`,
+`scripts/synth_v2_top_fullpath_20261029.tcl`,
+`scripts/verify_v2_fullpath_run.ps1`, and the existing
+`scripts/run_gowin_cli.ps1` wrapper. The probe explicitly retains the real
+MGC3130 reader, DPB Loop plane, Potts H32 board profile, 32×2 voice, nonzero
+reduced FX, UART/telemetry and I2S. The Tcl fixes the GW5A-LV25MG121NES
+device, explicit source list, E2 constraints and both
+`-use_sspi_as_gpio 1` / `-use_cpu_as_gpio 1` options.
+
+Every run requires a unique `-RunId`, refuses to reuse an existing
+`impl/v2_top_fullpath_<RunId>` directory, writes `harness-manifest.json` with
+the source commit, dirty state, tool/version, profile and source hashes, and
+can be checked by the verifier without falling back to old artifacts. The
+first `gw_sh` run and its exit status will be recorded in a follow-up
+checkpoint; this H0 entry does not accept a bitstream.
+
 ## 2026-10-29 — voice metadata timing reduction checkpoint
 
 Commit `e9c0486` replaces the per-voice bounded-release countdown RAMREG array

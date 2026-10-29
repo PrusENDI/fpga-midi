@@ -55,7 +55,9 @@ B 只允许修改：
 1. 等待 H0 commit 并 cherry-pick。
 2. 运行 test_v2_top_potts.ps1、test_v2_top.ps1、Python unittest 和 git diff --check。
 3. 在不改变事件语义的前提下做 Potts fixed-point/resource reduction。
-4. 先跑 Potts regression，再通过共享 H0 harness 做新鲜 synthesis/P&R。每次使用独立 impl/v2_fullpath_h0_b_potts_<commit> 目录。
+4. 先跑 Potts regression，再通过共享 H0 harness 做新鲜 synthesis/P&R。每次使用唯一 run id 和独立 impl/v2_top_fullpath_h0_b_potts_<commit> 目录：
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 -TclScript (Resolve-Path scripts/synth_v2_top_fullpath_20261029.tcl).Path -LicenseServer '106.55.34.119:10559' -RunId "h0_b_potts_<commit>"
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_v2_fullpath_run.ps1 -RunDir "impl/v2_top_fullpath_h0_b_potts_<commit>"
 5. 检查 RP0006、NL0002、logic、LUT、ALU、DPB、DSP、Fmax、setup/hold、E2/5、CPU/SSPI regular_io、PR2017/PR2028。
 6. 写 docs/parallel/v2-potts-resource-report.md，提交一个清晰 commit，不要 push。
 
