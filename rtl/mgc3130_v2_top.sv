@@ -532,7 +532,7 @@ module mgc3130_v2_top #(
     assign test_csr_write = (cmd_op == V2_OP_WRITE);
     assign test_csr_addr = cmd_address;
     assign test_csr_wdata = cmd_data;
-    v2_test_mode u_test_mode (
+    (* syn_preserve = 1 *) v2_test_mode u_test_mode (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .csr_valid(test_csr_valid), .csr_write(test_csr_write),
         .csr_addr(test_csr_addr), .csr_wdata(test_csr_wdata),

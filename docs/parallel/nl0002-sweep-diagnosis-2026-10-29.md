@@ -252,3 +252,46 @@ decoder 只是被展平进上层，所以层次名消失、报 NL0002。这一�
 在范围决策之前，**不要把 `syn_preserve` 提交进生产 RTL**：它会让位流装不下。
 
 touch decoder 那条仍是合法内联，可以按第 13 节制定精确例外。
+## 16. 解决：测试模式串行化后装得下（2026-10-29 晚）
+
+按第 15 节选项 B 实施：把 `always_comb` 里的 32 路并行查表改成"每拍算一个音"的串行
+引擎（48 kHz 帧有 2083 拍，串行只用约 33 拍），并用 `(* syn_preserve = 1 *)`
+让综合保留该模块。
+
+### 16.1 改动
+
+- `rtl/v2_test_mode.sv`：删除并行 `mix_acc` 求和；新增 `ser_index/ser_busy/ser_acc`
+  与 `ser_term = sine_lut(phase[ser_index][31:24])`；样本边界启动、逐拍累加、
+  第 `tone_count` 拍发布并推进相位（相位仍每帧推进一次，频率不变）。
+- `sim/tb_v2_test_mode.sv`：`sample_once` 改为等待 `sample_valid`（最多 200 拍），
+  因为一帧现在比样本边界晚约 `tone_count+2` 拍。
+- `rtl/mgc3130_v2_top.sv`：给 `u_test_mode` 加 `(* syn_preserve = 1 *)`。
+
+### 16.2 结果（同一 canonical profile）
+
+| 指标 | 无属性（模块被删） | `syn_preserve` + 并行版 | **`syn_preserve` + 串行版** |
+| --- | ---: | ---: | ---: |
+| logic | 12,673 | 22,836（100%） | **15,302（67%）** |
+| Register | 7,839 | 8,957 | 8,996 |
+| CLS | 9,752（85%） | — | 10,250（89%） |
+| BSRAM / DSP | 36 / 16 | 36 / 16 | 36 / 16 |
+| 实际 Fmax | 68.014 MHz | 未跑（装不下） | **71.342 MHz** |
+| setup 违规 / TNS | 3,125 / −7,704.7 | — | **2,650 / −5,223.2** |
+| NL0002 | 2 条 | 1 条 | **1 条（只剩合法内联的 touch decoder）** |
+
+`v2_test_mode` 成本从 **10,163 降到 2,629 logic（−74%）**，全设计从 100% 降到 67%，
+时序反而更好（Fmax +3.3 MHz，TNS 改善 32%）。
+
+### 16.3 功能等价证据
+
+- `scripts/test_v2_test_mode.ps1`：PASS，六组 N=1/2/4/8/16/32 频谱，
+  peak error 0–1 Hz，sideband ratio **0.0026–0.0090**（与并行版逐项相同）；
+- `scripts/test_v2_top.ps1`：PASS（A0 写入、读回、I2S 样本、零声部）；
+- 综合 + P&R 通过，位流已生成（诊断件，时序仍未闭合）。
+
+### 16.4 剩余
+
+- `v2_touch_info_decoder` 的 NL0002 仍存在，但已证实是合法内联（第 12.1 节），
+  可按第 13 节制定 verifier 精确例外；
+- 时序仍未到 100 MHz（71.3 MHz，2,650 个 setup 违规），下一刀应在
+  Potts→voice 的跨模块路径与布局拥塞上。

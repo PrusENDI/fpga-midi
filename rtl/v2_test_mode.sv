@@ -350,13 +350,20 @@ module v2_test_mode #(
         end
     endfunction
 
+    // One sine lookup per clock.  A 48 kHz frame is 2083 clocks at 100 MHz, so
+    // evaluating the 32 tones serially costs ~33 clocks and lets the 256-entry
+    // table exist once instead of once per tone.
+    logic [5:0]        ser_index;
+    logic              ser_busy;
+    logic signed [31:0] ser_acc;
+    logic signed [15:0] ser_term;
+
     always_comb begin
         active_bitmap = test_active ? bitmap_for_count(tone_count) : 32'd0;
-        mix_acc = 32'sd0;
-        for (tone_index = 0; tone_index < MAX_TONES; tone_index = tone_index + 1) begin
-            if (test_active && (tone_index < tone_count))
-                mix_acc = mix_acc + ($signed(sine_lut(phase[tone_index][31:24])) >>> 5);
-        end
+    end
+
+    always_comb begin
+        ser_term = sine_lut(phase[ser_index][31:24]);
     end
 
     always_ff @(posedge clk) begin
@@ -369,6 +376,7 @@ module v2_test_mode #(
             mixed_sample <= 16'sd0;
             sample_valid <= 1'b0;
             sample_counter <= 32'd0;
+            ser_busy <= 1'b0; ser_index <= 6'd0; ser_acc <= 32'sd0;
             for (i = 0; i < MAX_TONES; i = i + 1) phase[i] <= 32'd0;
         end else begin
             csr_rvalid <= 1'b0;
@@ -388,6 +396,7 @@ module v2_test_mode #(
                             fault <= 1'b1;
                         end
                         sample_counter <= 32'd0;
+            ser_busy <= 1'b0; ser_index <= 6'd0; ser_acc <= 32'sd0;
                         for (i = 0; i < MAX_TONES; i = i + 1) phase[i] <= 32'd0;
                     end else begin
                         fault <= 1'b1;
@@ -398,16 +407,31 @@ module v2_test_mode #(
                 end
             end
 
-            if (sample_ce) begin
-                sample_valid <= test_active;
+            // Serial frame engine: start on the sample boundary, accumulate one
+            // tone per clock, then publish the frame and advance the phases.
+            if (sample_ce && !ser_busy) begin
+                ser_acc   <= 32'sd0;
+                ser_index <= 6'd0;
                 if (test_active) begin
-                    mixed_sample <= saturate(mix_acc);
+                    ser_busy <= 1'b1;
+                end else begin
+                    mixed_sample <= 16'sd0;
+                    sample_valid <= 1'b0;
+                end
+            end else if (ser_busy) begin
+                if (ser_index >= tone_count) begin
+                    mixed_sample   <= saturate(ser_acc);
+                    sample_valid   <= 1'b1;
                     sample_counter <= sample_counter + 32'd1;
                     for (i = 0; i < MAX_TONES; i = i + 1)
                         if (i < tone_count) phase[i] <= phase[i] + tone_phase_increment(i + 1);
+                    ser_busy <= 1'b0;
                 end else begin
-                    mixed_sample <= 16'sd0;
+                    ser_acc   <= ser_acc + ($signed(ser_term) >>> 5);
+                    ser_index <= ser_index + 6'd1;
                 end
+            end else begin
+                sample_valid <= 1'b0;
             end
         end
     end

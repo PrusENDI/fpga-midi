@@ -26,11 +26,18 @@ module tb_v2_test_mode;
     end
   endtask
 
+  // The DDS evaluates one tone per clock, so a frame is published about
+  // tone_count+2 clocks after its sample boundary.
   task automatic sample_once;
+    integer w;
     begin
       @(negedge clk); sample_ce=1;
       @(posedge clk); #1; sample_ce=0;
-      if (!sample_valid && test_active) $fatal(1,"missing sample_valid");
+      if (test_active) begin
+        w = 0;
+        while (!sample_valid && w < 200) begin @(posedge clk); #1; w = w + 1; end
+        if (!sample_valid) $fatal(1,"missing sample_valid");
+      end
     end
   endtask
 
