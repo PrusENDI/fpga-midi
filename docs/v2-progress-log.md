@@ -66,6 +66,15 @@ GW5A-25A limit of 23,040. The probe was restored to the last reproducible
 resource-legal configuration (`USE_POTTS=0`); this experiment confirms that the
 remaining full-path gap is resource closure as well as timing closure.
 
+The next reduction pass made the Potts dynamic-programming horizon configurable
+and reran the same retained full-path probe with `POTTS_HORIZON=32`. The fresh
+`gw_sh` wrapper reached synthesis on 2026-10-29 and failed before P&R with
+`RP0006`: **25,538 logic** (21,610 LUTs + 3,928 ALUs) versus the GW5A-25A
+limit of 23,040. This improves on the 30,092-logic horizon-128 experiment,
+but produces no new routed netlist or bitstream. The probe was restored to
+`USE_POTTS=0`; the 32-horizon parameter remains available for future resource
+experiments.
+
 ## 2026-10-29 — voice metadata timing reduction checkpoint
 
 Commit `e9c0486` replaces the per-voice bounded-release countdown RAMREG array

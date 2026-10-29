@@ -17,6 +17,7 @@ module v2_top_synth_probe (
         .USE_MGC_READER(1),
         .USE_GOWIN_RAM(1),
         .USE_POTTS(0),
+        .POTTS_HORIZON(32),
         .FX_ENABLE(1),
         .FX_LEVEL(1)
     ) u_v2 (

@@ -31,6 +31,7 @@ module mgc3130_v2_top #(
     // Timing-probe-only Potts activity. Production builds keep this disabled;
     // COMMIT through the V2 UART remains the normal start source.
     parameter integer PRESERVE_POTTS_PLANE = 0,
+    parameter integer POTTS_HORIZON = 128,
     // Reduced FX is a build-time default until the application CSR is
     // promoted into the audio configuration plane. The board probe enables
     // this path so P&R cannot silently sweep it away.
@@ -378,7 +379,7 @@ module mgc3130_v2_top #(
     end
     generate if (USE_POTTS) begin : g_potts
     wire potts_run_start = (PRESERVE_POTTS_PLANE != 0) ? (sample_index == 32'd64) : potts_start;
-    v2_potts_commit_fsm u_potts (
+    v2_potts_commit_fsm #(.HORIZON(POTTS_HORIZON)) u_potts (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .start(potts_run_start), .lambda_q16(16'hffff),
         .rest_mask(potts_rest_mask), .contour(potts_contour), .busy(potts_busy), .progress(), .done(potts_done),
         .overflow(potts_overflow), .backtrace_valid(potts_backtrace_valid), .event_valid(potts_event_valid),
