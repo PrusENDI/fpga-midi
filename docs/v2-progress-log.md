@@ -29,7 +29,14 @@ comparison and the combined candidate's timed/top simulations pass. Valid
 frames publish 14 cycles later (127 to 141 maximum isolated cycles); four-frame
 burst latency rises from 296 to 352 cycles. An audio sample inside the new
 publication window may retain the prior complete snapshot for one more sample.
-Full-path median and combination measurements remain pending at this checkpoint.
+Median H0 `cursor_median_3f62a8a_1` also completes from clean `3f62a8a`:
+14,542 logic, 8,676 registers, 10,142 CLS, 36 BSRAM and 16 DSP. Raw text
+Fmax is 66.898 MHz (HTML/verifier 66.897), setup count 3,102, TNS -8,989.670 ns,
+worst slack -4.948 ns, hold zero; acceptance exits 1 / BLOCKED. The worst
+path is still Potts to voice RAM. Combination P&R and a new clean `ec10de4`
+matched-source baseline remain queued/running. The combination also passes all
+175 Python tests; a deliberate same-latency negative control rejects median
+at row 0 (16 versus 30 cycles), confirming the new assertion is effective.
 
 The new gate exposes **893/976 pre-existing timed-versus-scalar differing
 rows**, beginning with startup median history; the timed velocity expression

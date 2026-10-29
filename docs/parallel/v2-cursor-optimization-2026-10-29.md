@@ -10,6 +10,7 @@ relative to the repository root. Candidate RTL is `rtl/v2_cursor_filter_timed.sv
 | `work/v2-cursor-dsp` | `.worktrees/v2-cursor-dsp` | Share five signed32 variable multiplications across existing FSM states |
 | `work/v2-cursor-resource` | `.worktrees/v2-cursor-resource` | Reuse one registered median sorter for X/Y/Z |
 | `work/v2-cursor-combined` | `.worktrees/v2-cursor-combined` | Combine the two changes; preserve the independent branches |
+| detached `ec10de4` | `.worktrees/v2-cursor-baseline` | Fresh clean matched-source full-path control |
 
 The DSP and median implementers worked in separate worktrees. The combination
 resolves one declaration-area merge conflict by retaining both the single
@@ -48,7 +49,12 @@ Resource-worktree logs: `impl/cursor_timed_84e567a159b345849ba235b9cd7aefac`
 Combined log: `impl/cursor_timed_8b864996ee0f43ddbdb77a48e5ccc614` in its own
 worktree; RTL SHA256 `191A20A8B1EC2494E234573D4F9A32661716366867DC1489310D5B96BF8E21B1`.
 Combined `scripts/test_v2_top.ps1` also exits 0, with evidence under
-`impl/modelsim_v2_top`.
+`impl/modelsim_v2_top`. `python -m unittest discover -s tools -p 'test_*.py'`
+exits 0 with 175 tests OK in the combined worktree. A deliberate negative control
+running both `-ExpectSameLatency` and `-ExpectSampleWindowDifference` correctly
+fails at row 0 (baseline 16 cycles, candidate 30), with log
+`impl/cursor_timed_d6ea4e23f372417e843b2da43d180f82`. This verifies that the
+same-latency gate detects the known extra processing latency.
 
 The median candidate adds exactly 14 processing cycles for valid frames. At
 100 MHz this is 140 ns; an audio edge in that window can retain the preceding
@@ -89,12 +95,14 @@ License-consuming runs are serialized with existing `gw_sh` processes.
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |
 | Historical `tm_serial_1` | `85c2f89` + 3 dirty files | 15,302 | 8,996 | 10,250 | 36 | 16 | 71.342 | 2,650 / -5,223.233 | 0 |
 | `cursor_dsp_cd381e9_1` | clean `cd381e9` | 15,163 | 9,123 | 10,346 | 36 | 8 | 68.671 | 3,144 / -7,815.501 | 0 |
-| Median | pending | pending | pending | pending | pending | pending | pending | pending | pending |
+| `cursor_median_3f62a8a_1` | clean `3f62a8a` | 14,542 | 8,676 | 10,142 | 36 | 16 | 66.898 | 3,102 / -8,989.670 | 0 |
 | Combined | pending | pending | pending | pending | pending | pending | pending | pending | pending |
+| Clean matched baseline | queued | pending | pending | pending | pending | pending | pending | pending | pending |
 
 The historical run includes the serial-mode RTL later committed as `fec4008`,
 but its manifest is dirty and does not independently prove clean `ec10de4`
-source identity. Deltas against it are indicative historical comparisons;
+source identity. A new clean `ec10de4` run is queued after the combination.
+Deltas against the historical run are indicative comparisons;
 do not present it as a clean matched-source baseline. The older `338435c`
 run omits the serial test-mode cone and is unsuitable for these resource deltas.
 
@@ -111,8 +119,19 @@ DSP netlist attribution: the cursor has two MULT27X36 cells, one alpha
 multiplier and `mul_product2_0_s`. Historical cursor had six; thus the five
 variable multiplication cells become one. This is distinct from physical DSP
 site accounting: whole-design DSP is eight, down from the historical sixteen.
-The resource reduction does not establish improved full-path timing; the new
+The resource reduction does not establish improved full-path timing; the DSP
 worst path remains Potts to voice state RAM.
+
+Median H0 manifest records clean full source
+`3f62a8a045d61bd3da938563727d6af3fae5494e`, wrapper exit 0. Acceptance verifier
+exits 1 / BLOCKED for setup and Fmax. The raw `.tr` text reports 66.898 MHz;
+HTML/verifier reports 66.897 MHz. Both are below 100 MHz. Worst slack is
+-4.948 ns, with Potts to voice RAM as the worst path. The hierarchy report
+attributes 1,895 registers, 593 ALU, 2,149 LUT and six multiplier cells to the
+cursor. This confirms that the median candidate leaves variable multipliers
+independent. E2/5, CPU/SSPI regular IO and touch-inline evidence are retained.
+Its diagnostic bitstream SHA256 is
+`2E97E19A20F76756435B41FF693750AC74A20EDBBEC4D65A079C1981C81F4CF4`.
 
 Median standalone synthesis (`scripts/synth_v2_cursor_timed_resource.tcl`)
 compares immutable `ec10de4` against its candidate: logic 3,605 to 2,982
@@ -123,6 +142,6 @@ or timing evidence.
 
 ## Next gate
 
-Complete median H0, then measure the combination from a clean commit; update
-this table and choose candidates based on actual resource and timing tradeoffs.
+Measure the combination and clean matched baseline; update this table and
+choose candidates based on actual resource and timing tradeoffs.
 Keep the 100 MHz constraint and outstanding functional/board gates visible.
