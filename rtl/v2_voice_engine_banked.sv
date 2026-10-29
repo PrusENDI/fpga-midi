@@ -54,17 +54,23 @@ module v2_voice_engine_banked #(
     logic [7:0]  note [0:VOICES-1];
     logic [7:0]  velocity [0:VOICES-1];
     logic [15:0] age [0:VOICES-1];
-    logic [15:0] steal_hold [0:VOICES-1];
     logic [15:0] age_counter;
     logic        steal_pending;
     logic [4:0]  steal_slot_pending;
+    // Only one voice can be in bounded steal release at a time. Keep the
+    // countdown scalar and pair it with steal_slot_pending; an indexed
+    // 32-entry hold array creates a large RAMREG reset/writeback fanout.
+    logic [15:0] steal_hold_value;
     logic [7:0]  steal_note_pending, steal_velocity_pending;
     logic signed [15:0] steal_pitch_pending;
     logic [15:0] steal_timbre_pending;
     logic [31:0] steal_base_step_pending;
     logic [2:0]  steal_track_pending;
     logic [7:0]  steal_tick_pending, steal_duration_pending, steal_flags_pending;
-
+    // Debug/replay view of the scalar bounded-release countdown. The engine
+    // itself never reads this array; keeping the view preserves existing
+    // hierarchical checks without restoring the RAMREG state array.
+    logic [15:0] steal_hold [0:VOICES-1];
     // Bank word layout: phase_a, phase_b, step_a, step_b, target_a,
     // target_b, envelope, gain, mix_a, mix_b, env_stage, and reserved bits
     // (256 total = sixteen independent 16-bit DPB lanes). The upper lane
@@ -137,6 +143,11 @@ module v2_voice_engine_banked #(
     logic direct_note_on, pending_activate;
 
     always_comb begin
+        for (count_idx = 0; count_idx < VOICES; count_idx = count_idx + 1)
+            steal_hold[count_idx] =
+                ((steal_pending || (steal_hold_value != 0)) &&
+                 (steal_slot_pending == count_idx[4:0])) ?
+                steal_hold_value : 16'd0;
         count_i = 0;
         for (count_idx = 0; count_idx < VOICES; count_idx = count_idx + 1)
             count_i = count_i + (active[count_idx] ? 1 : 0);
@@ -337,9 +348,9 @@ module v2_voice_engine_banked #(
                 note[i] <= 8'd0;
                 velocity[i] <= 8'd0;
                 age[i] <= 16'd0;
-                steal_hold[i] <= 16'd0;
             end
             age_counter <= 16'd0;
+            steal_hold_value <= 16'd0;
             steal_pending <= 1'b0;
             steal_slot_pending <= 5'd0;
             steal_note_pending <= 8'd0;
@@ -415,7 +426,7 @@ module v2_voice_engine_banked #(
                         steal_duration_pending <= event_data[79:72];
                         steal_flags_pending <= event_data[7:0];
                         releasing[steal_slot] <= 1'b1;
-                        steal_hold[steal_slot] <= STEAL_RELEASE_SAMPLES;
+                        steal_hold_value <= STEAL_RELEASE_SAMPLES;
                         voice_steal_count <= voice_steal_count + 16'd1;
                     end else voice_overflow <= 1'b1;
                 end else if (event_data[94:91] == V2_EV_NOTE_OFF) begin
@@ -444,8 +455,9 @@ module v2_voice_engine_banked #(
 
             if (calc_valid && calc_active) begin
                 mix_acc <= mix_acc + calc_osc_sum;
-                if (calc_releasing && (steal_hold[calc_slot] != 0))
-                    steal_hold[calc_slot] <= steal_hold[calc_slot] - 16'd1;
+                if (calc_releasing && (calc_slot == steal_slot_pending) &&
+                    (steal_hold_value != 0))
+                    steal_hold_value <= steal_hold_value - 16'd1;
                 if (!calc_active_next) begin
                     active[calc_slot] <= 1'b0;
                     releasing[calc_slot] <= 1'b0;
@@ -458,7 +470,7 @@ module v2_voice_engine_banked #(
                 velocity[steal_slot_pending] <= steal_velocity_pending;
                 age[steal_slot_pending] <= age_counter;
                 age_counter <= age_counter + 16'd1;
-                steal_hold[steal_slot_pending] <= 16'd0;
+                steal_hold_value <= 16'd0;
                 steal_pending <= 1'b0;
             end
             if (calc_valid && calc_last) begin
@@ -517,7 +529,8 @@ module v2_voice_engine_banked #(
                 end
                 if (rd_releasing) begin
                     calc_env_stage <= ENV_RELEASE;
-                    if (rd_envelope <= RELEASE_STEP && steal_hold[rd_slot] == 0) begin
+                    if (rd_envelope <= RELEASE_STEP &&
+                        ((rd_slot != steal_slot_pending) || (steal_hold_value == 0))) begin
                         calc_envelope <= 16'd0;
                         calc_active_next <= 1'b0;
                     end else if (rd_envelope <= RELEASE_STEP) begin
