@@ -1,22 +1,30 @@
-# dsh 项目 B 交接：Potts 与 V2 Full-Path 资源收敛
+# dsh 项目 B 交接：共享 H0 harness 下的 Potts/resource stream
 
-## 交接目标
+## 任务定位
 
-dsh 接手 V2 计划中的项目 B，负责 Potts 资源压缩、full-path P&R harness、资源归因和 Gowin 证据采集。项目 A（voice metadata 时序修复）由另一个 agent 在另一个 worktree 独立处理。
+你接手 V2 A/B 并行计划中的 B stream。A stream 由 Codex 在 voice worktree 处理 voice metadata timing；你只负责 Potts 语义、full-path 资源归因和 Gowin 证据采集。
 
-## 工作区与基线
+总计划：
+C:\weizijian\documents\gowin fpga\mgc3130_uart\docs\superpowers\plans\2026-10-29-v2-timing-optimization.md
+
+A/B 分工：
+C:\weizijian\documents\gowin fpga\mgc3130_uart\docs\parallel\v2-ab-parallel-execution-plan.md
+
+## 工作区
 
 仓库：
 C:\weizijian\documents\gowin fpga\mgc3130_uart
 
-工作区：
+B worktree：
 C:\weizijian\documents\gowin fpga\mgc3130_uart\.worktrees\v2-potts-resource
 
-分支：work/v2-potts-resource
-基线：af447aa chore: ignore local parallel worktrees
-计划：docs/superpowers/plans/2026-10-29-v2-timing-optimization.md
+分支：
+work/v2-potts-resource
 
-必须先执行：
+代码基线：
+af447aa
+
+进入工作区后先检查：
 
 ~~~powershell
 Set-Location 'C:\weizijian\documents\gowin fpga\mgc3130_uart\.worktrees\v2-potts-resource'
@@ -24,11 +32,44 @@ git status --short --branch
 git rev-parse HEAD
 ~~~
 
-工作区应为空，HEAD 应为 af447aa。禁止在主工作区工作，禁止 git reset --hard、git clean 和 push。
+主线程会另行提供 H0 harness commit。收到后必须在 B worktree cherry-pick 该 commit，并记录为 H0 commit。没有 H0 commit 时，不得创建自己的 full-path Tcl、probe 或 verifier；只能做只读审查和 Potts 单元准备。
 
-## 当前已知证据
+禁止：
+- 在主工作区修改文件
+- git reset --hard
+- git clean
+- push
+- 修改 A worktree
+- 修改 docs/v2-progress-log.md
 
-当前基线已包含可参数化的 POTTS_HORIZON：portable 默认仍为 128，板级实验可显式使用 32。最近一次真实 full-path 配置为：
+## B stream 允许修改
+
+- rtl/v2_potts_commit_fsm.sv
+- sim/tb_v2_potts_commit_fsm.sv
+- sim/tb_mgc3130_v2_top_potts.sv
+- scripts/test_v2_top_potts.ps1
+- scripts/sweep_v2_fullpath_resources.ps1
+- docs/v2-potts-h32-resource-note-2026-10-29.md
+- docs/parallel/v2-potts-resource-report.md
+
+H0 文件只能读取和调用，不能修改：
+
+- sim/v2_top_fullpath_probe.sv
+- scripts/synth_v2_top_fullpath_20261029.tcl
+- scripts/verify_v2_fullpath_run.ps1
+
+## 必须保持的语义
+
+- HORIZON=128 portable default 不变。
+- HORIZON=32 只作为明确记录的 board 32-slot capacity match。
+- 96-bit event layout、backtrace、event count、overflow、progress、tie-break、saturation 不变。
+- Potts 是后台多周期 FSM，不能阻塞 sample_ce、UART status read 或 active-bank playback。
+- full-path 必须保留真实 reader、Loop、Potts、32×2 voice、FX=1/level=1、UART/telemetry 和 I2S。
+- 不能用 USE_POTTS=0、stub、常量 contour、减少 voice、关闭 FX 或 NL0002 swept 伪造通过。
+
+## 当前基线证据
+
+真实 full-path 配置曾得到：
 
 ~~~text
 USE_MGC_READER=1
@@ -41,47 +82,35 @@ FX_ENABLE=1
 FX_LEVEL=1
 ~~~
 
-该配置已经进入 Gowin synthesis，但失败于：
+综合结果：
 
 ~~~text
 RP0006: 25538 logic = 21610 LUT + 3928 ALU > 23040 GW5A limit
 ~~~
 
-因此没有新的 routed netlist 或可上板 bitstream。上一份 package-legal P&R 只是旧诊断证据：21,513 logic、Fmax 2.616 MHz、2,383 setup violations、TNS -19,983.029 ns、hold 0；它不能作为本任务的通过证据。
+这次没有新 routed netlist 或 bitstream。旧的 21,513 logic、Fmax 2.616 MHz、2,383 setup violations、TNS -19,983.029 ns 只能作为历史诊断证据。
 
-E2 约束必须保留：clk_50m = E2/5，Tcl 必须设置 -use_sspi_as_gpio 1 和 -use_cpu_as_gpio 1，最终报告不能出现 PR2017/PR2028。
+E2 约束必须在 H0 harness 中保持：
 
-## 允许修改范围
-
-可以修改或新增：
-
-- rtl/v2_potts_commit_fsm.sv
-- Potts 相关 testbench 和脚本，例如 sim/tb_mgc3130_v2_top_potts.sv、scripts/test_v2_top_potts.ps1
-- sim/v2_top_fullpath_probe.sv
-- scripts/synth_v2_top_fullpath_20261029.tcl
-- scripts/sweep_v2_fullpath_resources.ps1
-- docs/parallel/dsh-project-b-report.md
-
-不要修改：
-
-- rtl/v2_voice_engine_banked.sv
-- rtl/v2_voice_state_bank.sv
-- 项目 A 的 voice testbench
-- docs/v2-progress-log.md（由主线程统一更新）
-- 主工作区文件、另一个 worktree 的文件、公共 .gitignore
-
-## 必须保持的语义
-
-- HORIZON=128 是 portable 默认值。
-- HORIZON=32 只用于明确记录的板级 32-slot capacity match。
-- 96-bit V2 event layout、backtrace、event count、overflow、progress、tie-break 和 saturation 语义不能改变。
-- Potts 是后台多周期 FSM，不能阻塞 sample_ce、UART status read 或 active-bank playback。
-- full-path 实验必须保留真实 reader、Loop、Potts、32×2 voice、非零 FX、UART/telemetry 和 I2S。
-- 不能通过 USE_POTTS=0、stub、常量 contour、减少 voice、关闭 FX 或 NL0002 swept 获得“通过”。
+- clk_50m = E2/5
+- use_sspi_as_gpio 1
+- use_cpu_as_gpio 1
+- 无 PR2017/PR2028
 
 ## 执行顺序
 
-### 1. 基线回归
+### 1. 等待并接入 H0
+
+主线程提供 H0 commit 后：
+
+~~~powershell
+git cherry-pick <H0 commit supplied by main lane>
+git show --stat --oneline HEAD
+~~~
+
+确认 H0 文件存在且工作树只包含预期文件。不要在 B 中重写 H0。
+
+### 2. 运行 B 基线测试
 
 ~~~powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_top_potts.ps1
@@ -90,74 +119,49 @@ python -m unittest discover -s tools -p 'test_*.py'
 git diff --check
 ~~~
 
-若失败，记录完整输出，不要用修改测试期望的方式掩盖失败。
+失败时保留完整日志并报告 BLOCKED，不要修改测试期望来消除失败。
 
-### 2. 创建 full-path probe 与 Tcl harness
+### 3. 做 Potts 资源优化
 
-创建 sim/v2_top_fullpath_probe.sv，显式实例化 mgc3130_v2_top，使用上面的 full-path 参数。创建 scripts/synth_v2_top_fullpath_20261029.tcl，使用唯一输出目录：
+优先把 implementation-wide integer、重复宽乘法和不必要的宽中间量改为显式 fixed-point 位宽；保持每个 DP cell 的多周期 FSM、saturation 和 tie-break。
+
+先验证 H32/H128 的共享前 32 点事件序列，再运行 top Potts regression 和 Python reference tests。
+
+### 4. 使用共享 H0 harness 做新鲜资源/P&R
+
+每次使用唯一 run id，例如：
 
 ~~~text
-impl/v2_top_fullpath_20261029_dsh
+impl/v2_fullpath_h0_b_potts_<commit>/
 ~~~
 
-Tcl 必须加载当前 RTL、mgc3130_v2.cst、mgc3130_v2_top_observable.sdc，并设置：
-
-~~~tcl
-set_option -use_sspi_as_gpio 1
-set_option -use_cpu_as_gpio 1
-run syn
-run pnr
-~~~
-
-### 3. Potts 资源优化
-
-优先使用显式位宽的 fixed-point 中间量替代 implementation-wide integer 和重复宽乘法；保持每个 DP cell 的多周期 FSM 结构。任何改动都必须先通过 Potts RTL regression，再进入 Gowin synthesis。
-
-建议同时覆盖 H32 与 H128：共享前 32 点输入时，事件序列和 tie-break 必须一致；默认 H128 测试不能被板级 H32 选项替换。
-
-### 4. 运行 gw_sh
+命令由 H0 文档定义，形式为：
 
 ~~~powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 -TclScript (Resolve-Path scripts/synth_v2_top_fullpath_20261029.tcl).Path -LicenseServer '106.55.34.119:10559'
 ~~~
 
-如果许可证连接失败，保留错误输出并在报告中写明；不能把旧 P&R 报告当成本次结果。
+检查 synthesis、P&R、timing、pin、device.cfg 和 verifier 输出。许可证连接失败时保留原始错误并报告 BLOCKED；不能读取旧目录补充结果。
 
-### 5. 资源 sweep
+### 5. 提交 B 结果
 
-如果可以，使用 scripts/sweep_v2_fullpath_resources.ps1 为每个配置创建独立 impl 目录。至少记录 H128/H32 和 FX level 0/1 的 synthesis 结果。资源目标是 ≤22,000 logic，给 P&R 留出余量；23,040 是硬上限，不是推荐目标。
-
-## 通过条件
-
-项目 B 只有在以下证据齐全时才可标记 VERIFIED：
-
-- Potts top regression PASS。
-- Python/SV 全套相关测试 PASS。
-- synthesis 无 RP0006，logic ≤23,040；推荐 ≤22,000。
-- required full-path 没有 NL0002 swept。
-- 若进入 P&R：E2/5、CPU/SSPI regular IO、无 PR2017/PR2028、setup/hold/Fmax 均已从本次新报告读取。
-- 所有输出路径、source commit、命令、exit code 和许可证错误（若有）均写入报告。
-
-## 回报文件格式
-
-创建 docs/parallel/dsh-project-b-report.md，至少包含：
+创建 docs/parallel/v2-potts-resource-report.md，至少写入：
 
 ~~~text
 状态：VERIFIED / BLOCKED / NEEDS_REVIEW
-分支：work/v2-potts-resource
-基线：af447aa
-最终提交：<commit>
-命令：<exact commands>
-功能证据：<logs and PASS counts>
-综合证据：<logic/LUT/ALU/DPB/DSP or RP0006>
-P&R证据：<Fmax/setup/hold/pins/device.cfg, or not run>
-修改文件：<file list>
-未解决问题：<none or exact blocker>
-主线程下一步：<one action>
+worktree：
+branch：
+base commit：af447aa
+H0 commit：
+stream commit：
+命令：
+测试 PASS 数：
+logic/LUT/ALU/DPB/DSP：
+Fmax/setup/hold：
+E2/5、CPU/SSPI regular_io、PR2017/PR2028：
+修改文件：
+未解决问题：
+主线程下一步：
 ~~~
 
-完成后在分支上提交一个清晰 commit，只把 commit hash、报告路径、测试结果和阻塞项发回主线程。主线程会审查 diff、合并进度文档，并决定是否进入下一轮优化。
-
-## 给 dsh 的可复制提示词
-
-见主仓库绝对路径 C:\weizijian\documents\gowin fpga\mgc3130_uart\docs\parallel\dsh-project-b-prompt.txt；它是上面要求的压缩版，适合直接粘贴到 dsh。B worktree 从 af447aa 派生，因此不要求交接文档出现在 B worktree 内。
+提交一个清晰 commit，不要 push。回报只包含 commit hash、报告路径、测试结果、资源/P&R 证据和阻塞项。

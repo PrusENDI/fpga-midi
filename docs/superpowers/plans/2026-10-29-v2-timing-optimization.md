@@ -25,6 +25,11 @@ This amendment makes the execution split explicit. It supersedes any task-level
 file ownership that would let the two workers create different full-path
 harnesses.
 
+The operational split and handoff contract are maintained in
+`docs/parallel/v2-ab-parallel-execution-plan.md`; the B-specific dsh handoff is
+`docs/parallel/dsh-project-b-handoff.md` and its copyable prompt is
+`docs/parallel/dsh-project-b-prompt.txt`.
+
 ### Shared H0 harness gate
 
 Before either repair stream starts, the main integration lane creates and
