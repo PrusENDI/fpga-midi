@@ -27,6 +27,8 @@ Fmax column. On `clean_baseline_1` it exits **1 / BLOCKED** because
 `v2_test_mode` is genuinely absent and setup=3125; observations are
 `fmax_mhz=68.013`, not the 100 MHz constraint. On the serial-test-mode run,
 touch NL0002 is accepted while setup=2650/Fmax=71.342 still block acceptance.
+The verifier change is committed as `4febcc5` on the root lane and `b938fbd`
+on `work/v2-integration`; the plan wording is synchronized in `b1e0452`.
 
 The complete-design review finds blockers beyond timing: musical BPM/tick and
 128-tick/H32 mapping, contour/rest construction, Potts-to-shadow-table writeback
