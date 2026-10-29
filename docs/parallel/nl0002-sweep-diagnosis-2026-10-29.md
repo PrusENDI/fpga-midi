@@ -100,3 +100,71 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
 # 仿真侧
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_v2_top.ps1
 ```
+
+## 8. H1 结果（2026-10-29 傍晚）：全路径参数下功能完全正常
+
+用与 H0 profile **完全相同**的参数在 ModelSim 里例化顶层
+（`USE_MGC_READER=1`、`USE_GOWIN_RAM=1`、`USE_POTTS=1`、`PRESERVE_LOOP_PLANE=1`、
+`PRESERVE_POTTS_PLANE=1`、`POTTS_HORIZON=32`、`FX_ENABLE=1`、`FX_LEVEL=1`），
+直接注入同一条 A0 写命令：
+
+```text
+H1 reset: rst_sys_n=1 pll_locked=1 mode=0
+H1 write A0: status=00 err=00 test_active=1 test_fault=0 tone_count=1
+H1 read  A0: data=04000001 expect_hi=040000 test_active=1
+H1 i2s sample reached after 1823 clk50 edges
+H1 done: test_active=1 voice_bitmap=00000000
+```
+
+即：写被 ACK、`test_active` 拉高、`tone_count=1`、读回正确、样本到达 I2S、没有占声部。
+
+**H1 结论：`test_active` 在全路径参数下确实可达。综合把它折成 0 是工具行为，不是
+RTL 死逻辑。**
+
+## 9. 后续三个实验（全部无效）
+
+| 实验 | 改动 | 结果 |
+| --- | --- | --- |
+| 实例级 `keep_hierarchy` | `u_test_mode` / `u_touch_decoder` 实例加属性 | 资源逐位不变（12,787 / 9,752 CLS），NL0002 仍在 |
+| 顶层寄存级 select | `test_active`/`test_sample` 先过一级 always_ff 再进 I2S mux | 新增的三个触发器**自己也被删掉**（网表无 `test_active_q`），资源仍 12,787，NL0002 仍在 |
+| 模块级 `keep_hierarchy` | 两个模块的 `module` 声明前加属性 | NL0002 仍在，logic 12,673 |
+
+另外两组对照综合：
+
+| profile | NL0002 |
+| --- | --- |
+| 真实 reader + preserve（canonical） | `v2_touch_info_decoder`、`v2_test_mode` |
+| stub sensor（`USE_MGC_READER=0`） | 输入平面四个模块 + `v2_test_mode` 全被扫 |
+| 真实 reader、preserve 关 | `v2_touch_info_decoder`、`v2_loop_scheduler`、`v2_loop_event_recorder`、`v2_test_mode` |
+
+`v2_test_mode` 在**所有**配置里都被扫；输入平面相关模块则随参数变化（stub 下
+`xyz_valid=0`，整条输入链被判定不可达，这与设计意图一致）。
+
+## 10. 当前判断
+
+- `v2_test_mode` 的 sweep 是综合工具的常量折叠行为，与 RTL 可达性矛盾（H1 已证）。
+- `v2_touch_info_decoder` 的 sweep 在 stub profile 下属于预期（输入无效），但在
+  canonical profile（真实 reader）下仍被扫，同样与 RTL 矛盾。
+- 三种"让它可见"的手段都无效，说明折叠发生在源码级证明阶段，不是下游优化。
+
+因此下一步只有两条路，需要主线程决策：
+
+1. **接受并记录**：把这两条 NL0002 标注为已知工具行为，verifier 增加"允许清单"，
+   同时保留 H1 的仿真证据证明功能可达。风险：与"不得用 swept 通过"的条文冲突，
+   必须由计划所有者裁定。
+2. **绕开工具**：把这 2 个模块改为不可被常量折叠的写法（例如让 enable 来自一个
+   工具无法推导的存储单元，或把模块搬到子层并显式例化），属于额外 RTL 工作，
+   且可能再次触碰"为通过门禁而改结构"的红线。
+
+## 11. 复现
+
+```powershell
+# H1（全路径参数仿真）——诊断载体在 impl/ms_h1 下，不入库
+cd impl\ms_h1
+vlog +define+V2_SIM -sv -work work <与 test_v2_top.ps1 相同的源列表> tb_h1_fullpath.sv
+vsim -c -novopt work.tb_h1_fullpath -do 'run -all; quit -f'
+
+# 两组对照综合
+gw_sh impl\ms_h1\diag_canonical.tcl     # canonical profile，仅 syn
+gw_sh impl\ms_h1\diag_reader0.tcl       # stub sensor，仅 syn
+```
