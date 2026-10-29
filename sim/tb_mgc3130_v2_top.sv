@@ -194,6 +194,24 @@ module tb_mgc3130_v2_top;
         if (dut.voice_bitmap == 32'd0)
             $fatal(1, "PLAY did not deliver the committed loop event to voices");
 
+        // A captured telemetry snapshot must reach the physical UART TX
+        // boundary.  Check the SOF byte and that baud backpressure advances
+        // the snapshot serializer instead of leaving frame_ready tied low.
+        force dut.tlm_capture_valid = 1'b1;
+        @(posedge clk_50m); #1;
+        release dut.tlm_capture_valid;
+        for (i = 0; i < 1000 && !dut.tlm_frame_valid; i = i + 1)
+            @(posedge clk_50m);
+        if (!dut.tlm_frame_valid || dut.tlm_frame_byte !== 8'h5a)
+            $fatal(1, "telemetry snapshot did not enter TX: valid=%b byte=%h",
+                   dut.tlm_frame_valid, dut.tlm_frame_byte);
+        if (!dut.tlm_frame_ready)
+            $fatal(1, "telemetry frame was not accepted by UART arbiter");
+        for (i = 0; i < 25000 && dut.tlm_frame_byte == 8'h5a; i = i + 1)
+            @(posedge clk_50m);
+        if (dut.tlm_frame_byte === 8'h5a)
+            $fatal(1, "telemetry serializer did not advance under UART baud");
+
         // The sample scheduler remains active independently of UART traffic.
         repeat (2500) @(posedge clk_50m);
         if (dut.sample_index == 0) $fatal(1, "sample scheduler stopped");

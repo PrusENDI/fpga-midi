@@ -30,7 +30,12 @@ module mgc3130_v2_top #(
     parameter integer PRESERVE_INPUT_VALID = 0,
     // Timing-probe-only Potts activity. Production builds keep this disabled;
     // COMMIT through the V2 UART remains the normal start source.
-    parameter integer PRESERVE_POTTS_PLANE = 0
+    parameter integer PRESERVE_POTTS_PLANE = 0,
+    // Reduced FX is a build-time default until the application CSR is
+    // promoted into the audio configuration plane. The board probe enables
+    // this path so P&R cannot silently sweep it away.
+    parameter integer FX_ENABLE = 0,
+    parameter integer FX_LEVEL = 0
 ) (
     input  wire clk_50m,
     inout  wire mgc_sda,
@@ -415,7 +420,7 @@ module mgc3130_v2_top #(
     logic signed [15:0] i2s_sample;
     v2_fx_lite #(.USE_GOWIN_RAM(1)) u_fx (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce), .audio_in(voice_sample),
-        .audio_out(fx_sample), .fx_enable(1'b0), .fx_level(2'd0), .fx_gain_q16(18'h10000),
+        .audio_out(fx_sample), .fx_enable(FX_ENABLE != 0), .fx_level(FX_LEVEL[1:0]), .fx_gain_q16(18'h10000),
         .fx_cutoff_q16(16'hffff), .fx_delay_samples(10'd0), .fx_feedback_q15(16'd0),
         .fx_reverb_mix_q15(16'd0), .fx_status_level(fx_status), .fx_clip(fx_clip)
     );
@@ -429,6 +434,10 @@ module mgc3130_v2_top #(
 
     logic uart_byte_valid, uart_byte_error; logic [7:0] uart_byte;
     logic uart_tx_start, uart_tx_busy;
+    logic uart_mux_valid;
+    logic [7:0] uart_mux_byte;
+    logic tlm_capture_valid, tlm_capture_ready, tlm_frame_valid, tlm_frame_ready, tlm_frame_last;
+    logic [7:0] tlm_frame_byte, tlm_dropped;
     uart_rx #(.CLK_HZ(100_000_000), .BAUD(UART_BAUD)) u_uart_rx (
         .clk(clk_sys_100m), .rst(!rst_sys_n), .rx(uart_rx), .valid(uart_byte_valid),
         .ready(1'b1), .data(uart_byte), .framing_error(uart_byte_error)
@@ -751,15 +760,19 @@ module mgc3130_v2_top #(
             end
         end
     end
+    // ACK/NACK response bytes have priority over telemetry.  The telemetry
+    // snapshot advances only when the physical UART has accepted its current
+    // byte, so the 22-byte frame remains tear-free under baud backpressure.
     assign v2_tx_ready = !uart_tx_busy;
-    assign uart_tx_start = v2_tx_valid && !uart_tx_busy;
+    assign tlm_frame_ready = !uart_tx_busy && !v2_tx_valid;
+    assign uart_mux_valid = v2_tx_valid || tlm_frame_valid;
+    assign uart_mux_byte = v2_tx_valid ? v2_tx_byte : tlm_frame_byte;
+    assign uart_tx_start = uart_mux_valid && !uart_tx_busy;
     uart_tx #(.CLK_HZ(100_000_000), .BAUD(UART_BAUD)) u_uart_tx (
-        .clk(clk_sys_100m), .rst(!rst_sys_n), .start(uart_tx_start), .data(v2_tx_byte),
+        .clk(clk_sys_100m), .rst(!rst_sys_n), .start(uart_tx_start), .data(uart_mux_byte),
         .tx(uart_tx), .busy(uart_tx_busy)
     );
 
-    logic tlm_capture_valid, tlm_capture_ready, tlm_frame_valid, tlm_frame_ready, tlm_frame_last;
-    logic [7:0] tlm_frame_byte, tlm_dropped;
     v2_telemetry_snapshot u_telemetry (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .capture_valid(tlm_capture_valid),
         .capture_ready(tlm_capture_ready), .capture_type(8'd1), .capture_sequence(audio_sequence),
@@ -773,5 +786,4 @@ module mgc3130_v2_top #(
         .frame_last(tlm_frame_last), .dropped_captures(tlm_dropped)
     );
     assign tlm_capture_valid = sample_ce && audio_cursor_valid;
-    assign tlm_frame_ready = 1'b0;
 endmodule

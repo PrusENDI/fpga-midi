@@ -16,7 +16,9 @@ module v2_top_synth_probe (
     mgc3130_v2_top #(
         .USE_MGC_READER(1),
         .USE_GOWIN_RAM(1),
-        .USE_POTTS(0)
+        .USE_POTTS(0),
+        .FX_ENABLE(1),
+        .FX_LEVEL(1)
     ) u_v2 (
         .clk_50m,
         .mgc_sda,
