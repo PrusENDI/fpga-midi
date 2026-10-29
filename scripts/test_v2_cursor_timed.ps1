@@ -33,4 +33,3 @@ try {
   Write-Output "Baseline=$Baseline; candidate=$(& git -C $root rev-parse HEAD); logs=$build"
   Write-Output "CandidateRef=$CandidateRef; compiled=$candidatePath; SHA256=$((Get-FileHash -LiteralPath $candidatePath).Hash)"
 } finally {Pop-Location}
-
