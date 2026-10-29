@@ -19,6 +19,64 @@
 - The fixed voice acceptance target remains 32 voices × 2 oscillators. Reducing voice count, disabling FX, or changing the clock to 80 MHz is a separately reviewed fallback and cannot be reported as the 100 MHz pass.
 - Each independently verified change gets a local Git commit and an entry in `docs/v2-progress-log.md`; generated `impl/` and simulator work directories remain untracked.
 
+## Parallel Workstream Amendment (2026-10-29)
+
+This amendment makes the execution split explicit. It supersedes any task-level
+file ownership that would let the two workers create different full-path
+harnesses.
+
+### Shared H0 harness gate
+
+Before either repair stream starts, the main integration lane creates and
+commits one canonical harness consisting of:
+
+- `sim/v2_top_fullpath_probe.sv`
+- `scripts/synth_v2_top_fullpath_20261029.tcl`
+- `scripts/verify_v2_fullpath_run.ps1`
+- the harness section of `docs/v2-progress-log.md`
+
+That commit is the shared H0 base. Both worktrees must cherry-pick the exact
+same H0 commit before making stream-specific edits. The harness fixes the
+device, source-file list, top parameters, E2 constraints, wrapper command,
+fresh output-directory rule, manifest fields, and report checks. A worker may
+run the harness but may not fork or silently edit it.
+
+The two workers use these worktrees and branches:
+
+| Stream | Worktree | Branch | Allowed implementation area |
+| --- | --- | --- | --- |
+| A — voice timing | `.worktrees/v2-voice-timing` | `work/v2-voice-timing` | banked voice metadata/state and voice tests |
+| B — Potts/resource | `.worktrees/v2-potts-resource` | `work/v2-potts-resource` | Potts RTL/tests and resource/P&R evidence |
+
+Both workers invoke the same wrapper and Tcl from their own worktree. They use
+different `impl/<run-id>/` directories. ModelSim jobs may run concurrently;
+license-bound Gowin synthesis/P&R jobs are serialized if the license server
+offers only one seat. Neither worker edits `docs/v2-progress-log.md`; each
+writes a stream report, and the main lane merges the reports after review.
+
+### Stream A — voice metadata timing repair
+
+The A worker owns only Task 2 files and may consume the shared H0 harness for
+post-change evidence. It must not modify Potts RTL, the full-path Tcl, the
+shared verifier, or Stream B files. Its independent gate is functional voice
+regression plus an improved reported voice critical path.
+
+### Stream B — Potts and resource closure
+
+The B worker owns Task 1 and Task 3 implementation files and may consume the
+shared H0 harness for controlled H32/H128 and FX sweeps. It must not modify
+voice RTL, Stream A tests, the shared verifier, or the main progress ledger.
+Its independent gate is unchanged Potts event behavior plus resource usage
+below the GW5A limit; full-path timing is recorded but is not declared final
+until the main lane integrates both streams.
+
+### Integration gate after A/B
+
+The main lane reviews both diffs, runs the shared harness from the merged
+commit in a new output directory, updates the progress ledger, and only then
+starts Task 4 and the final P&R/board gates. A stream commit that changes the
+shared harness is rejected or split into a separately reviewed H0 fix.
+
 ## Baseline Evidence (2026-10-29)
 
 - `scripts/test_v2_top_potts.ps1`: PASS.
@@ -28,11 +86,12 @@
 - Fresh full-path run with `USE_MGC_READER=1`, `USE_POTTS=1`, `PRESERVE_LOOP_PLANE=1`, `PRESERVE_POTTS_PLANE=1`, `POTTS_HORIZON=32`, `FX_ENABLE=1`, and `FX_LEVEL=1` reaches synthesis but fails `RP0006`: 25,538 logic (21,610 LUT + 3,928 ALU) against the 23,040 GW5A limit. No new routed netlist or bitstream exists for this run.
 - The last package-legal routed artifact is older diagnostic evidence: 21,513 logic, 5,966 registers, 33 DPB, 15 DSP, Fmax 2.616 MHz, 2,383 setup violations, TNS -19,983.029 ns, zero hold violations. Its report places `clk_50m` at E2/5 and its `device.cfg` has both CPU and SSPI `regular_io = true`; it is not board-programmable acceptance evidence.
 
-### Task 0: Freeze a Reproducible Full-Path Harness
+### Task 0 / H0: Freeze the Shared Reproducible Full-Path Harness
 
 **Files:**
 - Create: `sim/v2_top_fullpath_probe.sv`
 - Create: `scripts/synth_v2_top_fullpath_20261029.tcl`
+- Create: `scripts/verify_v2_fullpath_run.ps1`
 - Modify: `scripts/run_gowin_cli.ps1` only if a wrapper diagnostic is needed; preserve its existing invocation contract
 - Modify: `docs/v2-progress-log.md`
 
@@ -51,20 +110,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
 ```
 
 - [ ] Record the source commit, tool exit code, top parameter string, `RP0006` result, `device.cfg`, and whether P&R produced a new report.
-- [ ] Commit the harness and evidence note before any optimization edit.
+- [ ] Commit the harness as H0, then cherry-pick that exact commit into both A and B worktrees before any optimization edit.
 
 ### Task 1: Attribute Logic and Timing by Controlled Sweeps
 
 **Files:**
 - Create: `scripts/sweep_v2_fullpath_resources.ps1`
 - Create: `docs/v2-fullpath-resource-baseline-2026-10-29.md`
-- Modify: `scripts/synth_v2_top_fullpath_20261029.tcl`
 
 **Interfaces:**
 - Consumes the Task 0 probe and wrapper.
 - Produces a table for H128/H32, FX level 0/1, and each voice/Potts optimization candidate with logic, register, DPB, DSP, Fmax, setup TNS, hold TNS, and error codes.
 
-- [ ] Run one fresh synthesis per variant in a unique `impl/` directory; never overwrite the retained baseline.
+- [ ] Run one fresh synthesis per variant through the shared H0 Tcl in a unique `impl/` directory; never overwrite the retained baseline or edit the H0 files in this stream.
 - [ ] Reject any variant that removes a required path, reports `NL0002 swept`, or changes the 32×2 voice contract.
 - [ ] Set the pre-timing resource target to at most 22,000 logic, leaving at least 1,040 logic cells for P&R variation.
 - [ ] Commit the sweep script and measured table.
@@ -75,7 +133,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
 - Modify: `rtl/v2_voice_engine_banked.sv`
 - Modify: `rtl/v2_voice_state_bank.sv` only when the explicit read/write latency boundary requires it
 - Modify: `sim/tb_v2_voice_engine_banked.sv` and/or `sim/tb_v2_voice_replay.sv` for latency-aware assertions
-- Modify: `docs/v2-progress-log.md`
+- Create: `docs/parallel/v2-voice-timing-report.md`
 
 **Interfaces:**
 - Consumes the existing NOTE_ON/OFF/REVOICE contract and `sample_ce` boundary.
@@ -86,6 +144,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
 - [ ] Preserve deterministic priority: released, oldest, lowest velocity, lowest voice ID; preserve one pending-note mailbox and bounded steal-release.
 - [ ] Run `scripts/test_v2_voice_engine_banked.ps1`, `scripts/test_v2_voice_banked.ps1`, `python -m unittest discover -s tools -p 'test_*.py'`, and `git diff --check`.
 - [ ] Run the standalone voice Gowin probe and the Task 0 full-path synthesis. Accept the change only when functional evidence is unchanged and the reported worst voice path improves.
+- [ ] Use the shared H0 harness without changing its files; write stream evidence to a voice-specific report for the main lane.
 - [ ] Commit the RTL and evidence.
 
 ### Task 3: Reduce Potts Logic Without Changing Events
@@ -95,6 +154,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
 - Modify: `sim/tb_v2_potts_commit_fsm.sv` and `sim/tb_mgc3130_v2_top_potts.sv`
 - Modify: `scripts/test_v2_top_potts.ps1`
 - Create: `docs/v2-potts-h32-resource-note-2026-10-29.md`
+- Create: `docs/parallel/v2-potts-resource-report.md`
 
 **Interfaces:**
 - Consumes the 128-point contour input and 128-bit rest mask.
@@ -105,6 +165,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_gowin_cli.ps1 `
 - [ ] Ensure the FSM remains multi-cycle and never blocks `sample_ce`, UART status reads, or active-bank playback.
 - [ ] Run the Potts top regression and Python reference tests before synthesis.
 - [ ] Run the full-path synthesis and require logic usage to decrease without an `NL0002 swept` message.
+- [ ] Use the shared H0 harness without changing its files; write stream evidence to a Potts/resource-specific report for the main lane.
 - [ ] Commit the smallest accepted change and record the measured busy interval and resource delta.
 
 ### Task 4: Shorten Front-End, FX, and Telemetry Control Paths
