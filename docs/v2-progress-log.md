@@ -61,6 +61,21 @@ This audit document checkpoint is committed on `feat/loop-event-store` and its
 push result is reported in the audit response. Generated implementation
 artifacts remain local and ignored; no other worktree was edited for backup.
 
+## 2026-10-29 — cursor optimization split started
+
+Two independent worktrees were created from the clean integration reference
+`ec10de4`:
+
+| Worktree | Branch | Focus |
+| --- | --- | --- |
+| `.worktrees/v2-cursor-dsp` | `work/v2-cursor-dsp` | Share the five IIR multipliers across a multi-cycle cursor FSM; preserve bit-exact replay and throughput |
+| `.worktrees/v2-cursor-resource` | `work/v2-cursor-resource` | Reduce cursor FF/fanout and address cursor-to-telemetry timing/congestion without changing the DSP hypothesis |
+
+Both streams must start with the existing 976-frame cursor replay and cursor
+filter checks, keep the shared H0 harness unchanged, and report independent
+logic/FF/DSP/CLS/Fmax/resource deltas before any integration. Full-path Gowin
+runs are held for the main lane so the license is not consumed concurrently.
+
 ## 2026-10-29 — fresh E2 board P&R and timing checkpoint
 
 The verified Gowin wrapper was rerun with license-server access against the
