@@ -24,6 +24,9 @@ if (!(Test-Path -LiteralPath $manifestPath)) {
     $manifest = $null
 } else {
     $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    $projectRoot = Split-Path (Split-Path $runPath -Parent) -Parent
+    $runLeaf = Split-Path $runPath -Leaf
+    if ($runLeaf -ne "v2_top_fullpath_$($manifest.run_id)") { Add-Failure 'run directory does not match manifest run_id' }
     if ($manifest.schema -ne 'v2-fullpath-harness-v1') { Add-Failure "unexpected manifest schema" }
     if ($manifest.status -ne 'COMMAND_EXIT_0') { Add-Failure "wrapper status is $($manifest.status), exit_code=$($manifest.exit_code)" }
     if ($manifest.profile.top_module -ne 'v2_top_fullpath_probe') { Add-Failure 'manifest top module mismatch' }
@@ -33,6 +36,17 @@ if (!(Test-Path -LiteralPath $manifestPath)) {
         [int]$manifest.profile.fx_enable -ne 1 -or
         [int]$manifest.profile.fx_level -ne 1) {
         Add-Failure 'manifest full-path profile mismatch'
+    }
+    foreach ($hashProperty in $manifest.harness_sha256.psobject.Properties) {
+        $candidate = Join-Path $projectRoot $hashProperty.Name
+        if (!(Test-Path -LiteralPath $candidate)) {
+            Add-Failure "missing harness file for hash check: $($hashProperty.Name)"
+        } else {
+            $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidate).Hash
+            if ($actualHash -ne [string]$hashProperty.Value) {
+                Add-Failure "harness hash mismatch: $($hashProperty.Name)"
+            }
+        }
     }
 }
 

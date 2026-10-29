@@ -91,8 +91,11 @@ Every run requires a unique `-RunId`, refuses to reuse an existing
 `impl/v2_top_fullpath_<RunId>` directory, writes `harness-manifest.json` with
 the source commit, dirty state, tool/version, profile and source hashes, and
 can be checked by the verifier without falling back to old artifacts. The
-first `gw_sh` run and its exit status will be recorded in a follow-up
-checkpoint; this H0 entry does not accept a bitstream.
+first run `h0_20261029_9de0c0a` reached the installed `gw_sh.exe` but stopped
+before Tcl with `License verification failed  Connection timeout` and exit
+code 1. The wrapper wrote a manifest and the verifier returned `BLOCKED`; no
+new synthesis, P&R or bitstream artifact exists for this run. This H0 entry
+does not accept a bitstream and requires a later license-available rerun.
 
 ## 2026-10-29 — voice metadata timing reduction checkpoint
 
