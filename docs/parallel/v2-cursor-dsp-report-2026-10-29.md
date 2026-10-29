@@ -60,7 +60,22 @@ Wrapper exit 0，acceptance verifier exit 1 / BLOCKED。touch decoder NL0002 inl
 
 综合网表 cursor 的两个 `MULT27X36` 为 `n3459_s0`（alpha 常量乘法）与 `mul_product2_0_s`（共享变量乘法）。旧 `tm_serial_1` 的 cursor 有 6 个乘法元件，因此变量乘法 5→1 的结构归因成立；乘法元件数量与物理 DSP 站点数量分别计数。
 
-历史 `tm_serial_1` 为 15302 logic、8996 registers、10250 CLS、16 DSP、71.342 MHz。其 manifest 是 `85c2f89` 加 3 个 dirty 文件（serial RTL 后由 `fec4008` 包含），不是 clean `ec10de4` 基线。当前与该历史 run 的数值比较只能作为背景，不能确定地将 Fmax 降低、CLS/FF 变化归因于本候选。严格量化前后效应需匹配 clean source/profile 的新鲜基线。
+已完成匹配 clean source/profile 的新鲜基线：`../v2-cursor-baseline/impl/v2_top_fullpath_cursor_baseline_ec10de4_1`。manifest source 为 `ec10de4623648e957c56db06e3fbe628ae763ec9`，dirty_state 为空；wrapper exit 0，acceptance verifier exit 1 / BLOCKED，touch decoder inline 被接受。该基线使用相同 H0 profile、器件和工具版本，取代 dirty 历史 `tm_serial_1` 作为本次比较依据。
+
+| 指标 | clean ec10de4 基线 | clean cd381e9 DSP | 变化 |
+|---|---:|---:|---:|
+| Logic | 15302 | 15163 | -139 |
+| Registers | 8996 | 9123 | +127 |
+| CLS | 10250 | 10346 | +96 |
+| BSRAM | 36 | 36 | 0 |
+| 物理 DSP 站点 | 16 | 8 | -8 |
+| Fmax raw (MHz) | 71.342 | 68.671 | -2.671 |
+| Setup violations | 2650 | 3144 | +494 |
+| Hold violations | 0 | 0 | 0 |
+| Setup TNS (ns) | -5223.233 | -7815.501 | -2592.268 |
+| Worst slack (ns) | -4.017 | -4.562 | -0.545 |
+
+基线 `impl/pnr/v2_top_fullpath.fs` SHA256：`25D1FE873A47B5FBC362A247D0809F1C1DD2D806E161BBD6A68A58900FCDF78B`。基线 raw/verifier Fmax 均为 71.342 MHz。该成对实测显示 DSP 减少同时全局时序变差，不支持“资源减少一定改善全局时序”；一次布局布线对照仍不足以确定具体路径和 mux/布线各自的因果贡献。两者均未通过 100 MHz acceptance。
 
 证据文件：run 内 `harness-manifest.json`、`harness-verification.json`、`impl/gwsynthesis/v2_top_fullpath.vg`、`impl/pnr/v2_top_fullpath.rpt.txt`、`impl/pnr/v2_top_fullpath_tr_content.html`。
 
@@ -74,6 +89,6 @@ Wrapper exit 0，acceptance verifier exit 1 / BLOCKED。touch decoder NL0002 inl
 
 ## 风险与建议
 
-共享变量乘法的资源目标已被网表归因和 8/28 物理 DSP 报表支持；建议保留为 DSP 资源备选，并以匹配 clean 基线及后续合并构建评估最终取舍。当前 Fmax 68.671 MHz，100 MHz gate 明确 BLOCKED，不能宣布 timing closure 或板级就绪。操作数 mux/控制布线仍可能影响时序，但现有历史对照不足以确定其因果贡献。
+共享变量乘法的资源目标已被网表归因及 matched-clean 基线的物理 DSP 16→8 支持；保留为 DSP 资源备选，**不纳入本轮主集成 100 MHz 时序方案**。相对 clean ec10de4，DSP 候选 Fmax 降低 2.671 MHz、CLS 增加 96，setup 指标也变差；不能以 DSP 节省推断全局时序改善。当前 Fmax 68.671 MHz，100 MHz gate 明确 BLOCKED，不能宣布 timing closure 或板级就绪。
 
 本分支新增上述两份可独立复现的 timed tests 并更新本报告，未改变 RTL、H0 harness 或主进度台账，未启动新 Gowin run。
