@@ -56,7 +56,8 @@ regressions both pass:
 
 The replay benches exercise the scalar reference filter; the timed candidate
 was additionally compiled and synthesized as top `v2_cursor_filter_timed`.
-No full-path Gowin P&R was run, as requested.
+The initial standalone stage did not run full-path P&R. The later clean H0
+result is recorded below.
 
 ### Actual timed differential replay
 
@@ -163,7 +164,53 @@ only by `sample_ce` from the stable publication registers. The candidate keeps
 both boundaries intact; no median combinational logic is added to the
 cursor-to-telemetry path. The median compare/swap depth remains one compare
 level per FSM stage; a 3-way source mux is added at sorter load. Actual CLS and
-post-route slack effects remain unmeasured pending integrated P&R.
+post-route results are now available from the clean candidate H0 run below.
+
+### Clean median candidate H0 result
+
+Integration ran H0 at clean source commit
+`3f62a8a045d61bd3da938563727d6af3fae5494e`, run ID
+`cursor_median_3f62a8a_1`, directory
+`impl/v2_top_fullpath_cursor_median_3f62a8a_1`.
+`harness-manifest.json` confirms empty dirty state and wrapper exit 0, using
+Gowin V1.9.12.04 x64, device GW5A-LV25MG121NES, top
+`v2_top_fullpath_probe`, reader/RAM/Potts/loop preservation enabled,
+Potts horizon 32, FX enabled at level 1, SSPI/CPU GPIO reuse enabled.
+The Acceptance verifier exited 1 with `BLOCKED`: the inlined touch decoder
+was accepted, while 100 MHz setup timing remains unclosed.
+
+| metric | clean median candidate |
+|---|---:|
+| logic | 14,542 (12,253 LUT + 2,289 ALU) |
+| registers | 8,676 (8,671 logic FF + 5 IO) |
+| CLS | 10,142 / 11,520 |
+| BSRAM | 36 |
+| DSP | 16 |
+| Fmax in raw `.tr` | 66.898 MHz |
+| Fmax in HTML / verifier | 66.897 MHz |
+| setup violating endpoints | 3,102 |
+| setup TNS | -8,989.670 ns |
+| worst setup slack | -4.948 ns |
+| hold violations | 0 |
+
+The raw and HTML/verifier Fmax values are distinct report values, not treated
+as identical. Worst timing remains Potts to voice RAM. Cursor hierarchy reports
+1,895 REG, 593 ALU, 2,149 LUT, and 6 DSP cells. These are full-path hierarchy
+figures and must not be confused with the earlier standalone-top totals.
+
+Evidence paths beneath the run directory are `harness-manifest.json`,
+`harness-verification.json`, `impl/pnr/v2_top_fullpath.rpt.txt`,
+`impl/pnr/v2_top_fullpath.tr`, `impl/pnr/v2_top_fullpath_tr_content.html`,
+`impl/pnr/device.cfg`, and `impl/pnr/v2_top_fullpath.fs`.
+Diagnostic FS SHA256:
+`2E97E19A20F76756435B41FF693750AC74A20EDBBEC4D65A079C1981C81F4CF4`.
+It is not an accepted 100 MHz board artifact.
+
+No clean integrated baseline delta is claimed here. The historical dirty
+`tm_serial_1` run is unsuitable as a clean baseline; a clean `ec10de4` rerun
+is queued separately. The combined candidate has passed review, 983-frame
+timed checks, top regression and 175 Python tests; its P&R is in progress
+in integration and is not evidence for this isolated median candidate.
 
 ## Risk and recommendation
 
@@ -180,7 +227,9 @@ the 500,000-cycle 200 Hz budget. Sustained burst service rate is lower, so this
 does not claim arbitrary-rate FIFO losslessness.
 
 The standalone resource reduction is material (318 FF and 623 logic units),
-and the candidate is recommended for mainline adoption as a timed-behavior
-preserving resource optimization. Existing timed/scalar differences remain
-separate open issues. A full-path P&R should
-be run by integration after merge to measure CLS/Fmax impact.
+and the candidate remains a timed-behavior preserving resource optimization
+for integration assessment. Existing timed/scalar differences remain separate
+open issues. Its clean full-path H0 is still **100 MHz BLOCKED**; adoption as a
+timing solution is not supported by the result. Compare only against the
+pending clean integrated baseline and completed combined-candidate P&R before
+drawing integrated resource or timing improvement conclusions.
