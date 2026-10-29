@@ -114,7 +114,7 @@ H0 通过 review 后，主线程把同一个 H0 commit 提供给 A、B。两个 
 - 96-bit event、backtrace、event count、overflow、progress、saturation 和 tie-break 不变。
 - Potts top regression 和 Python tests 通过。
 - synthesis 无 RP0006；硬上限 23,040 logic，推荐目标 ≤22,000。
-- required path 不得出现 NL0002 swept。
+- required path 不得出现未分类的 `NL0002 swept`；已证明合法内联的 touch decoder 只能按共享 verifier 的综合网表证据例外处理。
 - 通过 H0 harness 运行新鲜资源/P&R，不能引用旧 report 或旧 bitstream。
 - 提交一个 B 分支 commit，并写 resource-specific report。
 

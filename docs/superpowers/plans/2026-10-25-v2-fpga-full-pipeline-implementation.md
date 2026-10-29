@@ -25,7 +25,7 @@
 - **时钟边界**：V2 只有一个由 GW5A PLL 从 50 MHz 生成的 100 MHz `clk_sys_100m`。输入、控制、FIFO、Potts 和声部引擎都可以在这个时钟域内跨多个周期运行；禁止的是第二个自由运行音频时钟。48 kHz 只由 `sample_ce` 标记音频样本边界。
 - **Potts 预算**：删除“41 µs 已成立”的目标。Potts 是 Loop COMMIT 后的多周期后台 FSM，必须以真实 contour 测量最坏周期；它不阻塞 active Loop、LIVE、`sample_ce`、声部或 I2S，只阻塞待提交 bank 的切换。41 µs 只能作为历史估算，不能作为验收阈值。
 - **声部口径**：当前 V2 硬指标固定为 **32 simultaneous voices × 2 oscillators = 64 oscillators**。旧文档中的 32×4、128 operator/FM 是后续扩展，不能用于本轮 Task 12 通过或资源宣称。
-- **最终路径真实性**：Task 12 的最终 P&R 必须包含有效输入、实际 reader 或等价可达输入、LIVE/LOOP、真实 Loop contour、Potts、32×2 voice、启用的 reduced FX、实际 UART/telemetry 和 I2S。`USE_POTTS=0`、`PRESERVE_INPUT_VALID=0`、stub、不可达保留网和被 `NL0002 swept` 的探针只能作为诊断证据。
+- **最终路径真实性**：Task 12 的最终 P&R 必须包含有效输入、实际 reader 或等价可达输入、LIVE/LOOP、真实 Loop contour、Potts、32×2 voice、启用的 reduced FX、实际 UART/telemetry 和 I2S。`USE_POTTS=0`、`PRESERVE_INPUT_VALID=0`、stub、不可达保留网和无综合网表功能证据的未分类 `NL0002 swept` 路径只能作为诊断证据。
 - **证据分层**：专项仿真/综合/P&R 通过不自动等于最终顶层通过。Task 8/9/10/11 的专项 gate 可以保持通过，但最终顶层必须重新证明接口接线、时序、资源、延迟和板级行为。
 - **历史文档**：`docs/synth-backend-design-2026-10-25.md`、`docs/voice-engine-design-2026-10-25.md`、`docs/system-design-summary-2026-10-25.md` 中的 64-bit EventTable、128 operator、41 µs 和“未写 RTL”章节保留作历史记录；执行时以本计划和 `docs/v2-fpga-contract-2026-10-25.md` 为准，并在最终 validation report 中列出冲突及 superseded 结论。
 - **新增早期硬件切片**：Task 2 完成后立即执行 Task 2.5 的单振荡器假事件出声切片，提前验证 PLL、sample scheduler、I2S 和 package pins；该切片不是最终 V2 top 验收证据。
@@ -75,7 +75,7 @@
 - Potts 是 Loop COMMIT 后台 FSM，不是每个 `sample_ce` 都必须完成的音频运算。全零 contour、常量 rest mask、不可达 start 或 `USE_POTTS=0` 只能用于结构诊断；最终必须由真实 recorder contour 驱动，并测量 cycle count、timeout、pending 和 bank-swap 延迟。
 - `scripts/synth_v2_top.tcl` 历史上把 `v2_top_synth_probe` 设为 top；该命令成功不等于 `mgc3130_v2_top` full-path P&R 成功。`scripts/test_v2_top.ps1` 默认 `USE_MGC_READER=0`，因此 `V2 top simulation PASS` 只证明 stub/default 仿真路径。
 - `mgc3130_v2_top.sv` 当前 `fx_enable=0`、`fx_level=0`，`tlm_frame_ready=0`；所以 standalone FX/telemetry serializer 通过不能填最终 top gate。必须把真实 reduced FX、telemetry serializer、ACK/NACK 与 telemetry TX 仲裁和 I2S 端口都接入后重新测量。
-- 出现 `NL0002 swept`、被优化掉的 preserve net、常量 contour 或未消费的输出时，只能把结果写入诊断章节，不能写入最终 acceptance 表。功能仿真通过、综合通过、独立模块 P&R 通过和最终 top/板级通过必须分栏记录。
+- 出现无综合网表功能证据的 `NL0002 swept`、被优化掉的 preserve net、常量 contour 或未消费的输出时，只能把结果写入诊断章节，不能写入最终 acceptance 表。功能仿真通过、综合通过、独立模块 P&R 通过和最终 top/板级通过必须分栏记录。
 
 ### 结论写法
 
@@ -607,7 +607,7 @@ band/octave selector、最终 top 的非零 FX 接线、UART/CSR shadow/active �
 - [ ] 建独立 top 和仿真 MGC3130 source；断言不实例化 V1 top。
 - [x] top smoke 断言 `frame_degraded`/`frame_gap` 真实连到 LIVE rule engine；主 top 仍需补 invalid/gap 行为向量。
 - [ ] 顶层测试左到右 LIVE、纯 Z、invalid/gap、六轨 record/overdub/commit/play、STOP、CRC/APPLY、1/8/32 voice、33rd voice-steal、bounded steal-release、vibrato、N-tone test mode、I2S sample count、telemetry；LOOP commit 必须把真实 recorder contour 送入 Potts。
-- [ ] V2 synthesis/P&R/timing 使用真实可达路径：valid input、实际 reader 或等价可达输入、LIVE/LOOP、real Potts、32×2 voice、非零 reduced FX、UART/telemetry 和 I2S 全部保留；记录 logic/FF/DSP/BSRAM/Fmax/slack/sample cycles/FIFO/FX level，并保存无 `NL0002 swept` 的日志。
+- [ ] V2 synthesis/P&R/timing 使用真实可达路径：valid input、实际 reader 或等价可达输入、LIVE/LOOP、real Potts、32×2 voice、非零 reduced FX、UART/telemetry 和 I2S 全部保留；记录 logic/FF/DSP/BSRAM/Fmax/slack/sample cycles/FIFO/FX level，并保存无未分类 `NL0002 swept` 的日志。touch decoder 的合法内联必须由共享 verifier 的综合网表证据记录。
 - [ ] 结构 probe、stub、关闭 `USE_POTTS`、关闭 `PRESERVE_INPUT_VALID`、常量 contour、不可达 preserve net 只能放在诊断章节，不能填最终 P&R acceptance 表。
 - [ ] 对实际 V2 I2S/BCLK 端口加入同步输出时序约束，检查端口路径、时钟关系和板级波形；不得把 Task 2 的系统时钟 SDC 当作完整 I2S I/O 约束。
 - [ ] 独立 bitstream 板测：合法 package pins、参数帧、telemetry 实际回传、I2S/BCLK/LRCK/DIN 波形、无 underrun、GPIO trigger-to-waveform latency；没有板级波形时不得声称 I2S 或延迟已通过。
